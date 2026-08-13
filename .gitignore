@@ -1,0 +1,39 @@
+# Secrets and connection config
+.env
+.env.local
+
+# Quarto build artifacts
+.quarto/
+*_files/
+/_book/
+*.rmarkdown
+
+# Rendered deliverables (source-only repo; the all-in-one HTML is published to the
+# sibling canadalogin-signal-check-publishing repo, never committed here)
+*.html
+/reports/
+
+# R / RStudio
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# OS
+.DS_Store
+._*
+Icon?
+Thumbs.db
+
+# Editors / IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+/.quarto/
+**/*.quarto_ipynb
+
+# Written by the analytics chunk at render time (see _analytics.qmd), then
+# pulled in by include-after-body.
+analytics-tag.html

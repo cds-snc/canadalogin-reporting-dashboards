@@ -1,0 +1,7 @@
+project:
+  # Render straight into the sibling publishing repo's staging folder, matching
+  # Signal Check. The qmd lives at this project root (not a reports/ subdir), so
+  # the path goes up one level to projects/, then into the publishing repo's
+  # reports/. Assumes the repos sit side by side under one parent directory.
+  # publish.sh is then run there as: ./publish.sh reports/task-success-monitoring.html
+  output-dir: ../canadalogin-signal-check-publishing/reports

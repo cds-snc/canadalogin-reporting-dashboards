@@ -1,0 +1,464 @@
+---
+title: "CanadaLogin Task Success Monitoring"
+author: "EDCP Data and Research Team"  # colin.douglas@cds-snc.ca
+format:
+  dashboard:
+    orientation: rows
+    embed-resources: true
+    scrolling: true
+    css: styles.css
+    # Written by the analytics chunk at render time; see _analytics.qmd.
+    include-after-body: analytics-tag.html
+brand: _brand.yml
+params:
+  ga_page_title: "Task Success Monitoring Dashboard"
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+```{r setup}
+source("R/connection.R")
+source("R/registry.R")
+source("R/metrics.R")
+source("R/preflight.R")
+source("R/branding.R")
+source("R/colours.R")
+
+suppressPackageStartupMessages({
+  library(DBI)
+  library(RAthena)
+  library(dplyr)
+  library(dbplyr)
+  library(tidyr)
+  library(readr)
+  library(glue)
+  library(purrr)
+  library(ggplot2)
+  library(scales)
+  library(gt)
+})
+
+con <- connect_athena()
+
+# Stops the render if the data is not ready. See R/preflight.R.
+ga_lag <- 2L
+run_preflight_safety_check(con, today = Sys.Date(), ga_export_lag_days = ga_lag)
+
+today <- Sys.Date()
+as_of <- today - ga_lag        # GA's ~2-day processing lag; newest day expected
+
+# The newest complete 7-day window across the required funnels.
+data_through <- tbl(
+  con, in_schema("google_analytics", "funnel_metrics_current")
+) |>
+  filter(
+    metric_id == "task_success",
+    funnel_id %in% !!required_funnels,
+    window_days == "7",
+    breakdown_value == "RESERVED_TOTAL",
+    !window_incomplete
+  ) |>
+  summarise(m = max(window_end)) |>
+  pull(m) |>
+  as.Date()
+
+series_start   <- as.Date("2000-01-01")          # early bound; pulls all history
+trailing_start <- data_through - (7L * 12L)       # ~12-week working window
+
+# "August 8", not "August 08": the integer day avoids zero-padding.
+format_long_date <- function(d) {
+  d <- as.Date(d)
+  paste0(format(d, "%B"), " ", as.integer(format(d, "%d")), ", ", format(d, "%Y"))
+}
+data_through_label <- format_long_date(data_through)
+
+# Whole-number percent, or "n/a" for an undefined rate.
+fmt_pct <- function(x) ifelse(is.na(x), "n/a", paste0(round(x * 100), "%"))
+
+# Page label and caveat prose. Step labels are not here: see step_labels.
+funnel_meta <- list(
+  sign_in = list(
+    label = "Sign in",
+    caveat = paste(
+      "This rate stops at MFA selection, the last step Google Analytics can see",
+      "before the off-site redirect to IBM Verify. It is not a true completion",
+      "rate, and it is not comparable to sign up."
+    )
+  ),
+  sign_up = list(
+    label = "Sign up",
+    caveat = paste(
+      "Sign up's exit is the account-creation confirmation page, a real",
+      "first-party event, so this is a true completion rate."
+    )
+  )
+)
+
+# Two pooled rows. Internal services are not listed individually, and GA's ""
+# and "(not set)" mean the same thing. Both sort to the bottom of the table.
+internal_rp_label <- "Internal apps"
+unrecorded_rp_label <- "Relying party not recorded"
+pooled_rp_labels <- c(internal_rp_label, unrecorded_rp_label)
+
+# replace(), not ifelse(): ifelse() on an empty frame returns logical(0), which
+# clashes on type the moment an empty period is joined to a full one.
+rp_display_name <- function(rp_name) {
+  out <- replace(rp_name, rp_name %in% ga_excluded_rp_names, unrecorded_rp_label)
+  replace(out, is_internal_rp(rp_name), internal_rp_label)
+}
+
+# Read once per funnel, then used for the value box titles and table headings.
+step_labels <- lapply(required_funnels, \(f) funnel_step_names(con, f))
+names(step_labels) <- required_funnels
+
+# Single quotes: a double quote in a value box title comes back escaped and
+# truncates it. The names are slugs, so underscores are opened up.
+format_step_name <- function(step) {
+  if (is.na(step)) "unknown step" else paste0("'", gsub("_", " ", step), "'")
+}
+
+exit_step_label <- function(funnel_id) {
+  format_step_name(step_labels[[funnel_id]]$exit_step)
+}
+
+# 7-day rate over the daily rate, GA's total, over the full GA history.
+make_funnel_chart <- function(funnel_id, funnel_label) {
+  s7 <- task_success_series(con, funnel_id, "7", series_start, data_through)
+  s1 <- task_success_series(con, funnel_id, "1", series_start, data_through)
+
+  p <- ggplot() +
+    geom_point(
+      data = s1, aes(window_end, value),
+      colour = "grey70", size = 0.7, alpha = 0.6
+    ) +
+    # Grouped by version so the line BREAKS where the definition changes.
+    geom_line(
+      data = s7, aes(window_end, value, group = funnel_version),
+      colour = colors$brand[["blue"]], linewidth = 1
+    ) +
+    scale_y_continuous(
+      labels = label_percent(accuracy = 1), limits = c(0, 1),
+      expand = expansion(mult = c(0, 0.05))
+    ) +
+    scale_x_date(date_labels = "%b %d") +
+    theme_cds() +
+    labs(
+      x = NULL, y = "Task success rate",
+      # Wrapped by hand: a single-line subtitle runs under the logo.
+      title = glue("Task Success: {funnel_label}"),
+      subtitle = paste(
+        "7-day rolling rate (blue line) over the daily rate (grey points).",
+        "All relying parties, as reported by Google Analytics.",
+        sep = "\n"
+      )
+    )
+
+  # The logo is a fraction of figure height, so a small figure needs a smaller one.
+  add_cds_logo(add_watermark(p, date = data_through), height = 0.09)
+}
+
+# A funnel younger than 60 days returns a short preceding period rather than
+# nothing, and a month against six days would read as a swing in the rate.
+prior_period_complete <- function(funnel_id) {
+  prior <- task_success_30d(con, funnel_id, data_through - 30L)
+  nrow(prior) > 0 && prior$days >= 30
+}
+
+# Direction is carried by the arrow and the sign, not colour alone; an
+# uncalculable change is a dash, not a zero. gt colours it, see build_rp_table().
+fmt_delta <- function(delta) {
+  case_when(
+    is.na(delta) ~ "-",
+    delta > 0.0005 ~ sprintf("\u25b2 %+.1f pts", delta * 100),
+    delta < -0.0005 ~ sprintf("\u25bc %+.1f pts", delta * 100),
+    .default = "no change"
+  )
+}
+
+# Change colours: forest rather than brand green, too light to pass contrast.
+delta_colours <- c(up = "#115740", down = "#AB2328", flat = "#5C6670")
+
+# Latest 7-day rate, the 30-day rate and its change, and the counts it divides.
+# The top row is GA's total, and the rows below it partition it.
+build_rp_table <- function(funnel_id) {
+  exit_label <- exit_step_label(funnel_id)
+  compare <- prior_period_complete(funnel_id)
+
+  latest_7d <- party_step_counts(
+    con, funnel_id, "7", trailing_start, data_through
+  ) |>
+    group_by(breakdown_value) |>
+    slice_max(window_end, n = 1, with_ties = FALSE) |>
+    ungroup() |>
+    mutate(rp = rp_display_name(breakdown_value)) |>
+    as_task_success(rp) |>
+    select(rp, rate_7d = value)
+
+  # Both periods come through the 30-day seam. They never share a day.
+  by_rp_30d <- function(as_of) {
+    task_success_30d(con, funnel_id, as_of, breakdown_value,
+                     counts = party_step_counts) |>
+      mutate(rp = rp_display_name(breakdown_value)) |>
+      as_task_success(rp)
+  }
+
+  counts_30d <- by_rp_30d(data_through) |>
+    select(rp, rate_30d = value, entered = denominator, finished = numerator)
+  prior_30d <- by_rp_30d(data_through - 30L) |>
+    select(rp, prior_30d = value)
+
+  merged <- reduce(list(latest_7d, counts_30d, prior_30d), full_join, by = "rp")
+
+  # GA's rp_name is itself a friendly label; the operator comes from the registry.
+  per_rp <- merged |>
+    mutate(Operator = coalesce(label_relying_parties(merged$rp)$operator, "")) |>
+    transmute(
+      Service = rp, Operator,
+      rate_7d, rate_30d, prior_30d, entered, finished
+    ) |>
+    # Busiest first, with the two pooled rows held at the end.
+    arrange(Service %in% pooled_rp_labels, desc(entered))
+
+  overall <- task_success_30d(con, funnel_id, data_through) |>
+    transmute(
+      Service = "All relying parties (Google Analytics total)",
+      Operator = "",
+      rate_7d = task_success_latest(
+        con, funnel_id, "7", trailing_start, data_through
+      )$value,
+      rate_30d = value,
+      prior_30d = task_success_30d(con, funnel_id, data_through - 30L)$value,
+      entered = denominator, finished = numerator
+    )
+
+  rows <- bind_rows(overall, per_rp) |>
+    # The column stays even with nothing to compare against; every row reads as
+    # a dash and comparison_note() says why.
+    mutate(delta = if (compare) rate_30d - prior_30d else NA_real_) |>
+    transmute(
+      Service, Operator, rate_7d, rate_30d,
+      change = fmt_delta(delta), entered, finished, delta
+    )
+
+  gt(rows) |>
+    cols_hide(delta) |>
+    fmt_percent(c(rate_7d, rate_30d), decimals = 0) |>
+    fmt_number(c(entered, finished), decimals = 0) |>
+    sub_missing(missing_text = "n/a") |>
+    cols_label(
+      rate_7d = "7-day rate",
+      rate_30d = "30-day rate",
+      change = "vs previous 30 days",
+      entered = "Started (30 days)",
+      finished = glue("Reached {exit_label} (30 days)")
+    ) |>
+    tab_style(cell_text(weight = "bold"), cells_body(rows = 1)) |>
+    tab_style(
+      cell_text(color = delta_colours[["up"]]),
+      cells_body(columns = change, rows = !is.na(delta) & delta > 0.0005)
+    ) |>
+    tab_style(
+      cell_text(color = delta_colours[["down"]]),
+      cells_body(columns = change, rows = !is.na(delta) & delta < -0.0005)
+    ) |>
+    tab_style(
+      cell_text(color = delta_colours[["flat"]]),
+      cells_body(columns = change, rows = is.na(delta) | abs(delta) <= 0.0005)
+    ) |>
+    tab_options(
+      table.width = pct(100),
+      table.font.size = px(14),
+      data_row.padding = px(4),
+      table.border.top.style = "none"
+    )
+}
+
+# Shown wherever the 30-day figures appear, until window_days "30" lands.
+proxy_note <- if (task_success_30d_is_proxy) {
+  paste(
+    "The 30-day figures are an interim approximation, summed from the 30",
+    "trailing daily windows pending a stored 30-day window. Google Analytics",
+    "counts each user once per day, so someone who came back on several days is",
+    "counted several times in the two count columns."
+  )
+} else {
+  NULL
+}
+
+# Makes a column of dashes read as "too early" rather than as broken.
+comparison_note <- function(funnel_id) {
+  if (prior_period_complete(funnel_id)) {
+    return(NULL)
+  }
+  paste(
+    "The change against the previous 30 days cannot be calculated yet: this",
+    "funnel does not have 60 days of history, and comparing a full month against",
+    "a part of one would read as a swing in the rate."
+  )
+}
+
+# Shown under every table and chart: the exclusion changes what the numbers mean.
+internal_note <- paste(
+  "The headline figures, the chart and the top row are Google Analytics'",
+  "own total across every relying party. Internal services such as Manage",
+  "CanadaLogin are pooled into one row rather than listed, so the rows below",
+  "still add up to the top one."
+)
+```
+
+# Overview
+
+## Row {height="120px"}
+
+```{r}
+#| content: valuebox
+#| title: "Data through"
+list(
+  icon = "calendar-event",
+  color = "primary",
+  value = data_through_label
+)
+```
+
+## Row
+
+::: {.card title="About this dashboard"}
+
+This is an internal working instrument for the EDCP Data and Research Team. It
+watches CanadaLogin task success rates between report cycles so analysts get the
+numbers in one place without digging through Google Analytics.
+
+It is not the source of truth. The canonical task success numbers live in the
+monthly task success report, a written Google doc; this dashboard feeds that
+report and should not be quoted as authoritative. It is internal only, not for
+partners, executives, or the public.
+
+Task success is the share of users who start a flow and reach its defined
+finishing point, measured from Google Analytics 4 funnel data. Google Analytics
+runs on a deliberate two-day processing lag, so the data ends a couple of days
+before today; the "Data through" date says how current it is.
+
+`r internal_note`
+
+`r if (!is.null(proxy_note)) proxy_note`
+
+:::
+
+# Sign in
+
+## Row {height="420px"}
+
+### Column {width="24%"}
+
+::: {.valuebox color="primary"}
+Latest 7-day rate\
+(reaches `r exit_step_label("sign_in")`)
+
+`r fmt_pct(task_success_latest(con, "sign_in", "7", trailing_start, data_through)$value)`
+:::
+
+::: {.valuebox color="secondary"}
+30-day rate\
+(interim proxy)
+
+`r fmt_pct(task_success_30d(con, "sign_in", data_through)$value)`
+:::
+
+### Column {width="76%"}
+
+```{r}
+#| title: "Task success rate over time"
+#| fig-width: 7.7
+#| fig-height: 3.6
+#| fig-alt: |
+#|   Chart of the sign-in task success rate over time, external relying parties
+#|   only. A bold blue line traces the 7-day rolling rate, breaking wherever the
+#|   funnel version changes; faint grey points underneath are the noisier daily
+#|   rate. The y-axis runs from zero to one hundred percent.
+make_funnel_chart("sign_in", funnel_meta$sign_in$label)
+```
+
+## Row
+
+::: {.card title="By relying party (latest values)"}
+
+```{r}
+build_rp_table("sign_in")
+```
+
+::: {.figure-note}
+**Caveat.** `r funnel_meta$sign_in$caveat`
+
+`r comparison_note("sign_in")`
+
+`r internal_note`
+
+`r if (!is.null(proxy_note)) proxy_note`
+:::
+
+:::
+
+# Sign up
+
+## Row {height="420px"}
+
+### Column {width="24%"}
+
+::: {.valuebox color="primary"}
+Latest 7-day rate\
+(reaches `r exit_step_label("sign_up")`)
+
+`r fmt_pct(task_success_latest(con, "sign_up", "7", trailing_start, data_through)$value)`
+:::
+
+::: {.valuebox color="secondary"}
+30-day rate\
+(interim proxy)
+
+`r fmt_pct(task_success_30d(con, "sign_up", data_through)$value)`
+:::
+
+### Column {width="76%"}
+
+```{r}
+#| title: "Task success rate over time"
+#| fig-width: 7.7
+#| fig-height: 3.6
+#| fig-alt: |
+#|   Chart of the sign-up task success rate over time, external relying parties
+#|   only. A bold blue line traces the 7-day rolling rate, breaking wherever the
+#|   funnel version changes; faint grey points underneath are the noisier daily
+#|   rate. The y-axis runs from zero to one hundred percent.
+make_funnel_chart("sign_up", funnel_meta$sign_up$label)
+```
+
+## Row
+
+::: {.card title="By relying party (latest values)"}
+
+```{r}
+build_rp_table("sign_up")
+```
+
+::: {.figure-note}
+**Note.** `r funnel_meta$sign_up$caveat`
+
+`r comparison_note("sign_up")`
+
+`r internal_note`
+
+`r if (!is.null(proxy_note)) proxy_note`
+:::
+
+:::
+
+```{r cleanup}
+#| include: false
+# include: false is layout, not tidiness: this chunk sits in the last Row, and
+# anything visible there becomes a card and takes width from the table.
+DBI::dbDisconnect(con)
+```
+
+{{< include _analytics.qmd >}}

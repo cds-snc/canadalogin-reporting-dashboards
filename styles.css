@@ -1,0 +1,80 @@
+/* Stops the contents of a dashboard card expanding to fill it. No layout here,
+   beyond the page cap below. */
+
+:root {
+  /* Shared by tables and the notes under them, so a note wraps on the table's
+     right edge rather than short of it. */
+  --card-content-width: 1400px;
+
+  /* The whole page is capped, not just the cards: a maximized window on a wide
+     monitor otherwise stretches every row far past a comfortable reading width. */
+  --dashboard-max-width: 1500px;
+}
+
+.quarto-dashboard-content,
+.quarto-dashboard .navbar > .navbar-container {
+  width: 100%;
+  max-width: var(--dashboard-max-width);
+  margin-inline: auto;
+}
+
+/* Quarto sizes value box text with JavaScript in proportion to the box, which
+   makes a wide box a billboard and clips a short one. !important beats the
+   inline style that script writes. */
+.bslib-value-box .value-box-value {
+  font-size: 2rem !important;
+  line-height: 1.2 !important;
+}
+
+.bslib-value-box .value-box-title {
+  font-size: 0.9rem !important;
+  font-weight: 500;
+}
+
+/* Held at their own size beside a taller chart, rather than stretching and
+   leaving one number stranded in a field of colour. */
+.bslib-value-box {
+  align-self: start;
+  max-height: 170px;
+}
+
+/* Capped rather than sized to content: shrink-to-fit gives each funnel a
+   different width, following whichever operator has the longest name. */
+.card-body table {
+  width: 100%;
+  max-width: var(--card-content-width);
+  font-size: 0.9rem;
+}
+
+/* Only the two name columns may wrap. */
+.card-body table th:not(:nth-child(-n + 2)),
+.card-body table td:not(:nth-child(-n + 2)) {
+  white-space: nowrap;
+}
+
+.card-body table th,
+.card-body table td {
+  padding: 0.25rem 0.9rem;
+}
+
+/* Period-over-period change. Colour is a second signal only, and forest rather
+   than brand green, which is too light to pass contrast as text. */
+.delta-up {
+  color: #115740;
+}
+
+.delta-down {
+  color: #ab2328;
+}
+
+.delta-flat {
+  color: #5c6670;
+}
+
+/* Prose under a table or chart, not competing with the numbers above it. */
+.figure-note {
+  font-size: 0.8rem;
+  color: #5c6670;
+  margin: 0.6rem 0 0 0;
+  max-width: var(--card-content-width);
+}
