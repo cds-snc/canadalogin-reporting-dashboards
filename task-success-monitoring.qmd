@@ -6,6 +6,7 @@ format:
     orientation: rows
     embed-resources: true
     scrolling: true
+    theme: [cosmo, _fonts.scss]   # _fonts.scss: self-hosted brand fonts
     css: styles.css
     # Written by the setup chunk at render time; empty unless a check failed.
     include-before-body: preflight-banner.html
@@ -50,6 +51,7 @@ preflight <- run_preflight_safety_check(
   con, today = Sys.Date(), ga_export_lag_days = ga_lag
 )
 write_preflight_banner(preflight)
+write_preflight_status(preflight)
 
 today <- Sys.Date()
 as_of <- today - ga_lag        # GA's ~2-day processing lag; newest day expected

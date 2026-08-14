@@ -122,15 +122,26 @@ add_watermark <- function(plot, date = Sys.Date()) {
 # Brand typography ------------------------------------------------------------
 
 #' Brand typeface for ggplot graphs, matching the document typography in
-#' _brand.yml. Loaded from Google Fonts on first use and cached for the session;
-#' offline it falls back to the default sans rather than failing the render.
+#' _brand.yml. Loaded from the TTFs vendored in fonts/, so a render needs no
+#' network; offline it falls back to the default sans rather than failing.
 
-# _brand.yml calls this "Source Sans Pro"; Google serves the identical v3 under
-# "Source Sans 3", the name sysfonts recognises.
+# The brand guide calls this "Source Sans Pro"; "Source Sans 3" is the identical
+# current release, and the one name _brand.yml, _fonts.scss and graphs share.
 cds_font <- "Source Sans 3"
 
-# Idempotent; safe offline (warns, returns FALSE). Semibold (600) is mapped to
-# the "bold" face, so theme titles render as Semibold rather than a heavier 700.
+# Searches upward, so it resolves from the project root or a subfolder. TTF, not
+# the WOFF2 the dashboard embeds: sysfonts cannot read WOFF2, so fonts/ holds
+# both formats.
+cds_font_dir <- function() {
+  for (dir in c("fonts", "../fonts")) {
+    if (file.exists(file.path(dir, "source-sans-3-400-normal.ttf"))) return(dir)
+  }
+  NULL
+}
+
+# Idempotent; safe if the files are missing (warns, returns FALSE). Semibold
+# (600) is mapped to the "bold" face, so theme titles render as Semibold rather
+# than a heavier 700.
 register_cds_fonts <- function() {
   if (cds_font %in% sysfonts::font_families()) {
     showtext::showtext_auto()
@@ -138,7 +149,13 @@ register_cds_fonts <- function() {
   }
   ok <- tryCatch(
     {
-      sysfonts::font_add_google(cds_font, cds_font, regular.wt = 400, bold.wt = 600)
+      dir <- cds_font_dir()
+      if (is.null(dir)) stop("font files not found", call. = FALSE)
+      sysfonts::font_add(
+        cds_font,
+        regular = file.path(dir, "source-sans-3-400-normal.ttf"),
+        bold    = file.path(dir, "source-sans-3-600-normal.ttf")
+      )
       TRUE
     },
     error = function(e) {

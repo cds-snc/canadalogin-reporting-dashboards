@@ -41,3 +41,6 @@ analytics-tag.html
 # Written by the setup chunk at render time (see R/preflight.R), then pulled in
 # by include-before-body.
 preflight-banner.html
+
+# Written by the setup chunk at render time; read by CI, never committed.
+preflight-status.json

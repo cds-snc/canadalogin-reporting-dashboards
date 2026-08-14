@@ -1,0 +1,4 @@
+# RAthena drives boto3 through reticulate, so the Athena connection needs a
+# Python interpreter with boto3 on it. renv pins the R side only, hence this.
+# Pinned exactly: an unattended weekly render should not pick up a new boto3.
+boto3==1.43.72
