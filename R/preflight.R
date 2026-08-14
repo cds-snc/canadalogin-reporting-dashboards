@@ -304,3 +304,26 @@ write_preflight_banner <- function(result, path = "preflight-banner.html") {
 
   invisible(TRUE)
 }
+
+# Status file ----------------------------------------------------------------
+
+# The banner's machine-readable twin. Unattended there is nobody to read the
+# banner, so CI reads this instead and fails the run on a failed check.
+write_preflight_status <- function(result, path = "preflight-status.json") {
+  jsonlite::write_json(
+    list(
+      passed = result$passed,
+      generated_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+      failed = purrr::map(result$failed, \(check) list(
+        number = check$number,
+        title = check$title,
+        details = as.character(check$details)
+      ))
+    ),
+    path,
+    auto_unbox = TRUE,
+    pretty = TRUE
+  )
+
+  invisible(result$passed)
+}

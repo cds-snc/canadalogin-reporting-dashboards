@@ -9,7 +9,7 @@
 required_packages <- c(
   "DBI", "RAthena", "dplyr", "dbplyr", "tidyr",
   "ggplot2", "scales", "gt", "cowplot", "magick", "dotenv",
-  "glue", "purrr"
+  "glue", "purrr", "jsonlite"
 )
 
 check_packages <- function() {
@@ -45,12 +45,19 @@ connect_athena <- function() {
   check_packages()
   load_config()
   RAthena::RAthena_options(verbose = FALSE)
-  DBI::dbConnect(
-    RAthena::athena(),
-    profile_name   = Sys.getenv("AWS_PROFILE"),
+
+  args <- list(
+    drv            = RAthena::athena(),
     region_name    = Sys.getenv("AWS_REGION", "ca-central-1"),
     s3_staging_dir = Sys.getenv("ATHENA_S3_STAGING_DIR")
   )
+
+  # Name a profile only when one is set. In CI there is none: credentials
+  # arrive as env vars, and an empty profile_name fails the lookup outright.
+  profile <- Sys.getenv("AWS_PROFILE")
+  if (nzchar(profile)) args$profile_name <- profile
+
+  do.call(DBI::dbConnect, args)
 }
 
 # Date helpers ---------------------------------------------------------------
