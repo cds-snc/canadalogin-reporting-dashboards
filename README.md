@@ -23,7 +23,8 @@ editions.
   `rp.service` and `rp.alias` tables in the data lake, over the same Athena
   connection. This repo keeps no copy of that list.
 
+## Checks
 
-Because the source filename is fixed, `publish.sh` reuses the same token every
-week, so the URL stays stable across re-renders.
-
+The dashboard runs data-quality checks at render time (`R/preflight.R`). A failed
+check does not stop the render. It puts a unmissable large red banner at the top of the
+dashboard instead, so read the rendered page before publishing it.

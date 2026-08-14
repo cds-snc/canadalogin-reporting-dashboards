@@ -71,6 +71,43 @@
   color: #5c6670;
 }
 
+/* Preflight failure banner (see R/preflight.R), included before the body so it
+   sits above the tab content and shows on every page. */
+.preflight-banner {
+  /* The dashboard's flex column would otherwise collapse it to nothing. */
+  flex: none;
+  background: #f8e6e7;
+  border-bottom: 4px solid #ab2328;
+  color: #6b1216;
+  padding: 1rem 1.25rem;
+  font-size: 0.95rem;
+}
+
+.preflight-banner > * {
+  max-width: var(--dashboard-max-width);
+  margin-inline: auto;
+}
+
+.preflight-banner p {
+  margin: 0 0 0.35rem 0;
+}
+
+.preflight-banner-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.preflight-banner ul {
+  margin: 0;
+  padding-inline-start: 1.2rem;
+}
+
+/* Underlined, not recoloured: the banner is already red. */
+.preflight-banner a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 /* Prose under a table or chart, not competing with the numbers above it. */
 .figure-note {
   font-size: 0.8rem;

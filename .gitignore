@@ -37,3 +37,7 @@ Thumbs.db
 # Written by the analytics chunk at render time (see _analytics.qmd), then
 # pulled in by include-after-body.
 analytics-tag.html
+
+# Written by the setup chunk at render time (see R/preflight.R), then pulled in
+# by include-before-body.
+preflight-banner.html

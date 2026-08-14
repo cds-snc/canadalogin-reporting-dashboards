@@ -1,8 +1,8 @@
 #' Preflight data-source validation.
 #'
-#' A render-time gate for the dashboard's setup chunk, run before any figure or
-#' table query. Prints a numbered checklist and stop()s the render on any
-#' failure, so a routine weekly publish cannot ship a wrong or holed number.
+#' Runs in the dashboard's setup chunk, before any figure or table query. Prints
+#' a numbered checklist and returns the result. A failed check raises a banner
+#' across the top of the dashboard rather than stopping the render.
 #'
 #' Source R/connection.R, R/registry.R and R/metrics.R first: this reuses an
 #' open connection passed in as `con` and expects dplyr/dbplyr/tidyr and glue.
@@ -68,10 +68,12 @@ run_preflight_safety_check <- function(con,
       unique()
     missing <- expected_days[!expected_days %in% days_present]
     if (length(missing) > 0) {
+      # Capped: this detail goes on the banner, where a full list runs off it.
+      shown <- format_date(utils::head(missing, 5))
       freshness_problems <- c(
         freshness_problems,
-        glue("{funnel}: missing 1-day rows for ",
-             "{glue_collapse(format_date(missing), sep = ', ')}")
+        glue("{funnel}: missing 1-day rows for {length(missing)} day(s), ",
+             "including {glue_collapse(shown, sep = ', ')}")
       )
     }
   }
@@ -250,13 +252,55 @@ run_preflight_safety_check <- function(con,
   failed_checks <- purrr::keep(checks, \(check) !check$passed)
   if (length(failed_checks) > 0) {
     failed_numbers <- purrr::map_int(failed_checks, "number")
-    stop(
+    warning(
       glue("Preflight safety check failed: check ",
            "{glue_collapse(failed_numbers, sep = ', ', last = ' and ')} ",
-           "did not hold (see the checklist above)."),
+           "did not hold (see the checklist above). The dashboard will still ",
+           "render, with a banner across the top; do not publish it."),
       call. = FALSE
     )
   }
+
+  invisible(list(
+    passed = length(failed_checks) == 0,
+    checks = checks,
+    failed = failed_checks
+  ))
+}
+
+# Banner --------------------------------------------------------------------
+
+preflight_contact_url <- "https://gcdigital.slack.com/archives/C0A6S9F7KV4"
+
+escape_html <- function(x) {
+  x <- gsub("&", "&amp;", x, fixed = TRUE)
+  x <- gsub("<", "&lt;", x, fixed = TRUE)
+  gsub(">", "&gt;", x, fixed = TRUE)
+}
+
+# Writes the banner a failed check raises, from run_preflight_safety_check()'s
+# result. A file, not chunk output, which a dashboard would turn into a card.
+write_preflight_banner <- function(result, path = "preflight-banner.html") {
+  if (result$passed) {
+    writeLines(character(), path)
+    return(invisible(FALSE))
+  }
+
+  items <- purrr::map_chr(result$failed, \(check) {
+    glue("<li><strong>Check {check$number}: {escape_html(check$title)}.</strong> ",
+         "{escape_html(glue_collapse(check$details, sep = '; '))}</li>")
+  })
+
+  writeLines(c(
+    '<div class="preflight-banner" role="alert">',
+    '  <p class="preflight-banner-title">Preflight safety checks failed</p>',
+    '  <p>The numbers below may be wrong or incomplete. Check the data before',
+    "     quoting them, notify someone in",
+    paste0('     <a href="', preflight_contact_url, '">#edcp-data-and-research</a>'),
+    "     and do not publish this dashboard as it stands.</p>",
+    paste0("  <ul>", paste(items, collapse = ""), "</ul>"),
+    "</div>"
+  ), path)
 
   invisible(TRUE)
 }
