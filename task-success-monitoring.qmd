@@ -32,7 +32,6 @@ suppressPackageStartupMessages({
   library(dplyr)
   library(dbplyr)
   library(tidyr)
-  library(readr)
   library(glue)
   library(purrr)
   library(ggplot2)
@@ -102,11 +101,16 @@ internal_rp_label <- "Internal apps"
 unrecorded_rp_label <- "Relying party not recorded"
 pooled_rp_labels <- c(internal_rp_label, unrecorded_rp_label)
 
+# GA's rp_name is an alias, so this resolves it to the service name the lookup
+# gives, which pools a service that GA knows by more than one name into one row.
+#
 # replace(), not ifelse(): ifelse() on an empty frame returns logical(0), which
 # clashes on type the moment an empty period is joined to a full one.
 rp_display_name <- function(rp_name) {
-  out <- replace(rp_name, rp_name %in% ga_excluded_rp_names, unrecorded_rp_label)
-  replace(out, is_internal_rp(rp_name), internal_rp_label)
+  service <- label_relying_parties(con, rp_name)$service_name
+  out <- coalesce(service, rp_name)
+  out <- replace(out, rp_name %in% ga_excluded_rp_names, unrecorded_rp_label)
+  replace(out, is_internal_rp(con, rp_name), internal_rp_label)
 }
 
 # Read once per funnel, then used for the value box titles and table headings.
@@ -211,9 +215,10 @@ build_rp_table <- function(funnel_id) {
 
   merged <- reduce(list(latest_7d, counts_30d, prior_30d), full_join, by = "rp")
 
-  # GA's rp_name is itself a friendly label; the operator comes from the registry.
+  # rp is already the service name, so the operator is looked up by that. The
+  # two pooled rows are not services and come back empty.
   per_rp <- merged |>
-    mutate(Operator = coalesce(label_relying_parties(merged$rp)$operator, "")) |>
+    mutate(Operator = coalesce(service_operators(con, merged$rp), "")) |>
     transmute(
       Service = rp, Operator,
       rate_7d, rate_30d, prior_30d, entered, finished
@@ -304,7 +309,9 @@ internal_note <- paste(
   "The headline figures, the chart and the top row are Google Analytics'",
   "own total across every relying party. Internal services such as Manage",
   "CanadaLogin are pooled into one row rather than listed, so the rows below",
-  "still add up to the top one."
+  "still add up to the top one. Service names and operators come from the",
+  "shared relying-party tables in the data lake, which also combine a service",
+  "that Google Analytics knows by more than one name into a single row."
 )
 ```
 

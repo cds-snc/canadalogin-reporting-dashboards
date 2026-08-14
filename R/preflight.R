@@ -107,43 +107,34 @@ run_preflight_safety_check <- function(con,
     }
   )
 
-  # Check 3 - registry complete -------------------------------------------------
+  # Check 3 - relying-party lookup complete -------------------------------------
   #
-  # Two ways a label can hole: an rp_name missing from the crosswalk, or a
-  # crosswalk service_name missing from the registry.
-  crosswalk <- load_ga_rp_crosswalk()
-  registry <- load_relying_parties()
-
+  # Aliases are added to the source sheet by hand, so a GA rp_name can turn up
+  # before anyone records it. Left join and check for nulls: an inner join would
+  # drop the party's rows without complaint and hole the table.
   data_parties <- raw |>
     filter(breakdown_value != "RESERVED_TOTAL",
            !breakdown_value %in% ga_excluded_rp_names) |>
     pull(breakdown_value) |>
     unique()
 
-  unmapped <- setdiff(data_parties, crosswalk$rp_name)
-  unresolved <- setdiff(crosswalk$service_name, registry$service_name)
-
-  registry_problems <- c(
-    if (length(unmapped) > 0) {
-      glue("GA rp_name(s) missing from data/ga_rp_names.csv: ",
-           "{glue_collapse(unmapped, sep = ', ')}")
-    },
-    if (length(unresolved) > 0) {
-      glue("crosswalk service_name(s) not in the shared registry: ",
-           "{glue_collapse(unresolved, sep = ', ')}")
-    }
-  )
+  labelled <- label_relying_parties(con, data_parties)
+  unmapped <- data_parties[is.na(labelled$service_name)]
 
   record_check(
     3,
-    "Registry complete - every relying party in the data is labelled",
-    passed = length(registry_problems) == 0,
-    details = if (length(registry_problems) == 0) {
+    "Relying-party lookup complete - every party in the data is labelled",
+    passed = length(unmapped) == 0,
+    details = if (length(unmapped) == 0) {
       glue("{length(data_parties)} relying part",
            "{if (length(data_parties) == 1) 'y' else 'ies'} in the data, ",
-           "all bridged to the registry")
+           "all resolved through rp.alias to ",
+           "{length(unique(labelled$service_name))} service",
+           "{if (length(unique(labelled$service_name)) == 1) '' else 's'}")
     } else {
-      registry_problems
+      glue("GA rp_name(s) with no row in rp.alias: ",
+           "{glue_collapse(unmapped, sep = ', ')}; ",
+           "add them to the CanadaLogin Relying Parties sheet")
     }
   )
 

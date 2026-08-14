@@ -1,72 +1,70 @@
-#' Relying-party labelling: shared registry plus a local GA-name crosswalk.
+#' Relying-party labelling, from the shared lookup tables in the data lake.
 #'
-#' The registry is Signal Check's hand-maintained file, read cross-repo so
-#' operator and is_internal have one source of truth. It is keyed by
-#' application_name; GA breaks down by customEvent:rp_name instead, so
-#' data/ga_rp_names.csv bridges the two through service_name.
+#' `rp.alias` maps every string a source system uses for a service back to an
+#' rp_id; `rp.service` holds that service's names, operator and is_internal.
+#' Both are refreshed each weekday from the hand-maintained source sheet by the
+#' rp-sync Lambda in the pipeline repo, so this repo holds no copy of its own.
+#'
+#' GA breaks its funnels down by customEvent:rp_name, which is one of those
+#' alias strings. A service with more than one GA name pools into a single row
+#' here, which the old per-name labelling could not do.
 #'
 #' Preflight check 3 fails the render on any rp_name this cannot label.
 
-# Named constant so the cross-repo dependency is visible in one place.
-relying_parties_path <- "../canadalogin-signal-check/data/relying_parties.csv"
-
-# Local GA rp_name -> registry service_name crosswalk.
-ga_rp_crosswalk_path <- "data/ga_rp_names.csv"
-
 # What GA reports when the rp_name custom event was absent. Not relying parties,
-# so exempt from labelling and from the registry gate.
+# so exempt from labelling and from the lookup gate.
 ga_excluded_rp_names <- c("", "(not set)")
 
-# The shared registry: application_name, service_name, operator, is_internal.
-load_relying_parties <- function(path = relying_parties_path) {
-  if (!file.exists(path)) {
-    stop(
-      "Relying-party registry not found at '", path, "'.\n",
-      "It is read cross-repo from the sibling canadalogin-signal-check repo; ",
-      "check that repo out beside this one.",
-      call. = FALSE
-    )
-  }
-  readr::read_csv(
-    path,
-    col_types = readr::cols(
-      .default = readr::col_character(),
-      is_internal = readr::col_logical()
-    )
-  )
-}
+# alias -> service_name, operator, is_internal. Tens of rows, read many times per
+# render, so it is fetched once and memoised for the life of the session.
+relying_party_lookup <- local({
+  cached <- NULL
+  function(con) {
+    if (!is.null(cached)) {
+      return(cached)
+    }
+    aliases <- dplyr::tbl(con, dbplyr::in_schema("rp", "alias")) |>
+      dplyr::select(alias, rp_id)
+    services <- dplyr::tbl(con, dbplyr::in_schema("rp", "service")) |>
+      dplyr::select(rp_id,
+                    service_name = service_name_en, operator, is_internal)
 
-# The local crosswalk: rp_name, service_name.
-load_ga_rp_crosswalk <- function(path = ga_rp_crosswalk_path) {
-  if (!file.exists(path)) {
-    stop("GA rp_name crosswalk not found at '", path, "'.", call. = FALSE)
+    # Join on alias alone, never filtering on `source`: it records where a name
+    # was first seen, not which system it belongs to.
+    cached <<- aliases |>
+      dplyr::inner_join(services, by = "rp_id") |>
+      dplyr::select(-rp_id) |>
+      dplyr::collect()
+    cached
   }
-  readr::read_csv(path, col_types = readr::cols(.default = readr::col_character()))
-}
+})
 
-# One row per service_name, the grain GA identifies parties at. is_internal is an
-# application property, so a service is internal only when all of its apps are.
-registry_by_service <- function() {
-  load_relying_parties() |>
-    dplyr::group_by(service_name) |>
-    dplyr::summarise(
-      operator = dplyr::first(operator),
-      is_internal = all(is_internal),
-      .groups = "drop"
-    )
+# One row per service, for looking attributes up by the name shown in a table.
+# is_internal is a property of the service in this schema, so there is nothing
+# to collapse across a service's applications.
+relying_party_services <- function(con) {
+  relying_party_lookup(con) |>
+    dplyr::distinct(service_name, .keep_all = TRUE) |>
+    dplyr::select(service_name, operator, is_internal)
 }
 
 # service_name, operator and is_internal for each rp_name. Exactly one row per
-# input, in input order, with rp_name preserved as GA's own label.
-label_relying_parties <- function(rp_names) {
-  dplyr::tibble(rp_name = rp_names) |>
-    dplyr::left_join(load_ga_rp_crosswalk(), by = "rp_name") |>
-    dplyr::left_join(registry_by_service(), by = "service_name")
+# input, in input order, with an unknown name left NA rather than dropped.
+label_relying_parties <- function(con, rp_names) {
+  dplyr::tibble(alias = rp_names) |>
+    dplyr::left_join(relying_party_lookup(con), by = "alias")
 }
 
-# TRUE for each rp_name belonging to an internal service. An rp_name the
-# crosswalk does not know is external: those are real, unattributed users.
-is_internal_rp <- function(rp_names) {
-  labels <- label_relying_parties(rp_names)
+# The operator of each service, by the service name a table already shows.
+service_operators <- function(con, service_names) {
+  dplyr::tibble(service_name = service_names) |>
+    dplyr::left_join(relying_party_services(con), by = "service_name") |>
+    dplyr::pull(operator)
+}
+
+# TRUE for each rp_name belonging to an internal service. An rp_name the lookup
+# does not know is external: those are real, unattributed users.
+is_internal_rp <- function(con, rp_names) {
+  labels <- label_relying_parties(con, rp_names)
   !is.na(labels$is_internal) & labels$is_internal
 }
