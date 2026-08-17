@@ -84,25 +84,6 @@ data_through_label <- format_long_date(data_through)
 # Whole-number percent, or "n/a" for an undefined rate.
 fmt_pct <- function(x) ifelse(is.na(x), "n/a", paste0(round(x * 100), "%"))
 
-# Page label and caveat prose. Step labels are not here: see step_labels.
-funnel_meta <- list(
-  sign_in = list(
-    label = "Sign in",
-    caveat = paste(
-      "This rate stops at MFA selection, the last step Google Analytics can see",
-      "before the off-site redirect to IBM Verify. It is not a true completion",
-      "rate, and it is not comparable to sign up."
-    )
-  ),
-  sign_up = list(
-    label = "Sign up",
-    caveat = paste(
-      "Sign up's exit is the account-creation confirmation page, a real",
-      "first-party event, so this is a true completion rate."
-    )
-  )
-)
-
 # Two pooled rows. Internal services are not listed individually, and GA's ""
 # and "(not set)" mean the same thing. Both sort to the bottom of the table.
 internal_rp_label <- "Internal apps"
@@ -135,51 +116,19 @@ exit_step_label <- function(funnel_id) {
   format_step_name(step_labels[[funnel_id]]$exit_step)
 }
 
-# 7-day rate over the daily rate, GA's total, over the full GA history.
-make_funnel_chart <- function(funnel_id, funnel_label) {
-  s7 <- task_success_series(con, funnel_id, "7", series_start, data_through)
-  s1 <- task_success_series(con, funnel_id, "1", series_start, data_through)
+long_window_label <- glue("{long_window_days}-day")
 
-  p <- ggplot() +
-    geom_point(
-      data = s1, aes(window_end, value),
-      colour = "grey70", size = 0.7, alpha = 0.6
-    ) +
-    # Grouped by version so the line BREAKS where the definition changes.
-    geom_line(
-      data = s7, aes(window_end, value, group = funnel_version),
-      colour = colors$brand[["blue"]], linewidth = 1
-    ) +
-    scale_y_continuous(
-      labels = label_percent(accuracy = 1), limits = c(0, 1),
-      expand = expansion(mult = c(0, 0.05))
-    ) +
-    scale_x_date(date_labels = "%b %d") +
-    theme_cds() +
-    labs(
-      x = NULL, y = "Task success rate",
-      # Wrapped by hand: a single-line subtitle runs under the logo.
-      title = glue("Task Success: {funnel_label}"),
-      subtitle = paste(
-        "7-day rolling rate (blue line) over the daily rate (grey points).",
-        "All relying parties, as reported by Google Analytics.",
-        sep = "\n"
-      )
-    )
-
-  # The logo is a fraction of figure height, so a small figure needs a smaller one.
-  add_cds_logo(add_watermark(p, date = data_through), height = 0.09)
-}
-
-# A funnel younger than 60 days returns a short preceding period rather than
-# nothing, and a month against six days would read as a swing in the rate.
+# Tested on the rate, not nrow(): an ungrouped summarise over no rows still
+# returns a row, one reading 0 out of 0.
 prior_period_complete <- function(funnel_id) {
-  prior <- task_success_30d(con, funnel_id, data_through - 30L)
-  nrow(prior) > 0 && prior$days >= 30
+  prior <- task_success_long_window(
+    con, funnel_id, data_through - long_window_days
+  )
+  nrow(prior) > 0 && !is.na(prior$value)
 }
 
 # Direction is carried by the arrow and the sign, not colour alone; an
-# uncalculable change is a dash, not a zero. gt colours it, see build_rp_table().
+# uncalculable change is a dash, not a zero. gt colours it, see delta_colours.
 fmt_delta <- function(delta) {
   case_when(
     is.na(delta) ~ "-",
@@ -192,123 +141,15 @@ fmt_delta <- function(delta) {
 # Change colours: forest rather than brand green, too light to pass contrast.
 delta_colours <- c(up = "#115740", down = "#AB2328", flat = "#5C6670")
 
-# Latest 7-day rate, the 30-day rate and its change, and the counts it divides.
-# The top row is GA's total, and the rows below it partition it.
-build_rp_table <- function(funnel_id) {
-  exit_label <- exit_step_label(funnel_id)
-  compare <- prior_period_complete(funnel_id)
-
-  latest_7d <- party_step_counts(
-    con, funnel_id, "7", trailing_start, data_through
-  ) |>
-    group_by(breakdown_value) |>
-    slice_max(window_end, n = 1, with_ties = FALSE) |>
-    ungroup() |>
-    mutate(rp = rp_display_name(breakdown_value)) |>
-    as_task_success(rp) |>
-    select(rp, rate_7d = value)
-
-  # Both periods come through the 30-day seam. They never share a day.
-  by_rp_30d <- function(as_of) {
-    task_success_30d(con, funnel_id, as_of, breakdown_value,
-                     counts = party_step_counts) |>
-      mutate(rp = rp_display_name(breakdown_value)) |>
-      as_task_success(rp)
-  }
-
-  counts_30d <- by_rp_30d(data_through) |>
-    select(rp, rate_30d = value, entered = denominator, finished = numerator)
-  prior_30d <- by_rp_30d(data_through - 30L) |>
-    select(rp, prior_30d = value)
-
-  merged <- reduce(list(latest_7d, counts_30d, prior_30d), full_join, by = "rp")
-
-  # rp is already the service name, so the operator is looked up by that. The
-  # two pooled rows are not services and come back empty.
-  per_rp <- merged |>
-    mutate(Operator = coalesce(service_operators(con, merged$rp), "")) |>
-    transmute(
-      Service = rp, Operator,
-      rate_7d, rate_30d, prior_30d, entered, finished
-    ) |>
-    # Busiest first, with the two pooled rows held at the end.
-    arrange(Service %in% pooled_rp_labels, desc(entered))
-
-  overall <- task_success_30d(con, funnel_id, data_through) |>
-    transmute(
-      Service = "All relying parties (Google Analytics total)",
-      Operator = "",
-      rate_7d = task_success_latest(
-        con, funnel_id, "7", trailing_start, data_through
-      )$value,
-      rate_30d = value,
-      prior_30d = task_success_30d(con, funnel_id, data_through - 30L)$value,
-      entered = denominator, finished = numerator
-    )
-
-  rows <- bind_rows(overall, per_rp) |>
-    # The column stays even with nothing to compare against; every row reads as
-    # a dash and comparison_note() says why.
-    mutate(delta = if (compare) rate_30d - prior_30d else NA_real_) |>
-    transmute(
-      Service, Operator, rate_7d, rate_30d,
-      change = fmt_delta(delta), entered, finished, delta
-    )
-
-  gt(rows) |>
-    cols_hide(delta) |>
-    fmt_percent(c(rate_7d, rate_30d), decimals = 0) |>
-    fmt_number(c(entered, finished), decimals = 0) |>
-    sub_missing(missing_text = "n/a") |>
-    cols_label(
-      rate_7d = "7-day rate",
-      rate_30d = "30-day rate",
-      change = "vs previous 30 days",
-      entered = html("Started<br>(30 days)"),
-      finished = html(glue("Reached {exit_label}<br>(30 days)"))
-    ) |>
-    tab_style(cell_text(weight = "bold"), cells_body(rows = 1)) |>
-    tab_style(
-      cell_text(color = delta_colours[["up"]]),
-      cells_body(columns = change, rows = !is.na(delta) & delta > 0.0005)
-    ) |>
-    tab_style(
-      cell_text(color = delta_colours[["down"]]),
-      cells_body(columns = change, rows = !is.na(delta) & delta < -0.0005)
-    ) |>
-    tab_style(
-      cell_text(color = delta_colours[["flat"]]),
-      cells_body(columns = change, rows = is.na(delta) | abs(delta) <= 0.0005)
-    ) |>
-    tab_options(
-      table.width = pct(100),
-      table.font.size = px(14),
-      data_row.padding = px(4),
-      table.border.top.style = "none"
-    )
-}
-
-# Shown wherever the 30-day figures appear, until window_days "30" lands.
-proxy_note <- if (task_success_30d_is_proxy) {
-  paste(
-    "The 30-day figures are an interim approximation, summed from the 30",
-    "trailing daily windows pending a stored 30-day window. Google Analytics",
-    "counts each user once per day, so someone who came back on several days is",
-    "counted several times in the two count columns."
-  )
-} else {
-  NULL
-}
-
 # Makes a column of dashes read as "too early" rather than as broken.
 comparison_note <- function(funnel_id) {
   if (prior_period_complete(funnel_id)) {
     return(NULL)
   }
-  paste(
-    "The change against the previous 30 days cannot be calculated yet: this",
-    "funnel does not have 60 days of history, and comparing a full month against",
-    "a part of one would read as a swing in the rate."
+  glue(
+    "The change against the previous {long_window_days} days cannot be ",
+    "calculated yet: this funnel does not yet have {2 * long_window_days} days ",
+    "of history, and there is no earlier window to compare against."
   )
 }
 
@@ -355,9 +196,12 @@ finishing point, measured from Google Analytics 4 funnel data. Google Analytics
 runs on a deliberate two-day processing lag, so the data ends a couple of days
 before today; the "Data through" date says how current it is.
 
-`r internal_note`
+The longer-term figures are a rolling `r long_window_days`-day window computed in
+the reporting pipeline, not a calendar month. Google Analytics counts each person
+once per window, so a month-length rate cannot be built by adding up shorter
+windows and has to come from the pipeline.
 
-`r if (!is.null(proxy_note)) proxy_note`
+`r internal_note`
 
 :::
 
@@ -375,10 +219,10 @@ Latest 7-day rate\
 :::
 
 ::: {.valuebox color="secondary"}
-30-day rate\
-(interim proxy)
+`r long_window_label` rate\
+(rolling window)
 
-`r fmt_pct(task_success_30d(con, "sign_in", data_through)$value)`
+`r fmt_pct(task_success_long_window(con, "sign_in", data_through)$value)`
 :::
 
 ### Column {width="76%"}
@@ -392,7 +236,39 @@ Latest 7-day rate\
 #|   only. A bold blue line traces the 7-day rolling rate, breaking wherever the
 #|   funnel version changes; faint grey points underneath are the noisier daily
 #|   rate. The y-axis runs from zero to one hundred percent.
-make_funnel_chart("sign_in", funnel_meta$sign_in$label)
+
+s7 <- task_success_series(con, "sign_in", "7", series_start, data_through)
+s1 <- task_success_series(con, "sign_in", "1", series_start, data_through)
+
+p <- ggplot() +
+  geom_point(
+    data = s1, aes(window_end, value),
+    colour = "grey70", size = 0.7, alpha = 0.6
+  ) +
+  # Grouped by version so the line BREAKS where the definition changes.
+  geom_line(
+    data = s7, aes(window_end, value, group = funnel_version),
+    colour = colors$brand[["blue"]], linewidth = 1
+  ) +
+  scale_y_continuous(
+    labels = label_percent(accuracy = 1), limits = c(0, 1),
+    expand = expansion(mult = c(0, 0.05))
+  ) +
+  scale_x_date(date_labels = "%b %d") +
+  theme_cds() +
+  labs(
+    x = NULL, y = "Task success rate",
+    title = "Task Success: Sign in",
+    # Wrapped by hand: a single-line subtitle runs under the logo.
+    subtitle = paste(
+      "7-day rolling rate (blue line) over the daily rate (grey points).",
+      "All relying parties, as reported by Google Analytics.",
+      sep = "\n"
+    )
+  )
+
+# The logo is a fraction of figure height, so a small figure needs a smaller one.
+add_cds_logo(add_watermark(p, date = data_through), height = 0.09)
 ```
 
 ## Row
@@ -400,17 +276,109 @@ make_funnel_chart("sign_in", funnel_meta$sign_in$label)
 ::: {.card title="By relying party (latest values)"}
 
 ```{r}
-build_rp_table("sign_in")
+exit_label <- exit_step_label("sign_in")
+compare <- prior_period_complete("sign_in")
+
+latest_7d <- party_step_counts(
+  con, "sign_in", "7", trailing_start, data_through
+) |>
+  group_by(breakdown_value) |>
+  slice_max(window_end, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  mutate(rp = rp_display_name(breakdown_value)) |>
+  as_task_success(rp) |>
+  select(rp, rate_7d = value)
+
+# Both periods come through the long-window seam. They never share a day.
+by_rp_long <- function(as_of) {
+  task_success_long_window(con, "sign_in", as_of, breakdown_value,
+                           counts = party_step_counts) |>
+    mutate(rp = rp_display_name(breakdown_value)) |>
+    as_task_success(rp)
+}
+
+counts_long <- by_rp_long(data_through) |>
+  select(rp, rate_long = value, entered = denominator, finished = numerator)
+prior_long <- by_rp_long(data_through - long_window_days) |>
+  select(rp, prior_long = value)
+
+merged <- reduce(list(latest_7d, counts_long, prior_long), full_join, by = "rp")
+
+# rp is already the service name, so the operator is looked up by that. The
+# two pooled rows are not services and come back empty.
+per_rp <- merged |>
+  mutate(Operator = coalesce(service_operators(con, merged$rp), "")) |>
+  transmute(
+    Service = rp, Operator,
+    rate_7d, rate_long, prior_long, entered, finished
+  ) |>
+  # Busiest first, with the two pooled rows held at the end.
+  arrange(Service %in% pooled_rp_labels, desc(entered))
+
+overall <- task_success_long_window(con, "sign_in", data_through) |>
+  transmute(
+    Service = "All relying parties (Google Analytics total)",
+    Operator = "",
+    rate_7d = task_success_latest(
+      con, "sign_in", "7", trailing_start, data_through
+    )$value,
+    rate_long = value,
+    prior_long = task_success_long_window(
+      con, "sign_in", data_through - long_window_days
+    )$value,
+    entered = denominator, finished = numerator
+  )
+
+rows <- bind_rows(overall, per_rp) |>
+  # The column stays even with nothing to compare against; every row reads as
+  # a dash and comparison_note() says why.
+  mutate(delta = if (compare) rate_long - prior_long else NA_real_) |>
+  transmute(
+    Service, Operator, rate_7d, rate_long,
+    change = fmt_delta(delta), entered, finished, delta
+  )
+
+gt(rows) |>
+  cols_hide(delta) |>
+  fmt_percent(c(rate_7d, rate_long), decimals = 0) |>
+  fmt_number(c(entered, finished), decimals = 0) |>
+  sub_missing(missing_text = "n/a") |>
+  cols_label(
+    rate_7d = "7-day rate",
+    rate_long = glue("{long_window_label} rate"),
+    change = glue("vs previous {long_window_days} days"),
+    entered = html(glue("Started<br>({long_window_label})")),
+    finished = html(glue("Reached {exit_label}<br>({long_window_label})"))
+  ) |>
+  tab_style(cell_text(weight = "bold"), cells_body(rows = 1)) |>
+  tab_style(
+    cell_text(color = delta_colours[["up"]]),
+    cells_body(columns = change, rows = !is.na(delta) & delta > 0.0005)
+  ) |>
+  tab_style(
+    cell_text(color = delta_colours[["down"]]),
+    cells_body(columns = change, rows = !is.na(delta) & delta < -0.0005)
+  ) |>
+  tab_style(
+    cell_text(color = delta_colours[["flat"]]),
+    cells_body(columns = change, rows = is.na(delta) | abs(delta) <= 0.0005)
+  ) |>
+  tab_options(
+    table.width = pct(100),
+    table.font.size = px(14),
+    data_row.padding = px(4),
+    table.border.top.style = "none"
+  )
 ```
 
 ::: {.figure-note}
-**Caveat.** `r funnel_meta$sign_in$caveat`
+**Caveat.** This rate stops at MFA selection, the last step Google Analytics can
+see before the off-site redirect to IBM Verify. It is not a true completion rate,
+and it is not comparable to sign up.
 
 `r comparison_note("sign_in")`
 
 `r internal_note`
-
-`r if (!is.null(proxy_note)) proxy_note`
 :::
 
 :::
@@ -429,10 +397,10 @@ Latest 7-day rate\
 :::
 
 ::: {.valuebox color="secondary"}
-30-day rate\
-(interim proxy)
+`r long_window_label` rate\
+(rolling window)
 
-`r fmt_pct(task_success_30d(con, "sign_up", data_through)$value)`
+`r fmt_pct(task_success_long_window(con, "sign_up", data_through)$value)`
 :::
 
 ### Column {width="76%"}
@@ -446,7 +414,39 @@ Latest 7-day rate\
 #|   only. A bold blue line traces the 7-day rolling rate, breaking wherever the
 #|   funnel version changes; faint grey points underneath are the noisier daily
 #|   rate. The y-axis runs from zero to one hundred percent.
-make_funnel_chart("sign_up", funnel_meta$sign_up$label)
+
+s7 <- task_success_series(con, "sign_up", "7", series_start, data_through)
+s1 <- task_success_series(con, "sign_up", "1", series_start, data_through)
+
+p <- ggplot() +
+  geom_point(
+    data = s1, aes(window_end, value),
+    colour = "grey70", size = 0.7, alpha = 0.6
+  ) +
+  # Grouped by version so the line BREAKS where the definition changes.
+  geom_line(
+    data = s7, aes(window_end, value, group = funnel_version),
+    colour = colors$brand[["blue"]], linewidth = 1
+  ) +
+  scale_y_continuous(
+    labels = label_percent(accuracy = 1), limits = c(0, 1),
+    expand = expansion(mult = c(0, 0.05))
+  ) +
+  scale_x_date(date_labels = "%b %d") +
+  theme_cds() +
+  labs(
+    x = NULL, y = "Task success rate",
+    title = "Task Success: Sign up",
+    # Wrapped by hand: a single-line subtitle runs under the logo.
+    subtitle = paste(
+      "7-day rolling rate (blue line) over the daily rate (grey points).",
+      "All relying parties, as reported by Google Analytics.",
+      sep = "\n"
+    )
+  )
+
+# The logo is a fraction of figure height, so a small figure needs a smaller one.
+add_cds_logo(add_watermark(p, date = data_through), height = 0.09)
 ```
 
 ## Row
@@ -454,17 +454,108 @@ make_funnel_chart("sign_up", funnel_meta$sign_up$label)
 ::: {.card title="By relying party (latest values)"}
 
 ```{r}
-build_rp_table("sign_up")
+exit_label <- exit_step_label("sign_up")
+compare <- prior_period_complete("sign_up")
+
+latest_7d <- party_step_counts(
+  con, "sign_up", "7", trailing_start, data_through
+) |>
+  group_by(breakdown_value) |>
+  slice_max(window_end, n = 1, with_ties = FALSE) |>
+  ungroup() |>
+  mutate(rp = rp_display_name(breakdown_value)) |>
+  as_task_success(rp) |>
+  select(rp, rate_7d = value)
+
+# Both periods come through the long-window seam. They never share a day.
+by_rp_long <- function(as_of) {
+  task_success_long_window(con, "sign_up", as_of, breakdown_value,
+                           counts = party_step_counts) |>
+    mutate(rp = rp_display_name(breakdown_value)) |>
+    as_task_success(rp)
+}
+
+counts_long <- by_rp_long(data_through) |>
+  select(rp, rate_long = value, entered = denominator, finished = numerator)
+prior_long <- by_rp_long(data_through - long_window_days) |>
+  select(rp, prior_long = value)
+
+merged <- reduce(list(latest_7d, counts_long, prior_long), full_join, by = "rp")
+
+# rp is already the service name, so the operator is looked up by that. The
+# two pooled rows are not services and come back empty.
+per_rp <- merged |>
+  mutate(Operator = coalesce(service_operators(con, merged$rp), "")) |>
+  transmute(
+    Service = rp, Operator,
+    rate_7d, rate_long, prior_long, entered, finished
+  ) |>
+  # Busiest first, with the two pooled rows held at the end.
+  arrange(Service %in% pooled_rp_labels, desc(entered))
+
+overall <- task_success_long_window(con, "sign_up", data_through) |>
+  transmute(
+    Service = "All relying parties (Google Analytics total)",
+    Operator = "",
+    rate_7d = task_success_latest(
+      con, "sign_up", "7", trailing_start, data_through
+    )$value,
+    rate_long = value,
+    prior_long = task_success_long_window(
+      con, "sign_up", data_through - long_window_days
+    )$value,
+    entered = denominator, finished = numerator
+  )
+
+rows <- bind_rows(overall, per_rp) |>
+  # The column stays even with nothing to compare against; every row reads as
+  # a dash and comparison_note() says why.
+  mutate(delta = if (compare) rate_long - prior_long else NA_real_) |>
+  transmute(
+    Service, Operator, rate_7d, rate_long,
+    change = fmt_delta(delta), entered, finished, delta
+  )
+
+gt(rows) |>
+  cols_hide(delta) |>
+  fmt_percent(c(rate_7d, rate_long), decimals = 0) |>
+  fmt_number(c(entered, finished), decimals = 0) |>
+  sub_missing(missing_text = "n/a") |>
+  cols_label(
+    rate_7d = "7-day rate",
+    rate_long = glue("{long_window_label} rate"),
+    change = glue("vs previous {long_window_days} days"),
+    entered = html(glue("Started<br>({long_window_label})")),
+    finished = html(glue("Reached {exit_label}<br>({long_window_label})"))
+  ) |>
+  tab_style(cell_text(weight = "bold"), cells_body(rows = 1)) |>
+  tab_style(
+    cell_text(color = delta_colours[["up"]]),
+    cells_body(columns = change, rows = !is.na(delta) & delta > 0.0005)
+  ) |>
+  tab_style(
+    cell_text(color = delta_colours[["down"]]),
+    cells_body(columns = change, rows = !is.na(delta) & delta < -0.0005)
+  ) |>
+  tab_style(
+    cell_text(color = delta_colours[["flat"]]),
+    cells_body(columns = change, rows = is.na(delta) | abs(delta) <= 0.0005)
+  ) |>
+  tab_options(
+    table.width = pct(100),
+    table.font.size = px(14),
+    data_row.padding = px(4),
+    table.border.top.style = "none"
+  )
 ```
 
 ::: {.figure-note}
-**Note.** `r funnel_meta$sign_up$caveat`
+**Note.** Sign up's exit is the account-creation confirmation page, a real
+first-party event, so this is a true completion rate.
 
 `r comparison_note("sign_up")`
 
 `r internal_note`
-
-`r if (!is.null(proxy_note)) proxy_note`
 :::
 
 :::

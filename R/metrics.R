@@ -81,23 +81,13 @@ party_step_counts <- function(con, funnel_id, window_days, from, to) {
 }
 
 # Sum counts into rates, one row per group. Summing before dividing keeps the
-# rate volume-weighted; a zero denominator is undefined (NA), not zero. `days`
-# reports how many windows went into each row, for callers comparing periods.
+# rate volume-weighted; a zero denominator is undefined (NA), not zero.
 as_task_success <- function(counts, ...) {
-  # Re-grouping an already-summarised frame keeps the widest coverage among the
-  # rows it merges; summing would say a month was several months long.
-  days <- if ("window_end" %in% names(counts)) {
-    rlang::expr(dplyr::n_distinct(window_end))
-  } else {
-    rlang::expr(max(days))
-  }
-
   counts |>
     dplyr::group_by(...) |>
     dplyr::summarise(
       numerator = sum(numerator, na.rm = TRUE),
       denominator = sum(denominator, na.rm = TRUE),
-      days = !!days,
       .groups = "drop"
     ) |>
     dplyr::mutate(
@@ -119,8 +109,7 @@ task_success_latest <- function(con, funnel_id, window_days, from, to) {
   if (nrow(series) == 0) {
     return(dplyr::tibble(
       window_end = as.Date(NA), funnel_version = NA_character_,
-      numerator = NA_real_, denominator = NA_real_, days = 0L,
-      value = NA_real_
+      numerator = NA_real_, denominator = NA_real_, value = NA_real_
     ))
   }
   series[which.max(series$window_end), ]
@@ -156,26 +145,16 @@ funnel_step_names <- function(con, funnel_id) {
   )
 }
 
-# 30-day rate: the single seam. Every 30-day number comes through here.
-#
-# INTERIM PROXY. window_days "30" is not yet emitted upstream, so this sums the
-# 30 trailing 1-day windows. GA activeUsers de-duplicate within a window and do
-# not sum across them, so both the counts and the rate are approximations and
-# MUST be labelled as such. Counts are summed rather than the overlapping 7-day
-# rates averaged, so the numerator and denominator divide to the rate shown.
-#
-# SWAP POINT. When window_days "30" lands, replace the body with a direct read at
-# window_days "30" over the single day as_of, and set this flag to FALSE.
-task_success_30d_is_proxy <- TRUE
+# The longer-term view, and the seam every long-window number comes through. A
+# stored window, not shorter ones summed: activeUsers de-duplicate within one.
+long_window_days <- 28L
 
-# The 30-day rate: numerator, denominator, days, value. Grouping args pass
-# through, and `counts` selects the population: GA's total by default, or
-# party_step_counts for the per-party rows. Move as_of back 30 days for the
-# preceding period, and check `days`: a funnel younger than 60 days returns a
-# short period, not nothing.
-task_success_30d <- function(con, funnel_id, as_of, ...,
-                             counts = total_step_counts) {
+# The rate over the one stored window ending on as_of. `counts` selects the
+# population; move as_of back long_window_days for the preceding period.
+task_success_long_window <- function(con, funnel_id, as_of, ...,
+                                     counts = total_step_counts) {
   as_of <- as.Date(as_of)
-  counts(con, funnel_id, window_days = "1", from = as_of - 29L, to = as_of) |>
+  counts(con, funnel_id, window_days = long_window_days,
+         from = as_of, to = as_of) |>
     as_task_success(...)
 }

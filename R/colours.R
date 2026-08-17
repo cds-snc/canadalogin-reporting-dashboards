@@ -38,7 +38,7 @@ colors <- list(
 
     full = c(
       "1 - Easy access to government services" = "#339CD2",
-      "2 - Human centered client experiences" ="#82AA51",
+      "2 - Human centered client experiences" = "#82AA51",
       "3 - Effective, efficient, and trustworthy services" = "#EF7922",
       "4 - Empowering People to deliver" = "#AE2125",
       "5 - Building a strong foundation" = "#6255A3"
@@ -54,10 +54,10 @@ colors <- list(
   ),
 
   primary = c(
-    "#7B58A5ff","#0c497aff","#004f38ff",
-    "#83ab53ff","#af2024ff","#ccd7e2ff",
+    "#7B58A5ff", "#0c497aff", "#004f38ff",
+    "#83ab53ff", "#af2024ff", "#ccd7e2ff",
     "#dcdddeff"
-    ),
+  ),
 
   greyscale = c(
     "#000000", "#666666", "#999999", "#B7B7B7", "#EFEFEF", "#FFFFFF"

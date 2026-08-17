@@ -37,7 +37,10 @@ run_preflight_safety_check <- function(con,
   # GA runs on a deliberate ~2-day lag, so as_of is the newest day to expect.
   as_of <- today - ga_export_lag_days
   freshness_start <- as_of - (lookback_days - 1L)
-  proxy_start <- as_of - 29L
+
+  # The span the per-party table reports on, so the span check 3 has to sweep.
+  lookup_start <- as_of - (long_window_days - 1L)
+  long_window <- as.character(long_window_days)
 
   # One query over the widest span any check needs; the checks then run in R.
   raw <- tbl(
@@ -47,7 +50,7 @@ run_preflight_safety_check <- function(con,
       metric_id == "task_success",
       funnel_id %in% !!required_funnels,
       !window_incomplete,
-      as.Date(window_end) >= as.Date(!!as.character(proxy_start)),
+      as.Date(window_end) >= as.Date(!!as.character(lookup_start)),
       as.Date(window_end) <= as.Date(!!as.character(as_of))
     ) |>
     select(funnel_id, window_days, breakdown_value, window_end) |>
@@ -140,60 +143,43 @@ run_preflight_safety_check <- function(con,
     }
   )
 
-  # Check 4 - 30-day proxy window integrity -------------------------------------
+  # Check 4 - long window present -----------------------------------------------
   #
-  # A missing day inside the span quietly shrinks both counts. A young funnel has
-  # fewer than 30 days, which is not a hole, so this asks for contiguity within
-  # the funnel's own history rather than data from before it existed.
-  min_proxy_inputs <- 14L
-  proxy_problems <- character()
+  # Without it the table's rate, counts and comparison all read n/a at once,
+  # which looks like a broken page rather than a late pipeline run.
+  window_problems <- character()
   for (funnel in required_funnels) {
-    proxy_days_present <- raw |>
+    ends_present <- raw |>
       filter(funnel_id == funnel,
-             window_days == "1",
-             breakdown_value == "RESERVED_TOTAL",
-             window_end >= proxy_start) |>
+             window_days == long_window,
+             breakdown_value == "RESERVED_TOTAL") |>
       pull(window_end) |>
       unique()
 
-    if (length(proxy_days_present) == 0) {
-      proxy_problems <- c(
-        proxy_problems,
-        glue("{funnel}: no 1-day inputs in the trailing 30 days")
-      )
-      next
-    }
-
-    span_start <- max(proxy_start, min(proxy_days_present))
-    expected <- seq(span_start, as_of, by = "day")
-    missing <- expected[!expected %in% proxy_days_present]
-
-    if (length(missing) > 0) {
-      proxy_problems <- c(
-        proxy_problems,
-        glue("{funnel}: 30-day proxy has interior gaps ",
-             "({length(missing)} day(s), including ",
-             "{glue_collapse(format_date(utils::head(missing, 3)), sep = ', ')})")
-      )
-    } else if (length(proxy_days_present) < min_proxy_inputs) {
-      proxy_problems <- c(
-        proxy_problems,
-        glue("{funnel}: only {length(proxy_days_present)} 1-day inputs ",
-             "(fewer than {min_proxy_inputs}); 30-day proxy is too thin")
+    if (!as_of %in% ends_present) {
+      newest <- if (length(ends_present) == 0) {
+        glue("none in the last {long_window} days")
+      } else {
+        glue("newest is {format_date(max(ends_present))}")
+      }
+      window_problems <- c(
+        window_problems,
+        glue("{funnel}: no complete {long_window}-day window ending ",
+             "{format_date(as_of)} ({newest})")
       )
     }
   }
 
   record_check(
     4,
-    glue("Window integrity - 30-day proxy inputs contiguous through ",
+    glue("Long window present - complete {long_window}-day window ending ",
          "{format_date(as_of)}"),
-    passed = length(proxy_problems) == 0,
-    details = if (length(proxy_problems) == 0) {
-      glue("1-day inputs contiguous through {format_date(as_of)} ",
-           "for all required funnels")
+    passed = length(window_problems) == 0,
+    details = if (length(window_problems) == 0) {
+      glue("{long_window}-day window current through {format_date(as_of)} ",
+           "for {glue_collapse(required_funnels, sep = ', ')}")
     } else {
-      proxy_problems
+      window_problems
     }
   )
 
@@ -272,12 +258,6 @@ run_preflight_safety_check <- function(con,
 
 preflight_contact_url <- "https://gcdigital.slack.com/archives/C0A6S9F7KV4"
 
-escape_html <- function(x) {
-  x <- gsub("&", "&amp;", x, fixed = TRUE)
-  x <- gsub("<", "&lt;", x, fixed = TRUE)
-  gsub(">", "&gt;", x, fixed = TRUE)
-}
-
 # Writes the banner a failed check raises, from run_preflight_safety_check()'s
 # result. A file, not chunk output, which a dashboard would turn into a card.
 write_preflight_banner <- function(result, path = "preflight-banner.html") {
@@ -287,14 +267,15 @@ write_preflight_banner <- function(result, path = "preflight-banner.html") {
   }
 
   items <- purrr::map_chr(result$failed, \(check) {
-    glue("<li><strong>Check {check$number}: {escape_html(check$title)}.</strong> ",
-         "{escape_html(glue_collapse(check$details, sep = '; '))}</li>")
+    title <- htmltools::htmlEscape(check$title)
+    details <- htmltools::htmlEscape(glue_collapse(check$details, sep = "; "))
+    glue("<li><strong>Check {check$number}: {title}.</strong> {details}</li>")
   })
 
   writeLines(c(
     '<div class="preflight-banner" role="alert">',
     '  <p class="preflight-banner-title">Preflight safety checks failed</p>',
-    '  <p>The numbers below may be wrong or incomplete. Check the data before',
+    "  <p>The numbers below may be wrong or incomplete. Check the data before",
     "     quoting them, notify someone in",
     paste0('     <a href="', preflight_contact_url, '">#edcp-data-and-research</a>'),
     "     and do not publish this dashboard as it stands.</p>",
@@ -314,11 +295,13 @@ write_preflight_status <- function(result, path = "preflight-status.json") {
     list(
       passed = result$passed,
       generated_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
-      failed = purrr::map(result$failed, \(check) list(
-        number = check$number,
-        title = check$title,
-        details = as.character(check$details)
-      ))
+      failed = purrr::map(result$failed, \(check) {
+        list(
+          number = check$number,
+          title = check$title,
+          details = as.character(check$details)
+        )
+      })
     ),
     path,
     auto_unbox = TRUE,

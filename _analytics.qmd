@@ -5,11 +5,6 @@
 # than emitted inline, which a dashboard would turn into an invisible card that
 # takes width from the content beside it.
 #
-# Two things not to "fix":
-#   - The loader uses document.createElement. A literal <script src> gets
-#     fetched and inlined by pandoc under embed-resources (~7 MB a report).
-#   - No anonymize_ip: a Universal Analytics parameter, inert in GA4.
-#
 # These settings are half the job; the GA4 admin UI wins where the two disagree.
 analytics_measurement_id <- "G-LCP5HXC91Q"
 

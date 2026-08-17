@@ -5,12 +5,6 @@
 # font values noted elsewhere in the repo
 # Note: graphs are branded separately via R/branding.R + R/colours.R; this file
 # governs document/theme styling (HTML report chrome, fonts, links).
-#
-# Lives in reports/ (next to the report .qmd files) on purpose: Quarto only
-# auto-discovers _brand.yml in the SAME directory as the document being
-# rendered, and the reports render standalone with no _quarto.yml (they source
-# ../R/*). Co-locating here is what makes every report pick up the brand
-# automatically. Do not move it to the repo root - the reports would not find it.
 
 meta:
   name:
