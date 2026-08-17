@@ -181,7 +181,7 @@ internal_note <- paste(
 
 ## Row {height="120px"}
 
-```{r}
+```{r data-through-valuebox}
 #| content: valuebox
 #| title: "Data through"
 list(
@@ -247,7 +247,7 @@ Latest 7-day rate
 
 ### Column {width="76%"}
 
-```{r}
+```{r sign-in-chart}
 #| title: "Task success rate over time"
 #| fig-width: 7.7
 #| fig-height: 3.6
@@ -295,7 +295,7 @@ add_cds_logo(add_watermark(p, date = data_through), height = 0.09)
 
 ::: {.card title="By relying party (latest values)"}
 
-```{r}
+```{r sign-in-table}
 exit_label <- exit_step_label("sign_in")
 compare <- prior_period_complete("sign_in")
 
@@ -429,7 +429,7 @@ Latest 7-day rate
 
 ### Column {width="76%"}
 
-```{r}
+```{r sign-up-chart}
 #| title: "Task success rate over time"
 #| fig-width: 7.7
 #| fig-height: 3.6
@@ -477,7 +477,7 @@ add_cds_logo(add_watermark(p, date = data_through), height = 0.09)
 
 ::: {.card title="By relying party (latest values)"}
 
-```{r}
+```{r sign-up-table}
 exit_label <- exit_step_label("sign_up")
 compare <- prior_period_complete("sign_up")
 
@@ -586,7 +586,7 @@ first-party event, so this is a true completion rate.
 
 # Help site
 
-```{r}
+```{r help-site-data}
 #| include: false
 # One read serves the value boxes, all four tables and the chart. include: false
 # so the chunk does not become a card.
@@ -684,7 +684,7 @@ French share, last `r long_window_days` days
 
 ### Column {width="76%"}
 
-```{r}
+```{r help-site-chart}
 #| title: "Help site page views over time"
 #| fig-width: 7.7
 #| fig-height: 3.6
@@ -718,7 +718,7 @@ add_cds_logo(add_watermark(p, date = data_through), height = 0.09)
 
 ::: {.card title="English pages, last 7 days"}
 
-```{r}
+```{r help-table-en-7d}
 help_ranked |>
   filter(window == "7", lang == "en") |>
   select(page, views) |>
@@ -734,7 +734,7 @@ help_ranked |>
 
 ::: {.card title="French pages, last 7 days"}
 
-```{r}
+```{r help-table-fr-7d}
 help_ranked |>
   filter(window == "7", lang == "fr") |>
   select(page, views) |>
@@ -752,7 +752,7 @@ help_ranked |>
 
 ::: {.card title="English pages, last `r long_window_days` days"}
 
-```{r}
+```{r help-table-en-long}
 help_ranked |>
   filter(window == as.character(long_window_days), lang == "en") |>
   select(page, views) |>
@@ -768,7 +768,7 @@ help_ranked |>
 
 ::: {.card title="French pages, last `r long_window_days` days"}
 
-```{r}
+```{r help-table-fr-long}
 help_ranked |>
   filter(window == as.character(long_window_days), lang == "fr") |>
   select(page, views) |>
