@@ -1,12 +1,18 @@
-# CanadaLogin Task Success Monitoring
+# CanadaLogin Experience Monitoring
 
-An internal-only dashboard for the EDCP Data and Research Team that monitors
-CanadaLogin task success rates: the share of users who start a flow (sign in,
-sign up) and reach its defined finishing point, measured from Google Analytics 4
-funnel data. It is a working feeder, not the source of truth. The canonical task
-success numbers live in the monthly task success report, a written Google doc;
-this dashboard saves analysts the Google Analytics dig and hands them
-copy-ready numbers for writing that report.
+An internal-only dashboard for the EDCP Data and Research Team that watches how
+people get through CanadaLogin, from Google Analytics 4. It covers two things:
+
+- **Task success rates** for the sign-in and sign-up funnels, the share of users
+  who start a flow and reach its defined finishing point, overall and per
+  relying party.
+- **Help site page views**, the most-read pages in English and French, which is
+  a read on what people look up when a flow does not go smoothly.
+
+It is a working feeder, not the source of truth. The canonical task success
+numbers live in the monthly task success report, a written Google doc; this
+dashboard saves analysts the Google Analytics dig and hands them copy-ready
+numbers for writing that report.
 
 Unlike Signal Check, this is a single dashboard at one stable URL, re-rendered
 and republished in place on a weekly cadence rather than a series of timestamped
@@ -14,9 +20,10 @@ editions.
 
 ## Layout
 
-- `task-success-monitoring.qmd` - the single dashboard document.
-- `R/` - shared code: Athena connection, branding, colours, the metric layer,
-  the 30-day proxy seam, the relying-party lookup reader, and the preflight.
+- `experience-monitoring.qmd` - the single dashboard document.
+- `R/` - shared code: Athena connection, branding, colours, the funnel metric
+  layer and its 28-day window seam, the relying-party lookup reader, and the
+  preflight. The help site tab reads `page_traffic` inline in the qmd.
 - `_brand.yml`, `_analytics.qmd`, `img/` - branding and the GA4 tag, carried
   over from Signal Check.
 - Relying-party names, operators and the internal flag come from the shared

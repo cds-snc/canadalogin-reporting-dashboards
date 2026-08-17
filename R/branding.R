@@ -101,7 +101,7 @@ add_cds_logo <- function(
 add_watermark <- function(plot, date = Sys.Date()) {
   if (inherits(date, "Date")) date <- format(date, "%B %e, %Y")
   label <- paste0(
-    "CanadaLogin Task Success Monitoring // Data through ", trimws(date)
+    "CanadaLogin Experience Monitoring // Data through ", trimws(date)
   )
   font_family <- if (register_cds_fonts()) cds_font else ""
   current_margin <- ggplot2::calc_element("plot.margin", plot$theme)

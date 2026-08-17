@@ -1,5 +1,5 @@
 ---
-title: "CanadaLogin Task Success Monitoring"
+title: "CanadaLogin Experience Monitoring"
 author: "EDCP Data and Research Team"  # colin.douglas@cds-snc.ca
 format:
   dashboard:
@@ -14,7 +14,7 @@ format:
     include-after-body: analytics-tag.html
 brand: _brand.yml
 params:
-  ga_page_title: "Task Success Monitoring Dashboard"
+  ga_page_title: "Experience Monitoring Dashboard"
 execute:
   echo: false
   warning: false
@@ -43,6 +43,11 @@ suppressPackageStartupMessages({
 })
 
 con <- connect_athena()
+
+# The help tab filters on this stream alone. Keyed on the id, which an admin
+# cannot rename; declared here because preflight checks 6 and 7 read both.
+help_stream_id <- "13052807364"
+help_stream_name <- "CanadaLogin Website (Help/About/GC Partner info)"
 
 # A failed check banners the dashboard rather than stopping the render, so the
 # banner is what stands between a holed number and a publish. See R/preflight.R.
@@ -102,18 +107,26 @@ rp_display_name <- function(rp_name) {
   replace(out, is_internal_rp(con, rp_name), internal_rp_label)
 }
 
-# Read once per funnel, then used for the value box titles and table headings.
+# Read once per funnel, for the exit step named in the table headings.
 step_labels <- lapply(required_funnels, \(f) funnel_step_names(con, f))
 names(step_labels) <- required_funnels
 
-# Single quotes: a double quote in a value box title comes back escaped and
-# truncates it. The names are slugs, so underscores are opened up.
+# The names are slugs, so underscores are opened up.
 format_step_name <- function(step) {
   if (is.na(step)) "unknown step" else paste0("'", gsub("_", " ", step), "'")
 }
 
 exit_step_label <- function(funnel_id) {
   format_step_name(step_labels[[funnel_id]]$exit_step)
+}
+
+# People reaching the entry step over the long window. One token, no spaces, or
+# Quarto renders it at body size.
+funnel_starts <- function(funnel_id) {
+  format(
+    task_success_long_window(con, funnel_id, data_through)$denominator,
+    big.mark = ","
+  )
 }
 
 long_window_label <- glue("{long_window_days}-day")
@@ -183,8 +196,11 @@ list(
 ::: {.card title="About this dashboard"}
 
 This is an internal working instrument for the EDCP Data and Research Team. It
-watches CanadaLogin task success rates between report cycles so analysts get the
-numbers in one place without digging through Google Analytics.
+watches how people get through CanadaLogin between report cycles, so analysts
+get the numbers in one place without digging through Google Analytics. The sign
+in and sign up pages carry task success rates; the help site page carries the
+most-read help pages, which is a read on what people look up when a flow does
+not go smoothly.
 
 It is not the source of truth. The canonical task success numbers live in the
 monthly task success report, a written Google doc; this dashboard feeds that
@@ -212,17 +228,21 @@ windows and has to come from the pipeline.
 ### Column {width="24%"}
 
 ::: {.valuebox color="primary"}
-Latest 7-day rate\
-(reaches `r exit_step_label("sign_in")` step)
+Latest 7-day rate
 
 `r fmt_pct(task_success_latest(con, "sign_in", "7", trailing_start, data_through)$value)`
 :::
 
 ::: {.valuebox color="secondary"}
-`r long_window_label` rate\
-(rolling window)
+`r long_window_label` rate (rolling)
 
 `r fmt_pct(task_success_long_window(con, "sign_in", data_through)$value)`
+:::
+
+::: {.valuebox color="info"}
+`r long_window_label` starts
+
+`r funnel_starts("sign_in")`
 :::
 
 ### Column {width="76%"}
@@ -390,17 +410,21 @@ and it is not comparable to sign up.
 ### Column {width="24%"}
 
 ::: {.valuebox color="primary"}
-Latest 7-day rate\
-(reaches `r exit_step_label("sign_up")` step)
+Latest 7-day rate
 
 `r fmt_pct(task_success_latest(con, "sign_up", "7", trailing_start, data_through)$value)`
 :::
 
 ::: {.valuebox color="secondary"}
-`r long_window_label` rate\
-(rolling window)
+`r long_window_label` rate (rolling)
 
 `r fmt_pct(task_success_long_window(con, "sign_up", data_through)$value)`
+:::
+
+::: {.valuebox color="info"}
+`r long_window_label` starts
+
+`r funnel_starts("sign_up")`
 :::
 
 ### Column {width="76%"}
@@ -557,6 +581,204 @@ first-party event, so this is a true completion rate.
 
 `r internal_note`
 :::
+
+:::
+
+# Help site
+
+```{r}
+#| include: false
+# One read serves the value boxes, all four tables and the chart. include: false
+# so the chunk does not become a card.
+help_top_n <- 15L
+
+help_window <- tbl(con, in_schema("google_analytics", "page_traffic")) |>
+  filter(
+    streamid == !!help_stream_id,
+    as.Date(date) >= as.Date(!!as.character(trailing_start)),
+    as.Date(date) <= as.Date(!!as.character(data_through))
+  ) |>
+  select(date, pagepath, pagetitle, screenpageviews) |>
+  collect() |>
+  mutate(
+    date = as.Date(date),
+    # integer64 does not survive arithmetic with doubles cleanly.
+    views = as.numeric(screenpageviews),
+    # /en and /en/ are one page, and the site emits both.
+    path = ifelse(pagepath == "/", pagepath, sub("/+$", "", pagepath)),
+    # The bare root is the English landing page, so it folds into /en.
+    path = ifelse(path == "/", "/en", path),
+    # Every title ends in the site name, noise repeated down the column.
+    title = sub(" - (CanadaLogin|ConnexionCanada)$", "", pagetitle),
+    # Anything outside /en and /fr is vulnerability-scanner traffic
+    # (oast.live callbacks, /swagger-ui, /login.php), not a page anyone wrote.
+    lang = case_when(
+      path == "/en" | startsWith(path, "/en/") ~ "en",
+      path == "/fr" | startsWith(path, "/fr/") ~ "fr"
+    )
+  )
+
+# Ranked once for every window and language, so each table below is a filter.
+help_ranked <- bind_rows(
+  filter(help_window, date > data_through - 7L) |> mutate(window = "7"),
+  filter(help_window, date > data_through - long_window_days) |>
+    mutate(window = as.character(long_window_days))
+) |>
+  filter(!is.na(lang)) |>
+  group_by(window, lang, path, title) |>
+  summarise(title_views = sum(views), .groups = "drop_last") |>
+  # A page is a path, labelled with the title it was viewed under most often:
+  # a reader whose browser translates the page reports a translated title.
+  mutate(views = sum(title_views)) |>
+  slice_max(title_views, n = 1, with_ties = FALSE) |>
+  group_by(window, lang) |>
+  arrange(desc(views), .by_group = TRUE) |>
+  slice_head(n = help_top_n) |>
+  ungroup() |>
+  mutate(
+    # The two languages are served from their own domains.
+    page = paste0(
+      '<a href="',
+      ifelse(lang == "fr", "https://connexion.canada.ca",
+             "https://login.canada.ca"),
+      path, '" target="_blank" rel="noopener">',
+      htmltools::htmlEscape(title), "</a>"
+    )
+  )
+
+help_7d <- filter(help_window, date > data_through - 7L)
+help_long <- filter(help_window, date > data_through - long_window_days)
+
+# Language share over the long window. Scanner traffic has no language, so it
+# is out of the denominator.
+help_split <- help_long |>
+  filter(!is.na(lang)) |>
+  count(lang, wt = views, name = "views") |>
+  mutate(share = round(100 * views / sum(views)))
+
+# One token, no spaces, or Quarto renders it at body size.
+help_split_label <- paste0(help_split$share[help_split$lang == "fr"], "%")
+```
+
+## Row {height="420px"}
+
+### Column {width="24%"}
+
+::: {.valuebox color="primary"}
+Views, last 7 days
+
+`r format(sum(help_7d$views), big.mark = ",")`
+:::
+
+::: {.valuebox color="secondary"}
+Views, last `r long_window_days` days
+
+`r format(sum(help_long$views), big.mark = ",")`
+:::
+
+::: {.valuebox color="info"}
+French share, last `r long_window_days` days
+
+`r help_split_label`
+:::
+
+### Column {width="76%"}
+
+```{r}
+#| title: "Help site page views over time"
+#| fig-width: 7.7
+#| fig-height: 3.6
+#| fig-alt: |
+#|   Chart of daily page views on the CanadaLogin help site over the last twelve
+#|   weeks. A blue line traces total views per day across every help page, with
+#|   a regular dip each weekend.
+
+p <- help_window |>
+  group_by(date) |>
+  summarise(views = sum(views), .groups = "drop") |>
+  ggplot(aes(date, views)) +
+  geom_line(colour = colors$brand[["blue"]], linewidth = 0.8) +
+  scale_y_continuous(labels = label_comma(), limits = c(0, NA),
+                     expand = expansion(mult = c(0, 0.05))) +
+  scale_x_date(date_labels = "%b %d") +
+  theme_cds() +
+  labs(
+    x = NULL, y = "Page views",
+    title = "Help site page views",
+    # Wrapped by hand: a single-line subtitle runs under the logo.
+    subtitle = "Daily views across every page of the CanadaLogin help stream."
+  )
+
+add_cds_logo(add_watermark(p, date = data_through), height = 0.09)
+```
+
+## Row
+
+### Column {width="50%"}
+
+::: {.card title="English pages, last 7 days"}
+
+```{r}
+help_ranked |>
+  filter(window == "7", lang == "en") |>
+  select(page, views) |>
+  gt() |>
+  fmt_markdown(page) |>
+  fmt_number(views, decimals = 0) |>
+  cols_label(page = "Page", views = "Views") |>
+  tab_options(table.width = pct(100), table.font.size = px(13),
+              data_row.padding = px(3), table.border.top.style = "none")
+```
+
+:::
+
+::: {.card title="French pages, last 7 days"}
+
+```{r}
+help_ranked |>
+  filter(window == "7", lang == "fr") |>
+  select(page, views) |>
+  gt() |>
+  fmt_markdown(page) |>
+  fmt_number(views, decimals = 0) |>
+  cols_label(page = "Page", views = "Views") |>
+  tab_options(table.width = pct(100), table.font.size = px(13),
+              data_row.padding = px(3), table.border.top.style = "none")
+```
+
+:::
+
+### Column {width="50%"}
+
+::: {.card title="English pages, last `r long_window_days` days"}
+
+```{r}
+help_ranked |>
+  filter(window == as.character(long_window_days), lang == "en") |>
+  select(page, views) |>
+  gt() |>
+  fmt_markdown(page) |>
+  fmt_number(views, decimals = 0) |>
+  cols_label(page = "Page", views = "Views") |>
+  tab_options(table.width = pct(100), table.font.size = px(13),
+              data_row.padding = px(3), table.border.top.style = "none")
+```
+
+:::
+
+::: {.card title="French pages, last `r long_window_days` days"}
+
+```{r}
+help_ranked |>
+  filter(window == as.character(long_window_days), lang == "fr") |>
+  select(page, views) |>
+  gt() |>
+  fmt_markdown(page) |>
+  fmt_number(views, decimals = 0) |>
+  cols_label(page = "Page", views = "Views") |>
+  tab_options(table.width = pct(100), table.font.size = px(13),
+              data_row.padding = px(3), table.border.top.style = "none")
+```
 
 :::
 

@@ -4,8 +4,8 @@
 #' a numbered checklist and returns the result. A failed check raises a banner
 #' across the top of the dashboard rather than stopping the render.
 #'
-#' Source R/connection.R, R/registry.R and R/metrics.R first: this reuses an
-#' open connection passed in as `con` and expects dplyr/dbplyr/tidyr and glue.
+#' Source R/connection.R, R/registry.R and R/metrics.R first, and define the
+#' help_stream_* constants. Expects an open `con`, dplyr/dbplyr/tidyr and glue.
 
 run_preflight_safety_check <- function(con,
                                        today = Sys.Date(),
@@ -226,6 +226,66 @@ run_preflight_safety_check <- function(con,
            "{glue_collapse(required_funnels, sep = ', ')}")
     } else {
       step_problems
+    }
+  )
+
+  # Check 6 - help site stream reporting -----------------------------------------
+  #
+  # Nothing else on the dashboard reads page_traffic, so a stream that stopped
+  # reporting would render an empty tab rather than raise anything.
+  help_days <- tbl(con, in_schema("google_analytics", "page_traffic")) |>
+    filter(
+      streamid == !!help_stream_id,
+      as.Date(date) >= as.Date(!!as.character(freshness_start)),
+      as.Date(date) <= as.Date(!!as.character(as_of))
+    ) |>
+    distinct(date) |>
+    collect() |>
+    pull(date) |>
+    as.Date()
+
+  help_missing <- expected_days[!expected_days %in% help_days]
+
+  record_check(
+    6,
+    glue("Help site stream reporting through {format_date(as_of)}"),
+    passed = length(help_missing) == 0,
+    details = if (length(help_missing) == 0) {
+      glue("help site has page views on all {lookback_days} days ",
+           "through {format_date(as_of)}")
+    } else {
+      glue("no help site page views for {length(help_missing)} day(s), ",
+           "including ",
+           "{glue_collapse(format_date(utils::head(help_missing, 5)), sep = ', ')}")
+    }
+  )
+
+  # Check 7 - help site stream identity ------------------------------------------
+  #
+  # The tab filters on the stream id alone, so an id that came to mean a
+  # different stream would report another site's pages under this heading.
+  help_names <- tbl(con, in_schema("google_analytics", "page_traffic")) |>
+    filter(streamid == !!help_stream_id, !is.na(streamname)) |>
+    distinct(streamname) |>
+    collect() |>
+    pull(streamname)
+
+  identity_ok <- identical(help_names, help_stream_name)
+
+  record_check(
+    7,
+    "Help site stream identity - the stream id still names the help site",
+    passed = identity_ok,
+    details = if (identity_ok) {
+      glue("stream {help_stream_id} is '{help_stream_name}'")
+    } else if (length(help_names) == 0) {
+      glue("stream {help_stream_id} has no named rows in page_traffic; ",
+           "the stream fields may need backfilling again")
+    } else {
+      glue("stream {help_stream_id} reports as ",
+           "{glue_collapse(sprintf(\"'%s'\", help_names), sep = ', ')}, ",
+           "expected '{help_stream_name}'; check the stream constants in ",
+           "the dashboard's setup chunk against the GA4 admin")
     }
   )
 
