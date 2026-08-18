@@ -10,7 +10,6 @@
 suppressPackageStartupMessages({
   library(cowplot)
   library(ggplot2)
-  library(showtext)
 })
 
 # Searches upward, so it resolves from the project root or a subfolder.
@@ -125,12 +124,13 @@ add_watermark <- function(plot, date = Sys.Date()) {
 #' _brand.yml. Loaded from the TTFs vendored in fonts/, so a render needs no
 #' network; offline it falls back to the default sans rather than failing.
 
-# The brand guide calls this "Source Sans Pro"; "Source Sans 3" is the identical
-# current release, and the one name _brand.yml, _fonts.scss and graphs share.
-cds_font <- "Source Sans 3"
+# The current release of the brand guide's "Source Sans Pro", which _brand.yml
+# and _fonts.scss name unsuffixed for the document text. Suffixed here because
+# systemfonts will not register a family that shadows an installed system font.
+cds_font <- "Source Sans 3 (CDS)"
 
 # Searches upward, so it resolves from the project root or a subfolder. TTF, not
-# the WOFF2 the dashboard embeds: sysfonts cannot read WOFF2, so fonts/ holds
+# the WOFF2 the dashboard embeds: systemfonts cannot read WOFF2, so fonts/ holds
 # both formats.
 cds_font_dir <- function() {
   for (dir in c("fonts", "../fonts")) {
@@ -139,41 +139,24 @@ cds_font_dir <- function() {
   NULL
 }
 
-# Idempotent; safe if the files are missing (warns, returns FALSE). Semibold
-# (600) is mapped to the "bold" face, so theme titles render as Semibold rather
-# than a heavier 700.
+# Semibold (600) is mapped to the "bold" face, so theme titles render as
+# Semibold rather than a heavier 700. Safe to call per plot.
 register_cds_fonts <- function() {
-  if (cds_font %in% sysfonts::font_families()) {
-    showtext::showtext_auto()
-    return(invisible(TRUE))
+  dir <- cds_font_dir()
+  if (is.null(dir)) {
+    warning(
+      "Could not find the brand font files in fonts/; ",
+      "graphs will use the default sans font.",
+      call. = FALSE
+    )
+    return(invisible(FALSE))
   }
-  ok <- tryCatch(
-    {
-      dir <- cds_font_dir()
-      if (is.null(dir)) stop("font files not found", call. = FALSE)
-      sysfonts::font_add(
-        cds_font,
-        regular = file.path(dir, "source-sans-3-400-normal.ttf"),
-        bold    = file.path(dir, "source-sans-3-600-normal.ttf")
-      )
-      TRUE
-    },
-    error = function(e) {
-      warning(
-        "Could not load brand font '", cds_font, "' (", conditionMessage(e),
-        "); graphs will use the default sans font.",
-        call. = FALSE
-      )
-      FALSE
-    }
+  systemfonts::register_font(
+    cds_font,
+    plain = file.path(dir, "source-sans-3-400-normal.ttf"),
+    bold  = file.path(dir, "source-sans-3-600-normal.ttf")
   )
-  if (ok) {
-    showtext::showtext_auto()
-    # Match showtext's sizing to the resolution knitr renders figures at.
-    dpi <- knitr::opts_chunk$get("dpi")
-    showtext::showtext_opts(dpi = if (is.null(dpi)) 96 else dpi)
-  }
-  invisible(ok)
+  invisible(TRUE)
 }
 
 # theme_bw() in the brand typeface, with Semibold titles.

@@ -9,7 +9,7 @@ Two formats, because nothing reads both:
 | Files | Used by | Purpose |
 | --- | --- | --- |
 | `*.woff2` (6) | `_fonts.scss` | Document text. Quarto inlines them at render time. |
-| `*.ttf` (2) | `R/branding.R` | ggplot figures via showtext. `sysfonts` cannot read WOFF2. |
+| `*.ttf` (2) | `R/branding.R` | ggplot figures via ragg. `systemfonts` cannot read WOFF2. |
 
 Keep the two in step. If the typeface is ever changed, both sets have to move
 together or the prose and the graphs will disagree.
@@ -18,9 +18,9 @@ together or the prose and the graphs will disagree.
 
 - **WOFF2**, latin subset, ~16 KB each: `@fontsource/source-sans-3` 5.3.0, via
   `cdn.jsdelivr.net/npm/@fontsource/source-sans-3@5.3.0/files/`.
-- **TTF**, weights 400 and 600, ~235 KB each: `fonts.gstatic.com`, the same
-  files `sysfonts::font_add_google("Source Sans 3")` used to fetch at render
-  time, so the figures render identically to before they were vendored.
+- **TTF**, weights 400 and 600, ~235 KB each: `fonts.gstatic.com`. `R/branding.R`
+  registers this pair with systemfonts under a private family name, mapping 600
+  to the bold face, so a figure looks the same wherever it is rendered.
 
 ## Licence
 

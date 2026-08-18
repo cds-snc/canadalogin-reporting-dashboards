@@ -13,3 +13,7 @@ library(magick)
 # Athena BIGINT columns arrive as integer64, which vctrs/dplyr need bit64
 # loaded to handle - never named directly in code we control either.
 library(bit64)
+
+# The figures are drawn on ragg's device, selected by the `dev: ragg_png` chunk
+# option in experience-monitoring.qmd rather than by any call renv can see.
+library(ragg)

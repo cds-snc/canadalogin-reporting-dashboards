@@ -19,6 +19,11 @@ execute:
   echo: false
   warning: false
   message: false
+knitr:
+  opts_chunk:
+    # ragg reads brand families out of the systemfonts registry (see
+    # register_cds_fonts) and sizes text the same on macOS and Linux.
+    dev: ragg_png
 ---
 
 ```{r setup}
