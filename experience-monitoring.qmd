@@ -297,7 +297,16 @@ context.
 # and a copy-pasted mismatch would render one funnel's numbers under another's.
 funnel_page <- function(fid, h1) {
   label <- funnel_label(fid)
-  knitr::knit_child("_funnel-page.qmd", envir = environment(), quiet = TRUE)
+  # Sent to stderr rather than message() so it shows up in the log
+  log_render <- function(...) cat(sprintf(...), file = stderr())
+  started <- Sys.time()
+  log_render("[funnel] %s: rendering\n", fid)
+  page <- knitr::knit_child("_funnel-page.qmd", envir = environment(), quiet = TRUE)
+  log_render(
+    "[funnel] %s: done in %.1fs\n", fid,
+    as.numeric(difftime(Sys.time(), started, units = "secs"))
+  )
+  page
 }
 
 # Sign in and sign up stay first: they are the metric of record that feeds the
