@@ -9,14 +9,83 @@
 #' window_days == "7", not == 7. Expects dplyr / dbplyr / tidyr on the caller.
 
 # Every funnel must be present in the data (preflight) and have its own page.
-required_funnels <- c("sign_in", "sign_up")
+required_funnels <- c(
+  "sign_in", "sign_up", "recover_password",
+  "migration_existing_to_cl", "migration_new_to_cl"
+)
 
 # Mirrors the `metrics:` block of each funnel's YAML in the pipeline repo, which
 # is canonical. Preflight check 5 fails the render if these drift from the data.
 funnel_ratio_steps <- list(
   sign_in = c(numerator = "mfa", denominator = "enter_email"),
-  sign_up = c(numerator = "complete", denominator = "terms")
+  sign_up = c(numerator = "complete", denominator = "terms"),
+  recover_password = c(numerator = "complete", denominator = "reset_password"),
+  migration_existing_to_cl = c(numerator = "migration_complete",
+                               denominator = "migration_not_skipped"),
+  migration_new_to_cl = c(numerator = "migration_complete",
+                          denominator = "migration_not_skipped")
 )
+
+# Labels and the caveat shown under each funnel's table, local until the
+# pipeline emits a label column. Keyed by funnel id, since the generated pages
+# differ only by that id and a mismatch would head a page with wrong numbers.
+funnel_presentation <- list(
+  sign_in = list(
+    label = "Sign in",
+    note = paste(
+      "**Note** This rate stops at MFA selection, the last step Google",
+      "Analytics can see before the off-site redirect to IBM Verify."
+    )
+  ),
+  sign_up = list(
+    label = "Sign up",
+    note = paste(
+      "**Note.** Sign up's exit is the account-creation confirmation page, a",
+      "first-party event."
+    )
+  ),
+  recover_password = list(
+    label = "Recover password",
+    note = paste(
+      "**Note.** The exit here is the confirmation shown once a new password is",
+      "set, a first-party event."
+    )
+  ),
+  migration_existing_to_cl = list(
+    label = "Migration (existing)",
+    note = paste(
+      "**Note.** This funnel measures users to are migrating a legacy credential to",
+      "CanadaLogin and already have a CanadaLogin account. As of August 2026, this",
+      "is a low volume funnel, since most users are creating a new account."
+    )
+  ),
+  migration_new_to_cl = list(
+    label = "Migration (new)",
+    note = paste(
+      "**Note.** This funnel measures users to are migrating a legacy credential to",
+      "CanadaLogin and want to create a new CanadaLogin account."
+    )
+  )
+)
+
+# A missing entry fails here rather than heading a page with a warehouse id.
+funnel_label <- function(funnel_id) {
+  label <- funnel_presentation[[funnel_id]]$label
+  if (is.null(label)) {
+    stop("No label declared for funnel '", funnel_id, "'; ",
+         "add one to funnel_presentation in R/metrics.R.", call. = FALSE)
+  }
+  label
+}
+
+funnel_note <- function(funnel_id) {
+  note <- funnel_presentation[[funnel_id]]$note
+  if (is.null(note)) {
+    stop("No note declared for funnel '", funnel_id, "'; ",
+         "add one to funnel_presentation in R/metrics.R.", call. = FALSE)
+  }
+  note
+}
 
 # Counts behind the rate, one row per (window_end, breakdown_value). `from` and
 # `to` bound window_end inclusively; funnel_version rides along for the chart.
