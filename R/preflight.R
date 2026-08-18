@@ -10,7 +10,8 @@
 run_preflight_safety_check <- function(con,
                                        today = Sys.Date(),
                                        ga_export_lag_days = 2L,
-                                       lookback_days = 14L) {
+                                       lookback_days = 14L,
+                                       min_task_success_rate = 0.02) {
 
   # Helpers --------------------------------------------------------------------
 
@@ -53,7 +54,7 @@ run_preflight_safety_check <- function(con,
       as.Date(window_end) >= as.Date(!!as.character(lookup_start)),
       as.Date(window_end) <= as.Date(!!as.character(as_of))
     ) |>
-    select(funnel_id, window_days, breakdown_value, window_end) |>
+    select(funnel_id, window_days, breakdown_value, window_end, value) |>
     collect() |>
     mutate(window_end = as.Date(window_end))
 
@@ -286,6 +287,87 @@ run_preflight_safety_check <- function(con,
            "{glue_collapse(sprintf(\"'%s'\", help_names), sep = ', ')}, ",
            "expected '{help_stream_name}'; check the stream constants in ",
            "the dashboard's setup chunk against the GA4 admin")
+    }
+  )
+
+  # Check 8 - task success rate implausibly low ---------------------------------
+  #
+  # An exit step that stops reporting reads as 0%, not as missing, since
+  # funnel_step_counts() coalesces an absent numerator to zero. A floor rather
+  # than a zero test: one stray event lifts a broken funnel off zero. The 28-day
+  # window is tested separately: activeUsers de-duplicate, so it is not a blend.
+  low_rates <- raw |>
+    filter(
+      breakdown_value == "RESERVED_TOTAL",
+      !is.na(value),                       # NULL is undefined, not low
+      value < min_task_success_rate,
+      window_days == "7" | (window_days == long_window & window_end == as_of)
+    )
+
+  # Queried only for a funnel that failed, so a passing render adds no query.
+  step_coverage <- function(funnel) {
+    steps <- funnel_ratio_steps[[funnel]]
+    days <- tbl(
+      con, in_schema("google_analytics", "funnels_current")
+    ) |>
+      filter(
+        funnel_id == !!funnel,
+        window_days == "1",
+        breakdown_value == "RESERVED_TOTAL",
+        !window_incomplete,
+        funnelstepname %in% !!unname(steps),
+        as.Date(window_end) >= as.Date(!!as.character(lookup_start)),
+        as.Date(window_end) <= as.Date(!!as.character(as_of))
+      ) |>
+      distinct(funnelstepname, window_end) |>
+      collect()
+
+    vapply(
+      steps,
+      \(step) length(unique(days$window_end[days$funnelstepname == step])),
+      integer(1)
+    )
+  }
+
+  as_percent <- function(x) sprintf("%.2f%%", x * 100)
+
+  rate_problems <- character()
+  for (funnel in unique(low_rates$funnel_id)) {
+    # A flat zero ties across every window; ordering keeps the wording stable
+    # between renders, and reports the day the funnel broke.
+    hits <- low_rates[low_rates$funnel_id == funnel, ] |>
+      arrange(value, window_end)
+    worst <- hits[1, ]
+    steps <- funnel_ratio_steps[[funnel]]
+    days_seen <- step_coverage(funnel)
+
+    rate_problems <- c(
+      rate_problems,
+      glue(
+        "{funnel}: {nrow(hits)} window(s) below ",
+        "{as_percent(min_task_success_rate)}, worst {as_percent(worst$value)} ",
+        "on the {worst$window_days}-day window ending ",
+        "{format_date(worst$window_end)}; over the last {long_window_days} days ",
+        "'{steps[['numerator']]}' reports on {days_seen[['numerator']]} day(s) ",
+        "against {days_seen[['denominator']]} for '{steps[['denominator']]}'; ",
+        "a rate this low means the funnel stopped reporting, not that users ",
+        "stopped succeeding"
+      )
+    )
+  }
+
+  record_check(
+    8,
+    glue("Task success plausibility - no funnel below ",
+         "{as_percent(min_task_success_rate)} on a displayed window"),
+    passed = length(rate_problems) == 0,
+    details = if (length(rate_problems) == 0) {
+      glue("every 7-day window in the last {long_window_days} days, and the ",
+           "{long_window_days}-day window ending {format_date(as_of)}, is at ",
+           "or above {as_percent(min_task_success_rate)} for ",
+           "{glue_collapse(required_funnels, sep = ', ')}")
+    } else {
+      rate_problems
     }
   )
 
