@@ -14,7 +14,7 @@ numbers live in the monthly task success report, a written Google doc; this
 dashboard saves analysts the Google Analytics dig and hands them copy-ready
 numbers for writing that report.
 
-The dashboard is rendered on Wednesday mornings via the
+The dashboard is rendered on Monday mornings via the
 [Signal Check Publishing](https://github.com/cds-snc/canadalogin-signal-check-publishing)
 repository to a single URL that does not change week-to-week.
 
