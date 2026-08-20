@@ -4,6 +4,7 @@
 #' rp_id; `rp.service` holds that service's names, operator and is_internal.
 #' Both are refreshed each weekday from the hand-maintained source sheet by the
 #' rp-sync Lambda in the pipeline repo, so this repo holds no copy of its own.
+#' The operator is abbreviated on the way through; see R/gcorg.R.
 #'
 #' GA breaks its funnels down by customEvent:rp_name, which is one of those
 #' alias strings. A service with more than one GA name pools into a single row
@@ -26,15 +27,19 @@ relying_party_lookup <- local({
     aliases <- dplyr::tbl(con, dbplyr::in_schema("rp", "alias")) |>
       dplyr::select(alias, rp_id)
     services <- dplyr::tbl(con, dbplyr::in_schema("rp", "service")) |>
-      dplyr::select(rp_id,
-                    service_name = service_name_en, operator, is_internal)
+      dplyr::select(rp_id, service_name = service_name_en, operator,
+                    gcorg_id, is_internal)
 
     # Join on alias alone, never filtering on `source`: it records where a name
     # was first seen, not which system it belongs to.
     cached <<- aliases |>
       dplyr::inner_join(services, by = "rp_id") |>
       dplyr::select(-rp_id) |>
-      dplyr::collect()
+      dplyr::collect() |>
+      # Inside the memoised lookup, so a render costs one call to the resolver.
+      dplyr::mutate(
+        operator_abbr = dplyr::coalesce(gcorg_abbreviations(gcorg_id), operator)
+      )
     cached
   }
 })
@@ -45,7 +50,7 @@ relying_party_lookup <- local({
 relying_party_services <- function(con) {
   relying_party_lookup(con) |>
     dplyr::distinct(service_name, .keep_all = TRUE) |>
-    dplyr::select(service_name, operator, is_internal)
+    dplyr::select(service_name, operator, operator_abbr, is_internal)
 }
 
 # service_name, operator and is_internal for each rp_name. Exactly one row per
@@ -55,11 +60,11 @@ label_relying_parties <- function(con, rp_names) {
     dplyr::left_join(relying_party_lookup(con), by = "alias")
 }
 
-# The operator of each service, by the service name a table already shows.
+# The abbreviated operator of each service, by the service name a table shows.
 service_operators <- function(con, service_names) {
   dplyr::tibble(service_name = service_names) |>
     dplyr::left_join(relying_party_services(con), by = "service_name") |>
-    dplyr::pull(operator)
+    dplyr::pull(operator_abbr)
 }
 
 # TRUE for each rp_name belonging to an internal service. An rp_name the lookup

@@ -29,6 +29,7 @@ knitr:
 
 ```{r setup}
 source("R/connection.R")
+source("R/gcorg.R")
 source("R/registry.R")
 source("R/metrics.R")
 source("R/preflight.R")
