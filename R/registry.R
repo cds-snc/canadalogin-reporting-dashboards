@@ -28,7 +28,7 @@ relying_party_lookup <- local({
       dplyr::select(alias, rp_id)
     services <- dplyr::tbl(con, dbplyr::in_schema("rp", "service")) |>
       dplyr::select(rp_id, service_name = service_name_en, operator,
-                    gcorg_id, is_internal)
+                    gc_orgid, is_internal)
 
     # Join on alias alone, never filtering on `source`: it records where a name
     # was first seen, not which system it belongs to.
@@ -38,7 +38,7 @@ relying_party_lookup <- local({
       dplyr::collect() |>
       # Inside the memoised lookup, so a render costs one call to the resolver.
       dplyr::mutate(
-        operator_abbr = dplyr::coalesce(gcorg_abbreviations(gcorg_id), operator)
+        operator_abbr = dplyr::coalesce(gcorg_abbreviations(gc_orgid), operator)
       )
     cached
   }

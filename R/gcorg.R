@@ -1,14 +1,14 @@
 #' Operator abbreviations from the GC organization dataset, resolved through
 #' https://github.com/cds-snc/gcorg-resolver.
 #'
-#' `rp.service` carries the operating organization's `gcorg_id`, which the
+#' `rp.service` carries the operating organization's `gc_orgid`, which the
 #' resolver takes as an alias of itself, so tables can show "VAC" rather than
 #' "Veterans Affairs Canada".
 
 # One abbreviation per id, in input order. NA where the dataset holds no such
-# organization, gcorg_id 0 included, and NA throughout if the resolver is down.
-gcorg_abbreviations <- function(gcorg_id) {
-  ids <- as.character(gcorg_id)
+# organization, gc_orgid 0 included, and NA throughout if the resolver is down.
+gcorg_abbreviations <- function(gc_orgid) {
+  ids <- as.character(gc_orgid)
   body <- jsonlite::toJSON(
     list(names = unique(ids[!is.na(ids)])), auto_unbox = FALSE
   )
