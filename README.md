@@ -1,31 +1,24 @@
-# CanadaLogin Experience Monitoring
+# CanadaLogin Reporting
 
-An internal-only dashboard for the EDCP Data and Research Team that helps us understand
-the experience of a CanadaLogin user. It covers:
+A collection of internal-only dashboards for the EDCP Data and Research Team,
+built on shared Quarto branding, connection and publishing conventions.
 
-- **Task success rates** for the sign-in, sign-up, recover-password and migration
-  funnels, the share of users who start a flow and reach its defined finishing
-  point, overall and per relying party.
-- **Help site page views**, the most-read pages in English and French, which is
-  a read on what people look up when a flow does not go smoothly.
+## Dashboards
 
-It is a working feeder, not the source of truth. The canonical task success
-numbers live in the monthly task success report, a written Google doc; this
-dashboard saves analysts the Google Analytics dig and hands them copy-ready
-numbers for writing that report.
+- [Experience Monitoring](dashboards/experience-monitoring/README.md) - task
+  success rates and help site page views for CanadaLogin.
 
-The dashboard is rendered on Monday mornings via the
-[Signal Check Publishing](https://github.com/cds-snc/canadalogin-signal-check-publishing)
-repository to a single URL that does not change week-to-week.
+* Are you looking for Signal Check? That's a special case, and you can find them
+[here](https://www.github.com/cds-snc/canadalogin-reporting-signal-check).
 
 ## Layout
 
-- `dashboards/<name>/` - one folder per dashboard, and **each is its own Quarto
-  project**: its `.qmd`, its `_quarto.yml`, its `.Rprofile`, its own `R/` for the
-  code only it uses, and its notes.
-- `common/` - code shared by every dashboard: the Athena connection, the
-  relying-party lookup, branding and colours. `common/setup.R` is the single
-  entry point a dashboard sources.
+- `dashboards/<name>/` - one Quarto project per dashboard.
+  - A `<name>.qmd` for the dashbboard 
+  - A `_quarto.yml` for the Quarto config
+  - An `.Rprofile` for the R project config
+  - An `R/` for the code only it uses
+- `common/` - code shared by every dashboard. Use `common/setup.R` to load it.
 - `_common.yml` - the format, theme and execution defaults every dashboard
   pulls in through `metadata-files`. Quarto does not inherit config across
   project boundaries, so this file is how dashboards share one instead.
@@ -46,10 +39,7 @@ repo root or the dashboard folder.
 2. Copy `_quarto.yml` and `.Rprofile` from an existing dashboard, changing the
    `render:` entry to the new qmd. The `.Rprofile` is what activates the shared
    renv when the render is invoked from inside the folder.
-3. Add a `notes/` folder with the whitelist `.gitignore`, if it needs one.
-4. Mint the publishing token by running `publish.sh` on the first rendered
-   file, then copy the render workflow in the publishing repo and change
-   `QMD_PATH`, `OUTPUT_HTML`, `PUBLISH_TOKEN` and the cron.
+3. Publish via the `publish.sh` script in `cds-snc/canadalogin-signal-check-publishing`
 
 ## Checks
 
