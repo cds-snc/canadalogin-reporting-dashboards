@@ -1,53 +1,28 @@
 ---
 title: "CanadaLogin Experience Monitoring"
 author: "EDCP Data and Research Team"  # colin.douglas@cds-snc.ca
+# Format, theme, brand, execute and knitr defaults are shared by every
+# dashboard and live in the root _quarto.yml. Only what is specific to this
+# dashboard belongs here. Paths below resolve against THIS directory, not the
+# project root; that is what keeps each dashboard's render artefacts its own.
 format:
   dashboard:
-    orientation: rows
-    embed-resources: true
-    scrolling: true
-    theme: [cosmo, _fonts.scss]   # _fonts.scss: self-hosted brand fonts
-    css: styles.css
     # Written by the setup chunk at render time; empty unless a check failed.
     include-before-body: preflight-banner.html
     # Written by the analytics chunk at render time; see _analytics.qmd.
     include-after-body: analytics-tag.html
-brand: _brand.yml
 params:
   ga_page_title: "Experience Monitoring Dashboard"
-execute:
-  echo: false
-  warning: false
-  message: false
-knitr:
-  opts_chunk:
-    # ragg reads brand families out of the systemfonts registry (see
-    # register_cds_fonts) and sizes text the same on macOS and Linux.
-    dev: ragg_png
-    dpi: 200
 ---
 
 ```{r setup}
-source("R/connection.R")
-source("R/gcorg.R")
-source("R/registry.R")
-source("R/metrics.R")
-source("R/preflight.R")
-source("R/branding.R")
-source("R/colours.R")
+# Shared packages and modules. The working directory is the project root
+# whatever depth this dashboard sits at; see execute-dir in _quarto.yml.
+source("common/setup.R")
 
-suppressPackageStartupMessages({
-  library(DBI)
-  library(RAthena)
-  library(dplyr)
-  library(dbplyr)
-  library(tidyr)
-  library(glue)
-  library(purrr)
-  library(ggplot2)
-  library(scales)
-  library(gt)
-})
+# This dashboard's own code.
+source("dashboards/experience-monitoring/R/metrics.R")
+source("dashboards/experience-monitoring/R/preflight.R")
 
 con <- connect_athena()
 
@@ -57,7 +32,8 @@ help_stream_id <- "13052807364"
 help_stream_name <- "CanadaLogin Website (Help/About/GC Partner info)"
 
 # A failed check banners the dashboard rather than stopping the render, so the
-# banner is what stands between a holed number and a publish. See R/preflight.R.
+# banner is what stands between a holed number and a publish. See this
+# dashboard's R/preflight.R.
 ga_lag <- 2L
 preflight <- run_preflight_safety_check(
   con, today = Sys.Date(), ga_export_lag_days = ga_lag
@@ -303,7 +279,11 @@ funnel_page <- function(fid, h1) {
   log_render <- function(...) cat(sprintf(...), file = stderr())
   started <- Sys.time()
   log_render("[funnel] %s: rendering\n", fid)
-  page <- knitr::knit_child("_funnel-page.qmd", envir = environment(), quiet = TRUE)
+  # render_dir(), not a bare name: the working directory is the project root,
+  # and the template sits beside this qmd. See common/setup.R.
+  page <- knitr::knit_child(
+    file.path(render_dir(), "_funnel-page.qmd"), envir = environment(), quiet = TRUE
+  )
   log_render(
     "[funnel] %s: done in %.1fs\n", fid,
     as.numeric(difftime(Sys.time(), started, units = "secs"))
@@ -540,4 +520,4 @@ help_ranked |>
 DBI::dbDisconnect(con)
 ```
 
-{{< include _analytics.qmd >}}
+{{< include ../../_analytics.qmd >}}

@@ -20,12 +20,21 @@ repository to a single URL that does not change week-to-week.
 
 ## Layout
 
-- `experience-monitoring.qmd` - the single dashboard document.
-- `R/` - shared code: Athena connection, branding, colours, the funnel metric
-  layer.
-- `_brand.yml`, `_analytics.qmd`, `img/` - branding and the GA4 tag.
+- `dashboards/<name>/` - one folder per dashboard: its `.qmd`, its own `R/` for
+  the code only it uses, and its notes.
+- `common/` - code shared by every dashboard: the Athena connection, the
+  relying-party lookup, branding and colours. `common/setup.R` is the single
+  entry point a dashboard sources.
+- `_quarto.yml` - the format, theme and execution defaults every dashboard
+  inherits. Paths declared there resolve against the repo root; paths declared
+  in a dashboard's own front matter resolve against that dashboard's folder.
+- `_brand.yml`, `_fonts.scss`, `styles.css`, `fonts/`, `img/`, `_analytics.qmd` -
+  shared branding, typography and the GA4 tag.
+
+Render one dashboard with `quarto render dashboards/<name>`.
 
 ## Checks
 
-The dashboard runs data-quality checks at render time (`R/preflight.R`). A failed
-check does not stop the render, and instead flags the dashboard with a big red banner.
+Each dashboard runs its own data-quality checks at render time (see its
+`R/preflight.R`). A failed check does not stop the render, and instead flags the
+dashboard with a big red banner.

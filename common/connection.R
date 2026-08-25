@@ -1,5 +1,6 @@
-#' Athena connection and non-analytical setup. Queries live in R/metrics.R and
-#' R/preflight.R; relying-party labelling in R/registry.R.
+#' Athena connection and non-analytical setup. Shared by every dashboard;
+#' relying-party labelling is in common/registry.R. A dashboard's own queries
+#' and preflight checks live in its dashboards/<name>/R/ folder.
 #'
 #' Config comes from a gitignored .env at the project root. Authenticate first:
 #' aws sso login --profile cl-data-admin.

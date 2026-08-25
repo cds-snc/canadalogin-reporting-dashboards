@@ -1,9 +1,9 @@
 linters: linters_with_defaults(
     line_length_linter(88L),
-    # The R/ files are sourced into experience-monitoring.qmd, not a package,
-    # so this linter has no scope in which to resolve a name: it flags every
-    # function attached by the .qmd's library() calls, every object defined in a
-    # sibling R/ file, and every dplyr column name used bare in NSE. All false
-    # positives here, and enough of them to bury a real one.
+    # The common/ and dashboards/*/R/ files are sourced into a dashboard qmd,
+    # not a package, so this linter has no scope in which to resolve a name: it
+    # flags every function attached by common/setup.R's library() calls, every
+    # object defined in a sibling file, and every dplyr column name used bare in
+    # NSE. All false positives here, and enough of them to bury a real one.
     object_usage_linter = NULL
   )

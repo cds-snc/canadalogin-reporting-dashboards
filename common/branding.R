@@ -12,18 +12,17 @@ suppressPackageStartupMessages({
   library(ggplot2)
 })
 
-# Searches upward, so it resolves from the project root or a subfolder.
+# Assets live at the project root, which is also the working directory every
+# dashboard renders in; see execute-dir in _quarto.yml.
 cds_logo_path <- function(canada_wordmark = FALSE) {
   variants <- if (canada_wordmark) {
     c("EN_Square+CANADA.jpg", "FR_Square+CANADA.jpg")
   } else {
     c("cds-snc.png", "snc-cds.png")
   }
-  for (dir in c("img", "../img")) {
-    present <- file.path(dir, variants)
-    present <- present[file.exists(present)]
-    if (length(present) > 0) return(sample(present, 1))
-  }
+  present <- file.path("img", variants)
+  present <- present[file.exists(present)]
+  if (length(present) > 0) return(sample(present, 1))
   stop(
     "CDS logo not found in img/ (", paste(variants, collapse = " / "), ")",
     call. = FALSE
@@ -96,12 +95,17 @@ add_cds_logo <- function(
 # Watermark -------------------------------------------------------------------
 
 # Light bottom-right watermark: dashboard name and data-through date. There is
-# no edition number, since this is one dashboard re-rendered in place.
-add_watermark <- function(plot, date = Sys.Date()) {
+# no edition number, since a dashboard is re-rendered in place.
+#
+# report_name is an argument rather than a constant because this file is shared
+# by every dashboard in the repo. The default is the dashboard that was here
+# first; a new dashboard must pass its own name. The cds package's copy of this
+# function takes the same argument.
+add_watermark <- function(plot,
+                          report_name = "CanadaLogin Experience Monitoring",
+                          date = Sys.Date()) {
   if (inherits(date, "Date")) date <- format(date, "%B %e, %Y")
-  label <- paste0(
-    "CanadaLogin Experience Monitoring // Data through ", trimws(date)
-  )
+  label <- paste0(report_name, " // Data through ", trimws(date))
   font_family <- if (register_cds_fonts()) cds_font else ""
   current_margin <- ggplot2::calc_element("plot.margin", plot$theme)
   if (is.null(current_margin)) current_margin <- ggplot2::margin(5.5, 5.5, 5.5, 5.5)
@@ -129,14 +133,10 @@ add_watermark <- function(plot, date = Sys.Date()) {
 # systemfonts will not register a family that shadows an installed system font.
 cds_font <- "Source Sans 3 (CDS)"
 
-# Searches upward, so it resolves from the project root or a subfolder. TTF, not
-# the WOFF2 the dashboard embeds: systemfonts cannot read WOFF2, so fonts/ holds
-# both formats.
+# At the project root, like img/. TTF, not the WOFF2 the dashboard embeds:
+# systemfonts cannot read WOFF2, so fonts/ holds both formats.
 cds_font_dir <- function() {
-  for (dir in c("fonts", "../fonts")) {
-    if (file.exists(file.path(dir, "source-sans-3-400-normal.ttf"))) return(dir)
-  }
-  NULL
+  if (file.exists(file.path("fonts", "source-sans-3-400-normal.ttf"))) "fonts" else NULL
 }
 
 # Semibold (600) is mapped to the "bold" face, so theme titles render as

@@ -4,8 +4,12 @@
 #' a numbered checklist and returns the result. A failed check raises a banner
 #' across the top of the dashboard rather than stopping the render.
 #'
-#' Source R/connection.R, R/registry.R and R/metrics.R first, and define the
-#' help_stream_* constants. Expects an open `con`, dplyr/dbplyr/tidyr and glue.
+#' Source common/setup.R and this dashboard's R/metrics.R first, and define
+#' the help_stream_* constants. Expects an open `con`, dplyr/dbplyr/tidyr and
+#' glue.
+#'
+#' The checks here are specific to this dashboard; the runner, the banner and
+#' the status writer are due to move up to common/ in a later change.
 
 run_preflight_safety_check <- function(con,
                                        today = Sys.Date(),
@@ -402,7 +406,11 @@ preflight_contact_url <- "https://gcdigital.slack.com/archives/C0A6S9F7KV4"
 
 # Writes the banner a failed check raises, from run_preflight_safety_check()'s
 # result. A file, not chunk output, which a dashboard would turn into a card.
-write_preflight_banner <- function(result, path = "preflight-banner.html") {
+# Defaults beside the qmd rather than at the working directory, which is the
+# project root; see render_dir() in common/setup.R.
+write_preflight_banner <- function(result,
+                                   path = file.path(render_dir(),
+                                                    "preflight-banner.html")) {
   if (result$passed) {
     writeLines(character(), path)
     return(invisible(FALSE))
@@ -431,8 +439,11 @@ write_preflight_banner <- function(result, path = "preflight-banner.html") {
 # Status file ----------------------------------------------------------------
 
 # The banner's machine-readable twin. Unattended there is nobody to read the
-# banner, so CI reads this instead and fails the run on a failed check.
-write_preflight_status <- function(result, path = "preflight-status.json") {
+# banner, so CI reads this instead and fails the run on a failed check. Beside
+# the qmd, for the same reason as the banner.
+write_preflight_status <- function(result,
+                                   path = file.path(render_dir(),
+                                                    "preflight-status.json")) {
   jsonlite::write_json(
     list(
       passed = result$passed,

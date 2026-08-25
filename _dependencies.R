@@ -7,7 +7,7 @@
 #' This file is never sourced. It exists to be read by renv::dependencies().
 
 # cowplot::draw_image() reads the PNG logo through magick, but never names it in
-# code we control. See add_cds_logo() in R/branding.R.
+# code we control. See add_cds_logo() in common/branding.R.
 library(magick)
 
 # Athena BIGINT columns arrive as integer64, which vctrs/dplyr need bit64

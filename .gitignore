@@ -34,13 +34,18 @@ Thumbs.db
 /.quarto/
 **/*.quarto_ipynb
 
-# Written by the analytics chunk at render time (see _analytics.qmd), then
-# pulled in by include-after-body.
+# Written by the pre-render step from _brand.yml; see common/resolve-brand.R.
+# _brand.yml is the source of brand truth and is the file that is committed.
+_brand.generated.yml
+
+# Written at render time into the rendering dashboard's own folder, then pulled
+# in by its include-after-body (see _analytics.qmd). Unanchored, so it matches
+# at any depth.
 analytics-tag.html
 
-# Written by the setup chunk at render time (see R/preflight.R), then pulled in
-# by include-before-body.
+# Written at render time into the rendering dashboard's own folder, then pulled
+# in by its include-before-body (see the dashboard's R/preflight.R).
 preflight-banner.html
 
-# Written by the setup chunk at render time; read by CI, never committed.
+# Written beside the banner at render time; read by CI, never committed.
 preflight-status.json

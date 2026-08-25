@@ -4,7 +4,7 @@
 #' rp_id; `rp.service` holds that service's names, operator and is_internal.
 #' Both are refreshed each weekday from the hand-maintained source sheet by the
 #' rp-sync Lambda in the pipeline repo, so this repo holds no copy of its own.
-#' The operator is abbreviated on the way through; see R/gcorg.R.
+#' The operator is abbreviated on the way through; see common/gcorg.R.
 #'
 #' GA breaks its funnels down by customEvent:rp_name, which is one of those
 #' alias strings. A service with more than one GA name pools into a single row

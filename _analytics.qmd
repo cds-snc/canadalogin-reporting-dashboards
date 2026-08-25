@@ -77,5 +77,5 @@ writeLines(sprintf(
 </script>',
   analytics_measurement_id,
   gsub('"', "'", analytics_title, fixed = TRUE)
-), "analytics-tag.html")
+), file.path(render_dir(), "analytics-tag.html"))
 ```
