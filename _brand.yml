@@ -70,9 +70,7 @@ typography:
 
 logo:
   # CDS/SNC square (the primary mark) plus the square + Canada wordmark lockup,
-  # in English- and French-led letter order. Paths are relative to this file,
-  # which lives in the project root here (not a reports/ subdir), so img/ is
-  # directly alongside it.
+  # in English- and French-led letter order. Paths are relative to this file.
   images:
     cds-snc-square: img/cds-snc.png            # CDS/SNC square (English)
     snc-cds-square: img/snc-cds.png            # SNC/CDS square (French)

@@ -5,22 +5,15 @@
 # than emitted inline, which a dashboard would turn into an invisible card that
 # takes width from the content beside it.
 #
-# These settings are half the job; the GA4 admin UI wins where the two disagree.
+# The GA4 admin UI overrides these settings where the two disagree.
 analytics_measurement_id <- "G-LCP5HXC91Q"
 
-analytics_edition <- if (exists("params") && !is.null(params$edition)) {
-  paste0(" #", params$edition)
-} else {
-  ""
-}
-
-# page_title from the params block, else title + edition + subtitle.
-analytics_title <- if (exists("params") && !is.null(params$ga_page_title)) {
+# page_title from the params block, else title + subtitle.
+analytics_title <- if (!is.null(params$ga_page_title)) {
   params$ga_page_title
 } else {
   paste0(
     rmarkdown::metadata$title,
-    analytics_edition,
     if (!is.null(rmarkdown::metadata$subtitle)) {
       paste0(" - ", rmarkdown::metadata$subtitle)
     }
@@ -77,5 +70,5 @@ writeLines(sprintf(
 </script>',
   analytics_measurement_id,
   gsub('"', "'", analytics_title, fixed = TRUE)
-), file.path(render_dir(), "analytics-tag.html"))
+), "analytics-tag.html")
 ```

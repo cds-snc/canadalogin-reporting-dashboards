@@ -18,9 +18,9 @@
   margin-inline: auto;
 }
 
-/* Quarto sizes value box text with JavaScript in proportion to the box, which
-   makes a wide box a billboard and clips a short one. !important beats the
-   inline style that script writes. */
+/* Quarto sizes value box text with JavaScript in proportion to the box, so a
+   wide box gets huge text and a short one clips. !important beats the inline
+   style that script writes. */
 .bslib-value-box .value-box-value {
   font-size: 2rem !important;
   line-height: 1.2 !important;
@@ -31,15 +31,15 @@
   font-weight: 500;
 }
 
-/* Held at their own size beside a taller chart, rather than stretching and
-   leaving one number stranded in a field of colour. */
+/* Keep value boxes at their own height beside a taller chart, rather than
+   stretching to match it. */
 .bslib-value-box {
   align-self: start;
   max-height: 170px;
 }
 
-/* Capped rather than sized to content: shrink-to-fit gives each funnel a
-   different width, following whichever operator has the longest name. */
+/* Capped rather than sized to content: shrink-to-fit would give each funnel a
+   different width, set by its longest operator name. */
 .card-body table {
   width: 100%;
   max-width: var(--card-content-width);
@@ -55,20 +55,6 @@
 .card-body table th,
 .card-body table td {
   padding: 0.25rem 0.9rem;
-}
-
-/* Period-over-period change. Colour is a second signal only, and forest rather
-   than brand green, which is too light to pass contrast as text. */
-.delta-up {
-  color: #115740;
-}
-
-.delta-down {
-  color: #ab2328;
-}
-
-.delta-flat {
-  color: #5c6670;
 }
 
 /* Preflight failure banner (see R/preflight.R), included before the body so it
@@ -108,7 +94,7 @@
   text-decoration: underline;
 }
 
-/* Prose under a table or chart, not competing with the numbers above it. */
+/* Prose under a table or chart, set smaller than the numbers above it. */
 .figure-note {
   font-size: 0.8rem;
   color: #5c6670;

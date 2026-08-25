@@ -1,10 +1,8 @@
 ---
 title: "CanadaLogin Experience Monitoring"
 author: "EDCP Data and Research Team"  # colin.douglas@cds-snc.ca
-# Format, theme, brand, execute and knitr defaults are shared by every
-# dashboard and live in the root _quarto.yml. Only what is specific to this
-# dashboard belongs here. Paths below resolve against THIS directory, not the
-# project root; that is what keeps each dashboard's render artefacts its own.
+# Shared format, theme and brand defaults come from _common.yml, via
+# _quarto.yml here.
 format:
   dashboard:
     # Written by the setup chunk at render time; empty unless a check failed.
@@ -16,13 +14,11 @@ params:
 ---
 
 ```{r setup}
-# Shared packages and modules. The working directory is the project root
-# whatever depth this dashboard sits at; see execute-dir in _quarto.yml.
-source("common/setup.R")
+# The working directory is this folder; the shared layer is two levels up.
+source("../../common/setup.R")
 
-# This dashboard's own code.
-source("dashboards/experience-monitoring/R/metrics.R")
-source("dashboards/experience-monitoring/R/preflight.R")
+source("R/metrics.R")
+source("R/preflight.R")
 
 con <- connect_athena()
 
@@ -31,9 +27,8 @@ con <- connect_athena()
 help_stream_id <- "13052807364"
 help_stream_name <- "CanadaLogin Website (Help/About/GC Partner info)"
 
-# A failed check banners the dashboard rather than stopping the render, so the
-# banner is what stands between a holed number and a publish. See this
-# dashboard's R/preflight.R.
+# A failed check adds a banner rather than stopping the render, so the banner
+# is the only gate before a publish. See R/preflight.R.
 ga_lag <- 2L
 preflight <- run_preflight_safety_check(
   con, today = Sys.Date(), ga_export_lag_days = ga_lag
@@ -62,7 +57,7 @@ data_through <- tbl(
 series_start   <- as.Date("2000-01-01")          # early bound; pulls all history
 trailing_start <- data_through - (7L * 12L)       # ~12-week working window
 
-# "August 8", not "August 08": the integer day avoids zero-padding.
+# "August 8", not "August 08".
 format_long_date <- function(d) {
   d <- as.Date(d)
   paste0(format(d, "%B"), " ", as.integer(format(d, "%d")), ", ", format(d, "%Y"))
@@ -72,8 +67,8 @@ data_through_label <- format_long_date(data_through)
 # Whole-number percent, or "n/a" for an undefined rate.
 fmt_pct <- function(x) ifelse(is.na(x), "n/a", paste0(round(x * 100), "%"))
 
-# GA's "" and "(not set)" mean the same thing, and internal services are not
-# listed individually. Neither label is a service, so neither reaches the table.
+# Pooled rows: GA's "" and "(not set)" mean the same thing, and internal
+# services are not listed individually. Neither label reaches the table.
 internal_rp_label <- "Internal apps"
 unrecorded_rp_label <- "Relying party not recorded"
 pooled_rp_labels <- c(internal_rp_label, unrecorded_rp_label)
@@ -82,17 +77,17 @@ pooled_rp_labels <- c(internal_rp_label, unrecorded_rp_label)
 # from day to day, so the table shows only the busiest few.
 party_rows <- 5L
 
-# Prose spells small numbers out, and 15 is as high as a party count can go.
+# For spelling small counts out in prose; GA caps the breakdown at 15.
 number_words <- c(
   "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
   "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen"
 )
 
-# GA's rp_name is an alias, so this resolves it to the service name the lookup
-# gives, which pools a service that GA knows by more than one name into one row.
+# Resolves GA's rp_name to the lookup's service name, pooling a service GA
+# knows by more than one name into one row.
 #
 # replace(), not ifelse(): ifelse() on an empty frame returns logical(0), which
-# clashes on type the moment an empty period is joined to a full one.
+# breaks on type when an empty period is joined to a full one.
 rp_display_name <- function(rp_name) {
   service <- label_relying_parties(con, rp_name)$service_name
   out <- coalesce(service, rp_name)
@@ -104,7 +99,7 @@ rp_display_name <- function(rp_name) {
 step_labels <- lapply(required_funnels, \(f) funnel_step_names(con, f))
 names(step_labels) <- required_funnels
 
-# The names are slugs, so underscores are opened up.
+# Step names are slugs; open the underscores up for display.
 format_step_name <- function(step) {
   if (is.na(step)) "unknown step" else paste0("'", gsub("_", " ", step), "'")
 }
@@ -157,7 +152,7 @@ chart_title <- function(funnel_id) {
   glue("Task Success: {funnel_label(funnel_id)}")
 }
 
-# Hand-wrapped to two lines: one line runs under the logo, three eat plot area.
+# Wrapped by hand to two lines: one runs under the logo, three crowd the plot.
 # Line two names the denominator where it is not the funnel's first step.
 chart_subtitle <- function(funnel_id) {
   parties <- if (denominator_is_entry(funnel_id)) {
@@ -194,13 +189,23 @@ prior_period_complete <- function(funnel_id) {
   nrow(prior) > 0 && !is.na(prior$value)
 }
 
+# "up" / "down" / "flat"; a change under half a tenth of a point reads as none.
+delta_direction <- function(delta) {
+  case_when(
+    is.na(delta) | abs(delta) <= 0.0005 ~ "flat",
+    delta > 0 ~ "up",
+    .default = "down"
+  )
+}
+
 # Direction is carried by the arrow and the sign, not colour alone; an
 # uncalculable change is a dash, not a zero. gt colours it, see delta_colours.
 fmt_delta <- function(delta) {
+  direction <- delta_direction(delta)
   case_when(
     is.na(delta) ~ "-",
-    delta > 0.0005 ~ sprintf("\u25b2 %+.1f pts", delta * 100),
-    delta < -0.0005 ~ sprintf("\u25bc %+.1f pts", delta * 100),
+    direction == "up" ~ sprintf("\u25b2 %+.1f pts", delta * 100),
+    direction == "down" ~ sprintf("\u25bc %+.1f pts", delta * 100),
     .default = "no change"
   )
 }
@@ -208,7 +213,8 @@ fmt_delta <- function(delta) {
 # Change colours: forest rather than brand green, too light to pass contrast.
 delta_colours <- c(up = "#115740", down = "#AB2328", flat = "#5C6670")
 
-# Makes a column of dashes read as "too early" rather than as broken.
+# Shown when the comparison column is all dashes, so it reads as too early
+# rather than broken.
 comparison_note <- function(funnel_id) {
   if (prior_period_complete(funnel_id)) {
     return(NULL)
@@ -275,15 +281,11 @@ context.
 # and a copy-pasted mismatch would render one funnel's numbers under another's.
 funnel_page <- function(fid, h1) {
   label <- funnel_label(fid)
-  # Sent to stderr rather than message() so it shows up in the log
+  # cat to stderr, not message(): the document sets message: false
   log_render <- function(...) cat(sprintf(...), file = stderr())
   started <- Sys.time()
   log_render("[funnel] %s: rendering\n", fid)
-  # render_dir(), not a bare name: the working directory is the project root,
-  # and the template sits beside this qmd. See common/setup.R.
-  page <- knitr::knit_child(
-    file.path(render_dir(), "_funnel-page.qmd"), envir = environment(), quiet = TRUE
-  )
+  page <- knitr::knit_child("_funnel-page.qmd", envir = environment(), quiet = TRUE)
   log_render(
     "[funnel] %s: done in %.1fs\n", fid,
     as.numeric(difftime(Sys.time(), started, units = "secs"))
@@ -339,7 +341,7 @@ help_window <- tbl(con, in_schema("google_analytics", "page_traffic")) |>
     path = ifelse(pagepath == "/", pagepath, sub("/+$", "", pagepath)),
     # The bare root is the English landing page, so it folds into /en.
     path = ifelse(path == "/", "/en", path),
-    # Every title ends in the site name, noise repeated down the column.
+    # Strip the site name every title ends in.
     title = sub(" - (CanadaLogin|ConnexionCanada)$", "", pagetitle),
     # Anything outside /en and /fr is vulnerability-scanner traffic
     # (oast.live callbacks, /swagger-ui, /login.php), not a page anyone wrote.
@@ -515,7 +517,7 @@ help_ranked |>
 
 ```{r cleanup}
 #| include: false
-# include: false is layout, not tidiness: this chunk sits in the last Row, and
+# include: false matters for layout: this chunk sits in the last Row, and
 # anything visible there becomes a card and takes width from the table.
 DBI::dbDisconnect(con)
 ```

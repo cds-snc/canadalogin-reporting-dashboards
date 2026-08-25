@@ -1,17 +1,11 @@
-// Brand typeface, self-hosted. Mirrors reports/_fonts.scss in Signal Check; the
-// reasoning is written up in that repo's notes/self-hosted-fonts.md.
-//
-// Quarto inlines these at render time, so the dashboard needs no network to
-// render and stays self-contained. The faces are latin-subset WOFF2 (~16 KB
-// each) from fonts/, alongside the TTFs R/branding.R uses for the figures.
+// Brand typeface, self-hosted: latin-subset WOFF2 from fonts/, which Quarto
+// inlines at render time. The figures use the TTFs in the same folder, since
+// systemfonts cannot read WOFF2. See Signal Check's notes/self-hosted-fonts.md.
 
 /*-- scss:defaults --*/
 
-// Cosmo, the theme a dashboard gets by default, pulls Source Sans Pro from
-// Google Fonts on its own (cosmo.scss:78), independently of _brand.yml. Google
-// serves TTF to non-browser clients like Quarto, so leaving this in place is
-// most of what made the dashboard 8 MB. It is a !default variable, so setting
-// it false here overrides it.
+// Cosmo pulls Source Sans Pro from Google on its own, independently of
+// _brand.yml, and Quarto embeds the uncompressed TTF it is served.
 $web-font-path: false;
 
 /*-- scss:rules --*/
@@ -20,7 +14,8 @@ $web-font-path: false;
   @each $style in normal, italic {
     @font-face {
       font-family: "Source Sans 3";
-      src: url("fonts/source-sans-3-#{$weight}-#{$style}.woff2") format("woff2");
+      // Resolved against the including project, which is a dashboard folder.
+      src: url("../../fonts/source-sans-3-#{$weight}-#{$style}.woff2") format("woff2");
       font-weight: $weight;
       font-style: $style;
       font-display: swap;
@@ -28,8 +23,7 @@ $web-font-path: false;
   }
 }
 
-// Quarto emits the brand family bare ("font-family:Source Sans 3"), so give it
-// a fallback for anyone the faces do not reach.
+// Quarto emits the brand family bare, with no fallback stack of its own.
 body {
   font-family: "Source Sans 3", -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, Arial, sans-serif;

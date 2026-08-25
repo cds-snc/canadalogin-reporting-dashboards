@@ -46,14 +46,14 @@ s7 <- task_success_series(con, fid, "7", series_start, data_through)
 s1 <- task_success_series(con, fid, "1", series_start, data_through)
 
 p <- ggplot() +
-  # Sized by denominator, so a thin day draws small. No log transform: the size
-  # scale already square-roots the value on its way to an area.
+  # Sized by denominator, so a low-volume day draws small. No log transform:
+  # the size scale already square-roots the value on its way to an area.
   geom_point(
     data = s1, aes(window_end, value, size = denominator),
     colour = "grey70", alpha = 0.6
   ) +
   scale_size(range = c(0.4, 2.4), guide = "none") +
-  # Grouped by version so the line BREAKS where the definition changes.
+  # Grouped by version so the line breaks where the definition changes.
   geom_line(
     data = s7, aes(window_end, value, group = funnel_version),
     colour = colors$brand[["blue"]], linewidth = 1
@@ -70,7 +70,8 @@ p <- ggplot() +
     subtitle = chart_subtitle(fid)
   )
 
-# The logo is a fraction of figure height, so a small figure needs a smaller one.
+# The logo is sized as a fraction of figure height, so a small figure needs a
+# smaller fraction.
 add_cds_logo(add_watermark(p, date = data_through), height = 0.09)
 ```
 
@@ -92,7 +93,7 @@ latest_7d <- party_step_counts(
   as_task_success(rp) |>
   select(rp, rate_7d = value)
 
-# Both periods come through the long-window seam. They never share a day.
+# Both periods use task_success_long_window(); they never share a day.
 by_rp_long <- function(as_of) {
   task_success_long_window(con, fid, as_of, breakdown_value,
                            counts = party_step_counts) |>
@@ -109,12 +110,13 @@ merged <- reduce(list(latest_7d, counts_long, prior_long), full_join, by = "rp")
 
 # rp is already the service name, so the operator is looked up by that.
 per_rp <- merged |>
-  mutate(Operator = coalesce(service_operators(con, merged$rp), "")) |>
+  mutate(Operator = coalesce(service_operators(con, rp), "")) |>
   transmute(
     Service = rp, Operator,
     rate_7d, rate_long, prior_long, entered, finished
   ) |>
-  # The pooled rows are not services, and the tail of the list is noise.
+  # The pooled rows are not services, and the tail of the list shuffles from
+  # day to day.
   filter(!Service %in% pooled_rp_labels) |>
   arrange(desc(entered)) |>
   slice_head(n = party_rows)
@@ -134,16 +136,19 @@ overall <- task_success_long_window(con, fid, data_through) |>
   )
 
 rows <- bind_rows(overall, per_rp) |>
-  # The column stays even with nothing to compare against; every row reads as
-  # a dash and comparison_note() says why.
-  mutate(delta = if (compare) rate_long - prior_long else NA_real_) |>
+  # The column stays even with nothing to compare against: every row reads as
+  # a dash and comparison_note() explains it.
+  mutate(
+    delta = ifelse(compare, rate_long - prior_long, NA_real_),
+    direction = delta_direction(delta)
+  ) |>
   transmute(
     Service, Operator, rate_7d, rate_long,
-    change = fmt_delta(delta), entered, finished, delta
+    change = fmt_delta(delta), entered, finished, delta, direction
   )
 
 gt(rows) |>
-  cols_hide(delta) |>
+  cols_hide(c(delta, direction)) |>
   fmt_percent(c(rate_7d, rate_long), decimals = 0) |>
   fmt_number(c(entered, finished), decimals = 0) |>
   sub_missing(missing_text = "n/a") |>
@@ -157,15 +162,15 @@ gt(rows) |>
   tab_style(cell_text(weight = "bold"), cells_body(rows = 1)) |>
   tab_style(
     cell_text(color = delta_colours[["up"]]),
-    cells_body(columns = change, rows = !is.na(delta) & delta > 0.0005)
+    cells_body(columns = change, rows = direction == "up")
   ) |>
   tab_style(
     cell_text(color = delta_colours[["down"]]),
-    cells_body(columns = change, rows = !is.na(delta) & delta < -0.0005)
+    cells_body(columns = change, rows = direction == "down")
   ) |>
   tab_style(
     cell_text(color = delta_colours[["flat"]]),
-    cells_body(columns = change, rows = is.na(delta) | abs(delta) <= 0.0005)
+    cells_body(columns = change, rows = direction == "flat")
   ) |>
   tab_options(
     table.width = pct(100),

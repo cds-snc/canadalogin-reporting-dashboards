@@ -7,11 +7,15 @@
 *_files/
 /_book/
 *.rmarkdown
+**/*.quarto_ipynb
 
 # Rendered deliverables (source-only repo; the all-in-one HTML is published to the
 # sibling canadalogin-signal-check-publishing repo, never committed here)
 *.html
 /reports/
+
+# Written by install.sh; machine-specific, so not shareable.
+.venv/
 
 # R / RStudio
 .Rproj.user/
@@ -31,20 +35,11 @@ Thumbs.db
 *.swp
 *.swo
 
-/.quarto/
-**/*.quarto_ipynb
-
-# Written by the pre-render step from _brand.yml; see common/resolve-brand.R.
-# _brand.yml is the source of brand truth and is the file that is committed.
-_brand.generated.yml
-
-# Written at render time into the rendering dashboard's own folder, then pulled
-# in by its include-after-body (see _analytics.qmd). Unanchored, so it matches
-# at any depth.
+# Written at render time beside the rendering dashboard's qmd, then pulled in by
+# its include-after-body. Unanchored, so it matches at any depth.
 analytics-tag.html
 
-# Written at render time into the rendering dashboard's own folder, then pulled
-# in by its include-before-body (see the dashboard's R/preflight.R).
+# Written at render time beside the qmd, then pulled in by include-before-body.
 preflight-banner.html
 
 # Written beside the banner at render time; read by CI, never committed.

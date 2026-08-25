@@ -1,23 +1,16 @@
-#' Relying-party labelling, from the shared lookup tables in the data lake.
-#'
-#' `rp.alias` maps every string a source system uses for a service back to an
-#' rp_id; `rp.service` holds that service's names, operator and is_internal.
-#' Both are refreshed each weekday from the hand-maintained source sheet by the
-#' rp-sync Lambda in the pipeline repo, so this repo holds no copy of its own.
-#' The operator is abbreviated on the way through; see common/gcorg.R.
-#'
-#' GA breaks its funnels down by customEvent:rp_name, which is one of those
-#' alias strings. A service with more than one GA name pools into a single row
-#' here, which the old per-name labelling could not do.
-#'
-#' Preflight check 3 fails the render on any rp_name this cannot label.
+#' Relying-party labelling, from the rp.alias and rp.service lookup tables in
+#' the data lake. rp.alias maps each source-system string (GA's rp_name
+#' included) to an rp_id; rp.service holds the service's name, operator and
+#' is_internal. Both are synced each weekday from a hand-maintained sheet by
+#' the rp-sync Lambda in the pipeline repo. Operators are abbreviated through
+#' common/gcorg.R. Preflight check 3 fails the render on any unlabelled rp_name.
 
-# What GA reports when the rp_name custom event was absent. Not relying parties,
-# so exempt from labelling and from the lookup gate.
+# What GA reports when the rp_name custom event did not fire. Not relying
+# parties, so exempt from labelling and from the lookup gate.
 ga_excluded_rp_names <- c("", "(not set)")
 
-# alias -> service_name, operator, is_internal. Tens of rows, read many times per
-# render, so it is fetched once and memoised for the life of the session.
+# alias -> service_name, operator, is_internal. Small and read many times per
+# render, so fetched once and cached for the session.
 relying_party_lookup <- local({
   cached <- NULL
   function(con) {
@@ -30,13 +23,13 @@ relying_party_lookup <- local({
       dplyr::select(rp_id, service_name = service_name_en, operator,
                     gc_orgid, is_internal)
 
-    # Join on alias alone, never filtering on `source`: it records where a name
-    # was first seen, not which system it belongs to.
+    # Join on alias alone; `source` records where a name was first seen, not
+    # which system it belongs to, so never filter on it.
     cached <<- aliases |>
       dplyr::inner_join(services, by = "rp_id") |>
       dplyr::select(-rp_id) |>
       dplyr::collect() |>
-      # Inside the memoised lookup, so a render costs one call to the resolver.
+      # Inside the cached lookup, so a render makes one resolver call.
       dplyr::mutate(
         operator_abbr = dplyr::coalesce(gcorg_abbreviations(gc_orgid), operator)
       )
@@ -44,31 +37,30 @@ relying_party_lookup <- local({
   }
 })
 
-# One row per service, for looking attributes up by the name shown in a table.
-# is_internal is a property of the service in this schema, so there is nothing
-# to collapse across a service's applications.
+# One row per service, keyed by the service name shown in tables. is_internal
+# is a service-level column in this schema, so distinct() loses nothing.
 relying_party_services <- function(con) {
   relying_party_lookup(con) |>
     dplyr::distinct(service_name, .keep_all = TRUE) |>
     dplyr::select(service_name, operator, operator_abbr, is_internal)
 }
 
-# service_name, operator and is_internal for each rp_name. Exactly one row per
-# input, in input order, with an unknown name left NA rather than dropped.
+# service_name, operator and is_internal for each rp_name. One row per input,
+# in input order; an unknown name is NA rather than dropped.
 label_relying_parties <- function(con, rp_names) {
   dplyr::tibble(alias = rp_names) |>
     dplyr::left_join(relying_party_lookup(con), by = "alias")
 }
 
-# The abbreviated operator of each service, by the service name a table shows.
+# Abbreviated operator for each service name.
 service_operators <- function(con, service_names) {
   dplyr::tibble(service_name = service_names) |>
     dplyr::left_join(relying_party_services(con), by = "service_name") |>
     dplyr::pull(operator_abbr)
 }
 
-# TRUE for each rp_name belonging to an internal service. An rp_name the lookup
-# does not know is external: those are real, unattributed users.
+# TRUE for each rp_name belonging to an internal service. Unknown names count
+# as external: they are real, unattributed users.
 is_internal_rp <- function(con, rp_names) {
   labels <- label_relying_parties(con, rp_names)
   !is.na(labels$is_internal) & labels$is_internal

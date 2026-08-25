@@ -1,0 +1,25 @@
+# Shared Quarto config, pulled into each dashboard's _quarto.yml with
+# metadata-files. Paths resolve against the dashboard project that includes
+# this file, hence ../../ rather than repo-root relative.
+
+format:
+  dashboard:
+    orientation: rows
+    embed-resources: true
+    scrolling: true
+    theme: [cosmo, ../../_fonts.scss]
+    css: ../../styles.css
+
+brand: ../../_brand.yml
+
+execute:
+  echo: false
+  warning: false
+  message: false
+
+knitr:
+  opts_chunk:
+    # ragg reads brand families out of the systemfonts registry (see
+    # register_cds_fonts) and sizes text the same on macOS and Linux.
+    dev: ragg_png
+    dpi: 200

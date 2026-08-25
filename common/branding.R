@@ -1,26 +1,23 @@
 #' CDS/SNC logo branding for ggplot graphs.
 #'
-#' add_cds_logo() overlays the logo with cowplot::draw_image, which preserves its
-#' aspect ratio. The result is a cowplot drawing knitr renders like any other
-#' figure, so embed-resources inlines it and no external file is referenced.
-#'
-#' The mark is bilingual and the variant is picked at random per call, by design:
-#' graphs in one report may differ in language, and a re-render may flip them.
+#' add_cds_logo() overlays the logo with cowplot::draw_image, preserving its
+#' aspect ratio. The result renders like any other figure, so embed-resources
+#' inlines it. The mark is bilingual and the variant is picked at random per
+#' call, deliberately: graphs in one report may differ in language.
 
 suppressPackageStartupMessages({
   library(cowplot)
   library(ggplot2)
 })
 
-# Assets live at the project root, which is also the working directory every
-# dashboard renders in; see execute-dir in _quarto.yml.
+# Shared assets sit at the repo root; repo_path() comes from common/setup.R.
 cds_logo_path <- function(canada_wordmark = FALSE) {
   variants <- if (canada_wordmark) {
     c("EN_Square+CANADA.jpg", "FR_Square+CANADA.jpg")
   } else {
     c("cds-snc.png", "snc-cds.png")
   }
-  present <- file.path("img", variants)
+  present <- repo_path("img", variants)
   present <- present[file.exists(present)]
   if (length(present) > 0) return(sample(present, 1))
   stop(
@@ -94,13 +91,8 @@ add_cds_logo <- function(
 
 # Watermark -------------------------------------------------------------------
 
-# Light bottom-right watermark: dashboard name and data-through date. There is
-# no edition number, since a dashboard is re-rendered in place.
-#
-# report_name is an argument rather than a constant because this file is shared
-# by every dashboard in the repo. The default is the dashboard that was here
-# first; a new dashboard must pass its own name. The cds package's copy of this
-# function takes the same argument.
+# Light bottom-right watermark: report name and data-through date. A dashboard
+# other than the default passes its own report_name.
 add_watermark <- function(plot,
                           report_name = "CanadaLogin Experience Monitoring",
                           date = Sys.Date()) {
@@ -125,18 +117,18 @@ add_watermark <- function(plot,
 # Brand typography ------------------------------------------------------------
 
 #' Brand typeface for ggplot graphs, matching the document typography in
-#' _brand.yml. Loaded from the TTFs vendored in fonts/, so a render needs no
-#' network; offline it falls back to the default sans rather than failing.
+#' _brand.yml. Loaded from the TTFs vendored in fonts/; if they are missing it
+#' falls back to the default sans rather than failing.
 
-# The current release of the brand guide's "Source Sans Pro", which _brand.yml
-# and _fonts.scss name unsuffixed for the document text. Suffixed here because
-# systemfonts will not register a family that shadows an installed system font.
+# Suffixed because systemfonts will not register a family that shadows an
+# installed system font; the document text uses the unsuffixed name.
 cds_font <- "Source Sans 3 (CDS)"
 
-# At the project root, like img/. TTF, not the WOFF2 the dashboard embeds:
-# systemfonts cannot read WOFF2, so fonts/ holds both formats.
+# TTF, not the WOFF2 the document embeds: systemfonts cannot read WOFF2, so
+# fonts/ holds both formats.
 cds_font_dir <- function() {
-  if (file.exists(file.path("fonts", "source-sans-3-400-normal.ttf"))) "fonts" else NULL
+  dir <- repo_path("fonts")
+  if (file.exists(file.path(dir, "source-sans-3-400-normal.ttf"))) dir else NULL
 }
 
 # Semibold (600) is mapped to the "bold" face, so theme titles render as

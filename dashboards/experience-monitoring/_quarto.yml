@@ -1,0 +1,14 @@
+# Its own Quarto project, which puts the qmd at a project root. Quarto cannot
+# embed a brand logo for a document below the project root.
+project:
+  # The sibling publishing repo's staging folder; publish.sh runs there on
+  # reports/experience-monitoring.html.
+  output-dir: ../../../canadalogin-signal-check-publishing/reports
+
+  # Without this a project render also executes every .md in notes/.
+  render:
+    - "*.qmd"
+
+# Format, theme, brand and execute defaults, shared with the other dashboards.
+metadata-files:
+  - ../../_common.yml

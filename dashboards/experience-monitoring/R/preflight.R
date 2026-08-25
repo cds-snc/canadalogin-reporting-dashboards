@@ -4,12 +4,8 @@
 #' a numbered checklist and returns the result. A failed check raises a banner
 #' across the top of the dashboard rather than stopping the render.
 #'
-#' Source common/setup.R and this dashboard's R/metrics.R first, and define
-#' the help_stream_* constants. Expects an open `con`, dplyr/dbplyr/tidyr and
-#' glue.
-#'
-#' The checks here are specific to this dashboard; the runner, the banner and
-#' the status writer are due to move up to common/ in a later change.
+#' Source common/setup.R and this dashboard's R/metrics.R first, and define the
+#' help_stream_* constants. Expects an open `con`, dplyr/dbplyr/tidyr and glue.
 
 run_preflight_safety_check <- function(con,
                                        today = Sys.Date(),
@@ -43,7 +39,7 @@ run_preflight_safety_check <- function(con,
   as_of <- today - ga_export_lag_days
   freshness_start <- as_of - (lookback_days - 1L)
 
-  # The span the per-party table reports on, so the span check 3 has to sweep.
+  # The span the per-party table reports on; check 3 sweeps the same span.
   lookup_start <- as_of - (long_window_days - 1L)
   long_window <- as.character(long_window_days)
 
@@ -76,7 +72,7 @@ run_preflight_safety_check <- function(con,
       unique()
     missing <- expected_days[!expected_days %in% days_present]
     if (length(missing) > 0) {
-      # Capped: this detail goes on the banner, where a full list runs off it.
+      # Capped: the full list would overflow the banner.
       shown <- format_date(utils::head(missing, 5))
       freshness_problems <- c(
         freshness_problems,
@@ -119,9 +115,9 @@ run_preflight_safety_check <- function(con,
 
   # Check 3 - relying-party lookup complete -------------------------------------
   #
-  # Aliases are added to the source sheet by hand, so a GA rp_name can turn up
-  # before anyone records it. Left join and check for nulls: an inner join would
-  # drop the party's rows without complaint and hole the table.
+  # Aliases are added to the source sheet by hand, so a GA rp_name can appear
+  # before anyone records it. Left join and check for nulls: an inner join
+  # would silently drop the party's rows.
   data_parties <- raw |>
     filter(breakdown_value != "RESERVED_TOTAL",
            !breakdown_value %in% ga_excluded_rp_names) |>
@@ -190,9 +186,9 @@ run_preflight_safety_check <- function(con,
 
   # Check 5 - ratio steps present in funnels_current -----------------------------
   #
-  # Counts are read by step NAME, so a step renamed upstream would return no rows
-  # rather than an error, and read as a true zero. Checked over all history,
-  # since an exit step nobody reached in the current span is legitimately absent.
+  # Counts are read by step name, so a step renamed upstream returns no rows
+  # rather than an error, and reads as a true zero. Checked over all history:
+  # an exit step nobody reached in the current span is legitimately absent.
   steps_seen <- tbl(
     con, in_schema("google_analytics", "funnels_current")
   ) |>
@@ -298,8 +294,9 @@ run_preflight_safety_check <- function(con,
   #
   # An exit step that stops reporting reads as 0%, not as missing, since
   # funnel_step_counts() coalesces an absent numerator to zero. A floor rather
-  # than a zero test: one stray event lifts a broken funnel off zero. The 28-day
-  # window is tested separately: activeUsers de-duplicate, so it is not a blend.
+  # than a zero test, because one stray event lifts a broken funnel off zero.
+  # The 28-day window is tested in its own right: activeUsers de-duplicate
+  # within a window, so it is not a blend of the 7-day ones.
   low_rates <- raw |>
     filter(
       breakdown_value == "RESERVED_TOTAL",
@@ -308,7 +305,7 @@ run_preflight_safety_check <- function(con,
       window_days == "7" | (window_days == long_window & window_end == as_of)
     )
 
-  # Queried only for a funnel that failed, so a passing render adds no query.
+  # Run only for a funnel that failed, so a passing render adds no query.
   step_coverage <- function(funnel) {
     steps <- funnel_ratio_steps[[funnel]]
     days <- tbl(
@@ -337,8 +334,8 @@ run_preflight_safety_check <- function(con,
 
   rate_problems <- character()
   for (funnel in unique(low_rates$funnel_id)) {
-    # A flat zero ties across every window; ordering keeps the wording stable
-    # between renders, and reports the day the funnel broke.
+    # A flat zero ties across windows; ordering keeps the wording stable
+    # between renders and reports the day the funnel broke.
     hits <- low_rates[low_rates$funnel_id == funnel, ] |>
       arrange(value, window_end)
     worst <- hits[1, ]
@@ -404,13 +401,9 @@ run_preflight_safety_check <- function(con,
 
 preflight_contact_url <- "https://gcdigital.slack.com/archives/C0A6S9F7KV4"
 
-# Writes the banner a failed check raises, from run_preflight_safety_check()'s
-# result. A file, not chunk output, which a dashboard would turn into a card.
-# Defaults beside the qmd rather than at the working directory, which is the
-# project root; see render_dir() in common/setup.R.
-write_preflight_banner <- function(result,
-                                   path = file.path(render_dir(),
-                                                    "preflight-banner.html")) {
+# Writes the failure banner from run_preflight_safety_check()'s result. A
+# file, not chunk output, which a dashboard would turn into a card.
+write_preflight_banner <- function(result, path = "preflight-banner.html") {
   if (result$passed) {
     writeLines(character(), path)
     return(invisible(FALSE))
@@ -438,12 +431,9 @@ write_preflight_banner <- function(result,
 
 # Status file ----------------------------------------------------------------
 
-# The banner's machine-readable twin. Unattended there is nobody to read the
-# banner, so CI reads this instead and fails the run on a failed check. Beside
-# the qmd, for the same reason as the banner.
-write_preflight_status <- function(result,
-                                   path = file.path(render_dir(),
-                                                    "preflight-status.json")) {
+# Machine-readable version of the banner, for unattended renders: CI reads
+# this and fails the run on a failed check.
+write_preflight_status <- function(result, path = "preflight-status.json") {
   jsonlite::write_json(
     list(
       passed = result$passed,
