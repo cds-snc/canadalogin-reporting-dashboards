@@ -325,10 +325,16 @@ cat(unlist(lapply(migration_funnels, funnel_page, h1 = "####")), sep = "\n")
 # so the chunk does not become a card.
 help_top_n <- 15L
 
-help_window <- tbl(con, in_schema("google_analytics", "page_traffic")) |>
+# The stream carries pre-launch traffic back to 2025-11-28, which is not the
+# site the dashboard reports on.
+help_launch_date <- as.Date("2026-04-22")
+
+# A few thousand rows, so the whole span is read at once: the since-launch
+# share needs every day, everything else the last 12 weeks.
+help_all <- tbl(con, in_schema("google_analytics", "page_traffic")) |>
   filter(
     streamid == !!help_stream_id,
-    as.Date(date) >= as.Date(!!as.character(trailing_start)),
+    as.Date(date) >= as.Date(!!as.character(help_launch_date)),
     as.Date(date) <= as.Date(!!as.character(data_through))
   ) |>
   select(date, pagepath, pagetitle, screenpageviews) |>
@@ -350,6 +356,8 @@ help_window <- tbl(con, in_schema("google_analytics", "page_traffic")) |>
       path == "/fr" | startsWith(path, "/fr/") ~ "fr"
     )
   )
+
+help_window <- filter(help_all, date >= trailing_start)
 
 # Ranked once for every window and language, so each table below is a filter.
 help_ranked <- bind_rows(
@@ -391,11 +399,81 @@ help_split <- help_long |>
 
 # One token, no spaces, or Quarto renders it at body size.
 help_split_label <- paste0(help_split$share[help_split$lang == "fr"], "%")
+
+help_section_levels <- c("Users", "Partners")
+
+help_sections <- help_all |>
+  filter(!is.na(lang)) |>
+  mutate(
+    segment = sub("/.*$", "", sub("^/(en|fr)/?", "", path)),
+    section = case_when(
+      segment %in% c("users", "utilisateurs") ~ "Users",
+      segment %in% c("partners", "partenaires") ~ "Partners"
+    )
+  ) |>
+  # The landing pages are about a third of all views and are in neither
+  # section, so nothing on this tab adds up to the counts on the pages tab.
+  filter(!is.na(section)) |>
+  mutate(section = factor(section, levels = help_section_levels))
+
+# .drop = FALSE keeps a section with no views as a zero row.
+help_section_views <- function(days) {
+  help_sections |>
+    filter(date > data_through - days) |>
+    count(section, wt = views, name = "views", .drop = FALSE)
+}
+
+help_sections_7d <- help_section_views(7L)
+help_sections_long <- help_section_views(long_window_days)
+
+# Partners' share of the two sections' views, over whatever rows it is given.
+# A window with no views at all is undefined, not zero.
+partners_share <- function(rows) {
+  total <- sum(rows$views)
+  if (total == 0) return(NA_real_)
+  sum(rows$views[rows$section == "Partners"]) / total
+}
+
+# A calendar three months, not 90 days.
+three_months_start <- seq(data_through, by = "-3 months", length.out = 2)[2]
+
+# "April 22", built from the constant so the box title cannot drift from it.
+help_launch_label <- paste0(
+  format(help_launch_date, "%B"), " ",
+  as.integer(format(help_launch_date, "%d"))
+)
+
+# One token, no spaces, or Quarto renders it at body size.
+share_label <- function(share) {
+  if (is.na(share)) "n/a" else paste0(round(100 * share), "%")
+}
+
+partners_share_long <- partners_share(
+  filter(help_sections, date > data_through - long_window_days)
+)
+partners_share_3m <- partners_share(
+  filter(help_sections, date > three_months_start)
+)
+partners_share_launch <- partners_share(help_sections)
+
+sections_note <- glue(
+  "Sections are read off the page path: the users section is /en/users and ",
+  "/fr/utilisateurs, the partners section is /en/partners and /fr/partenaires. ",
+  "The chart pools by week and runs back to launch. The line under it is the ",
+  "partners share of those same weekly views, week by week."
+)
 ```
 
-## Row {height="420px"}
 
-### Column {width="24%"}
+## Row
+
+### Column {.tabset}
+
+#### Top pages
+
+##### Row {height="420px"}
+
+###### Column {width="24%"}
 
 ::: {.valuebox color="primary"}
 Views, last 7 days
@@ -415,7 +493,7 @@ French share, last `r long_window_days` days
 `r help_split_label`
 :::
 
-### Column {width="76%"}
+###### Column {width="76%"}
 
 ```{r help-site-chart}
 #| title: "Help site page views over time"
@@ -445,9 +523,7 @@ p <- help_window |>
 add_cds_logo(add_watermark(p, date = data_through), height = 0.09)
 ```
 
-## Row
-
-### Column {width="50%"}
+##### Row
 
 ::: {.card title="English pages, last 7 days"}
 
@@ -465,11 +541,11 @@ help_ranked |>
 
 :::
 
-::: {.card title="French pages, last 7 days"}
+::: {.card title="English pages, last `r long_window_days` days"}
 
-```{r help-table-fr-7d}
+```{r help-table-en-long}
 help_ranked |>
-  filter(window == "7", lang == "fr") |>
+  filter(window == as.character(long_window_days), lang == "en") |>
   select(page, views) |>
   gt() |>
   fmt_markdown(page) |>
@@ -481,13 +557,13 @@ help_ranked |>
 
 :::
 
-### Column {width="50%"}
+##### Row
 
-::: {.card title="English pages, last `r long_window_days` days"}
+::: {.card title="French pages, last 7 days"}
 
-```{r help-table-en-long}
+```{r help-table-fr-7d}
 help_ranked |>
-  filter(window == as.character(long_window_days), lang == "en") |>
+  filter(window == "7", lang == "fr") |>
   select(page, views) |>
   gt() |>
   fmt_markdown(page) |>
@@ -512,6 +588,139 @@ help_ranked |>
   tab_options(table.width = pct(100), table.font.size = px(13),
               data_row.padding = px(3), table.border.top.style = "none")
 ```
+
+:::
+
+#### Users and partners
+
+##### Row {height="120px"}
+
+::: {.valuebox color="primary"}
+Partners share, last `r long_window_days` days
+
+`r share_label(partners_share_long)`
+:::
+
+::: {.valuebox color="secondary"}
+Last 3 months
+
+`r share_label(partners_share_3m)`
+:::
+
+::: {.valuebox color="info"}
+Since launch, `r help_launch_label`
+
+`r share_label(partners_share_launch)`
+:::
+
+##### Row {height="580px"}
+
+```{r help-section-chart}
+#| title: "Help site views by section over time"
+#| fig-width: 9.5
+#| fig-height: 4.5
+#| fig-alt: |
+#|   Two stacked charts on a shared weekly axis, from launch in late April to
+#|   late August. Above, weekly page views by section, users in blue under a much
+#|   smaller partners band in orange. Below, the partners share of those views,
+#|   peaking near twenty-two percent in early June and ending near eight.
+
+weekly_sections <- help_sections |>
+  mutate(week = as.Date(cut(date, "week"))) |>
+  count(week, section, wt = views, name = "views", .drop = FALSE) |>
+  # Drop the part weeks at either end, which would read as a collapse in views.
+  filter(week >= help_launch_date, week + 6L <= data_through)
+
+weekly_share <- weekly_sections |>
+  group_by(week) |>
+  summarise(share = partners_share(pick(views, section)), .groups = "drop")
+
+week_axis <- scale_x_date(date_labels = "%b", date_breaks = "1 month")
+
+views_panel <- ggplot(weekly_sections, aes(week, views, fill = section)) +
+  geom_col(width = 7, colour = "white", linewidth = 0.25) +
+  scale_fill_manual(
+    values = c(
+      Users = colors$brand[["blue"]],
+      Partners = colors$brand[["orange"]]
+    )
+  ) +
+  scale_y_continuous(labels = label_comma(),
+                     expand = expansion(mult = c(0, 0.05))) +
+  week_axis +
+  theme_cds() +
+  # Legend on top and left, clear of the logo. The x-axis belongs to the panel
+  # below, so this one's is blank.
+  theme(legend.position = "top", legend.justification = "left",
+        legend.margin = margin(0, 0, 0, 0),
+        axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  labs(
+    x = NULL, y = "Page views", fill = NULL,
+    title = "Help site views by section",
+    subtitle = "Weekly views of the users and partners sections, both languages."
+  )
+
+share_panel <- ggplot(weekly_share, aes(week, share)) +
+  geom_line(colour = colors$brand[["orange"]], linewidth = 0.8) +
+  geom_point(colour = colors$brand[["orange"]], size = 0.9) +
+  scale_y_continuous(labels = label_percent(accuracy = 1), limits = c(0, NA),
+                     expand = expansion(mult = c(0, 0.05))) +
+  week_axis +
+  theme_cds() +
+  labs(x = NULL, y = "Partners share")
+
+# align = "v" with axis = "lr" so the two panels' plotting areas line up
+# despite different y-axis label widths.
+p <- cowplot::plot_grid(
+  views_panel, share_panel,
+  ncol = 1, align = "v", axis = "lr", rel_heights = c(1.7, 1)
+)
+
+add_cds_logo(add_watermark(p, date = data_through), height = 0.09)
+```
+
+##### Row
+
+::: {.card title="Views by section"}
+
+```{r help-section-table}
+by_section <- full_join(
+  rename(help_sections_7d, views_7d = views),
+  rename(help_sections_long, views_long = views),
+  by = "section"
+) |>
+  mutate(section = as.character(section))
+
+# Total row first and bolded, as the funnel tables read.
+both_sections <- tibble(
+  section = "Both sections",
+  views_7d = sum(help_sections_7d$views),
+  views_long = sum(help_sections_long$views)
+)
+
+bind_rows(both_sections, by_section) |>
+  mutate(share = views_long / both_sections$views_long) |>
+  gt() |>
+  fmt_number(c(views_7d, views_long), decimals = 0) |>
+  fmt_percent(share, decimals = 0) |>
+  cols_label(
+    section = "Section",
+    views_7d = "Views (7 days)",
+    views_long = glue("Views ({long_window_days} days)"),
+    share = glue("Share ({long_window_days} days)")
+  ) |>
+  tab_style(cell_text(weight = "bold"), cells_body(rows = 1)) |>
+  tab_options(
+    table.width = pct(100),
+    table.font.size = px(14),
+    data_row.padding = px(4),
+    table.border.top.style = "none"
+  )
+```
+
+::: {.figure-note}
+`r sections_note`
+:::
 
 :::
 
