@@ -1,6 +1,7 @@
 ---
 title: "CanadaLogin Experience Monitoring"
 author: "EDCP Data and Research Team"  # colin.douglas@cds-snc.ca
+slug: expmon
 # Shared format, theme and brand defaults come from _common.yml, via
 # _quarto.yml here.
 format:
@@ -21,6 +22,10 @@ source("R/metrics.R")
 source("R/preflight.R")
 
 con <- connect_athena()
+
+# This dashboard's accent, mirroring $primary in _theme.scss. ggplot cannot read
+# the scss, so the hex is written in both places; keep them in step.
+accent <- "#4B2E83"
 
 # The help tab filters on this stream alone. Keyed on the id, which an admin
 # cannot rename; declared here because preflight checks 6 and 7 read both.
@@ -162,7 +167,7 @@ chart_subtitle <- function(funnel_id) {
          "{entry_step_label(funnel_id)}.")
   }
   paste(
-    "7-day rolling rate (blue line) over the daily rate (grey points).",
+    "7-day rolling rate (violet line) over the daily rate (grey points).",
     parties,
     sep = "\n"
   )
@@ -172,7 +177,7 @@ chart_alt <- function(funnel_id) {
   glue(
     "Chart of the task success rate over time for the ",
     "{tolower(funnel_label(funnel_id))} funnel, across all relying parties. ",
-    "A bold blue line traces the 7-day ",
+    "A bold violet line traces the 7-day ",
     "rolling rate, breaking wherever the funnel version changes; faint grey ",
     "points underneath are the noisier daily rate, sized by how many people ",
     "were in that day's denominator. The y-axis runs from zero to one ",
@@ -501,14 +506,14 @@ French share, last `r long_window_days` days
 #| fig-height: 3.6
 #| fig-alt: |
 #|   Chart of daily page views on the CanadaLogin help site over the last twelve
-#|   weeks. A blue line traces total views per day across every help page, with
+#|   weeks. A violet line traces total views per day across every help page, with
 #|   a regular dip each weekend.
 
 p <- help_window |>
   group_by(date) |>
   summarise(views = sum(views), .groups = "drop") |>
   ggplot(aes(date, views)) +
-  geom_line(colour = colors$brand[["blue"]], linewidth = 0.8) +
+  geom_line(colour = accent, linewidth = 0.8) +
   scale_y_continuous(labels = label_comma(), limits = c(0, NA),
                      expand = expansion(mult = c(0, 0.05))) +
   scale_x_date(date_labels = "%b %d") +
@@ -621,7 +626,7 @@ Since launch, `r help_launch_label`
 #| fig-height: 4.5
 #| fig-alt: |
 #|   Two stacked charts on a shared weekly axis, from launch in late April to
-#|   late August. Above, weekly page views by section, users in blue under a much
+#|   late August. Above, weekly page views by section, users in violet under a much
 #|   smaller partners band in orange. Below, the partners share of those views,
 #|   peaking near twenty-two percent in early June and ending near eight.
 
@@ -641,7 +646,7 @@ views_panel <- ggplot(weekly_sections, aes(week, views, fill = section)) +
   geom_col(width = 7, colour = "white", linewidth = 0.25) +
   scale_fill_manual(
     values = c(
-      Users = colors$brand[["blue"]],
+      Users = accent,
       Partners = colors$brand[["orange"]]
     )
   ) +

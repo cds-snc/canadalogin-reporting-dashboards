@@ -5,10 +5,8 @@ built on shared Quarto branding, connection and publishing conventions.
 
 ## Dashboards
 
-- [Experience Monitoring](dashboards/experience-monitoring/README.md) - task
-  success rates and help site page views for CanadaLogin.
-
-* Are you looking for Signal Check? That's a special case, and you can find them
+- <img src="img/accent-expmon.svg" width="16" height="16" alt=""> [Experience Monitoring](dashboards/experience-monitoring/README.md) (expmon) - task success rates and help site page views for CanadaLogin.
+- 📶 Are you looking for Signal Check? That's a special case, and you can find them
 [here](https://www.github.com/cds-snc/canadalogin-reporting-signal-check).
 
 ## Layout
@@ -39,7 +37,10 @@ repo root or the dashboard folder.
 2. Copy `_quarto.yml` and `.Rprofile` from an existing dashboard, changing the
    `render:` entry to the new qmd. The `.Rprofile` is what activates the shared
    renv when the render is invoked from inside the folder.
-3. Publish via the `publish.sh` script in `cds-snc/canadalogin-signal-check-publishing`
+3. Add a `_theme.scss` naming the dashboard's accent colour, mirror the same hex
+   into the qmd's setup chunk for the figures, and drop a matching
+   `img/accent-<name>.svg` swatch beside the entry in the list above.
+4. Publish via the `publish.sh` script in `cds-snc/canadalogin-signal-check-publishing`
 
 ## Checks
 

@@ -7,7 +7,8 @@ format:
     orientation: rows
     embed-resources: true
     scrolling: true
-    theme: [cosmo, ../../_fonts.scss]
+    # _theme.scss is per-dashboard, and holds its accent colour.
+    theme: [cosmo, ../../_fonts.scss, _theme.scss]
     css: ../../styles.css
 
 brand: ../../_brand.yml

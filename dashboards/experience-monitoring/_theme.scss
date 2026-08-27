@@ -1,0 +1,9 @@
+// This dashboard's accent. Every dashboard shares the CDS palette in
+// ../../_brand.yml and overrides only what makes it distinct.
+
+/*-- scss:defaults --*/
+
+$primary: #4B2E83;
+
+// Same hue, saturation 34%, lightness 85%.
+$info: #D5CCE6;
