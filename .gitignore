@@ -13,6 +13,7 @@
 # sibling canadalogin-signal-check-publishing repo, never committed here)
 *.html
 /reports/
+!_noindex.html
 
 # Written by install.sh; machine-specific, so not shareable.
 .venv/

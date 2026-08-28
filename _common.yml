@@ -10,6 +10,8 @@ format:
     # _theme.scss is per-dashboard, and holds its accent colour.
     theme: [cosmo, ../../_fonts.scss, _theme.scss]
     css: ../../styles.css
+    # Unlisted, not public: no search indexing, no referrer leakage.
+    include-in-header: ../../_noindex.html
 
 brand: ../../_brand.yml
 
