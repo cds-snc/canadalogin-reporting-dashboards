@@ -6,8 +6,9 @@ slug: expmon
 # _quarto.yml here.
 format:
   dashboard:
-    # Written by the setup chunk at render time; empty unless a check failed.
-    include-before-body: preflight-banner.html
+    # Written by the setup chunk at render time: the preflight banner, empty
+    # unless a check failed, followed by the always-on context strip.
+    include-before-body: page-header.html
     # Written by the analytics chunk at render time; see _analytics.qmd.
     include-after-body: analytics-tag.html
 params:
@@ -27,18 +28,16 @@ con <- connect_athena()
 # the scss, so the hex is written in both places; keep them in step.
 accent <- "#4B2E83"
 
-# The help tab filters on this stream alone. Keyed on the id, which an admin
-# cannot rename; declared here because preflight checks 6 and 7 read both.
+# The help tab filters on this stream
 help_stream_id <- "13052807364"
 help_stream_name <- "CanadaLogin Website (Help/About/GC Partner info)"
 
-# A failed check adds a banner rather than stopping the render, so the banner
-# is the only gate before a publish. See R/preflight.R.
+# A failed check adds a banner rather than stopping the render. It also
+# fails the Github job so an alert is sent out.
 ga_lag <- 2L
 preflight <- run_preflight_safety_check(
   con, today = Sys.Date(), ga_export_lag_days = ga_lag
 )
-write_preflight_banner(preflight)
 write_preflight_status(preflight)
 
 today <- Sys.Date()
@@ -68,6 +67,23 @@ format_long_date <- function(d) {
   paste0(format(d, "%B"), " ", as.integer(format(d, "%d")), ", ", format(d, "%Y"))
 }
 data_through_label <- format_long_date(data_through)
+
+# The preflight banner and the context strip under the navbar, composed into
+# the one file include-before-body reads, so both show on every page.
+page_header <- "page-header.html"
+
+write_preflight_banner(preflight, page_header)
+
+cat(
+  c(
+    '<div class="page-strip">',
+    glue('  <p><strong>Data through {data_through_label}.</strong> ',
+         "Internal to the Data and Research team, not for public ",
+         "consumption.</p>"),
+    "</div>"
+  ),
+  file = page_header, sep = "\n", append = TRUE
+)
 
 # Whole-number percent, or "n/a" for an undefined rate.
 fmt_pct <- function(x) ifelse(is.na(x), "n/a", paste0(round(x * 100), "%"))
@@ -246,18 +262,6 @@ internal_note <- glue(
 ```
 
 # Overview
-
-## Row {height="120px"}
-
-```{r data-through-valuebox}
-#| content: valuebox
-#| title: "Data through"
-list(
-  icon = "calendar-event",
-  color = "primary",
-  value = data_through_label
-)
-```
 
 ## Row
 

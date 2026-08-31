@@ -11,8 +11,9 @@ preflight_contact_url <- "https://gcdigital.slack.com/archives/C0A6S9F7KV4"
 
 # Writes the failure banner from a preflight result. A file, not chunk output,
 # which a dashboard would turn into a card. Written on every render, empty when
-# the checks pass, and pulled in with include-before-body.
-write_preflight_banner <- function(result, path = "preflight-banner.html") {
+# the checks pass, and pulled in with include-before-body. Each dashboard
+# appends its context strip to the same file.
+write_preflight_banner <- function(result, path = "page-header.html") {
   if (result$passed) {
     writeLines(character(), path)
     return(invisible(FALSE))

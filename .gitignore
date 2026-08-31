@@ -41,8 +41,7 @@ Thumbs.db
 analytics-tag.html
 
 # Written at render time beside the qmd, then pulled in by include-before-body.
-# Sign-In Activity composes the banner and its context strip into one file.
-preflight-banner.html
+# Each dashboard composes the preflight banner and its context strip into it.
 page-header.html
 
 # Written beside the banner at render time; read by CI, never committed.
