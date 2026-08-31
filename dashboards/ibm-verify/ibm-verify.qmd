@@ -687,7 +687,7 @@ page.
 
 :::
 
-# Second factors
+# Second Factors
 
 ```{r mfa-data}
 #| include: false
@@ -978,18 +978,14 @@ sign anyone in.
 Sign-in activity on CanadaLogin as
 [IBM Verify](https://github.com/cds-snc/canadalogin-reporting-data-pipeline)
 records it. It is internal to Enterprise Digital Credentials and the link is
-unlisted, so keep it that way. Quote it in conversation; for anything that
-leaves the team, take the numbers from the report that owns them.
+unlisted, so it isn't visible to the general public. It's for *your* information. 
+For anything that leaves the team, please ask the Data and Research team. We are
+happy to provide you with a bespoke calculation, or the underlying data.
 
 **Active users are users and sign-ins are events.** Someone who signs in every
 morning is one active user and many sign-ins. The active-user counts are
 running totals IBM Verify keeps, so read them off the newest day and never add
 them up across days or months.
-
-**The CanadaLogin-wide counts on Overall are inflated.** IBM Verify records
-each authentication method as its own event, so one sign-in with a password and
-a second factor lands as more than one. The per-service counts on Services are
-one event per sign-in. The two do not compare.
 
 **A red banner at the top of the page means a check failed at render time.** Do
 not quote anything until it clears.
