@@ -94,10 +94,66 @@
   text-decoration: underline;
 }
 
+/* Always-on context line under the navbar, written at render time beside the
+   preflight banner and included the same way, so it shows on every page. The
+   dashboard is republished in place with no archive, so nothing else says how
+   current the numbers are. */
+.page-strip {
+  /* The dashboard's flex column would otherwise collapse it to nothing. */
+  flex: none;
+  background: #f2f4f6;
+  border-bottom: 1px solid #dfe2e5;
+  color: #5c6670;
+  padding: 0.4rem 1.25rem;
+  font-size: 0.85rem;
+}
+
+.page-strip > * {
+  max-width: var(--dashboard-max-width);
+  margin-inline: auto;
+}
+
+.page-strip p {
+  margin: 0;
+}
+
+.page-strip strong {
+  color: #333333;
+  font-weight: 600;
+}
+
 /* Prose under a table or chart, set smaller than the numbers above it. */
 .figure-note {
   font-size: 0.8rem;
   color: #5c6670;
   margin: 0.6rem 0 0 0;
   max-width: var(--card-content-width);
+}
+
+/* Headings inside an expanded relying-party row, which is plain HTML built in
+   R rather than markdown, so it has no heading styles of its own. */
+.rp-detail-heading {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #5c6670;
+  margin: 1rem 0 0.3rem 0;
+}
+
+/* An expanded relying-party row: chart beside its table, wrapping back to
+   stacked when the row is too narrow to hold both. */
+.rp-detail-split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+
+.rp-detail-chart {
+  flex: 3 1 460px;
+  min-width: 0;
+}
+
+.rp-detail-table {
+  flex: 2 1 320px;
+  min-width: 0;
 }

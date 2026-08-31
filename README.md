@@ -6,17 +6,20 @@ built on shared Quarto branding, connection and publishing conventions.
 ## Dashboards
 
 - <img src="img/accent-expmon.svg" width="16" height="16" alt=""> [Experience Monitoring](dashboards/experience-monitoring/README.md) (expmon) - task success rates and help site page views for CanadaLogin.
+- <img src="img/accent-ibmverify.svg" width="16" height="16" alt=""> [Sign-In Activity](dashboards/ibm-verify/README.md) (ibmverify) - sign-in volume, active users and MFA factor use from IBM Verify.
 - 📶 Are you looking for Signal Check? That's a special case, and you can find them
 [here](https://www.github.com/cds-snc/canadalogin-reporting-signal-check).
 
 ## Layout
 
 - `dashboards/<name>/` - one Quarto project per dashboard.
-  - A `<name>.qmd` for the dashbboard 
+  - A `<name>.qmd` for the dashboard
   - A `_quarto.yml` for the Quarto config
   - An `.Rprofile` for the R project config
   - An `R/` for the code only it uses
 - `common/` - code shared by every dashboard. Use `common/setup.R` to load it.
+  Each dashboard's own data-quality checks live in its `R/preflight.R`; what
+  every dashboard does with the result is in `common/preflight.R`.
 - `_common.yml` - the format, theme and execution defaults every dashboard
   pulls in through `metadata-files`. Quarto does not inherit config across
   project boundaries, so this file is how dashboards share one instead.

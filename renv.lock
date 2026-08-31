@@ -1193,6 +1193,31 @@
       "Maintainer": "Hadley Wickham <hadley@rstudio.com>",
       "Repository": "CRAN"
     },
+    "ggbrick": {
+      "Package": "ggbrick",
+      "Version": "0.3.2",
+      "Source": "Repository",
+      "Type": "Package",
+      "Title": "Waffle Style Chart with a Brick Layout in 'ggplot2'",
+      "Authors@R": "person(given = \"Daniel\", family = \"Oehm\", role = c(\"aut\", \"cre\"), email = \"danieloehm@gmail.com\")",
+      "Maintainer": "Daniel Oehm <danieloehm@gmail.com>",
+      "Description": "A new take on the bar chart. Similar to a waffle style chart but instead of squares the layout resembles a brick wall.",
+      "Depends": [
+        "R (>= 3.5.0)"
+      ],
+      "Imports": [
+        "ggplot2",
+        "dplyr",
+        "purrr",
+        "glue"
+      ],
+      "License": "MIT + file LICENSE",
+      "Encoding": "UTF-8",
+      "RoxygenNote": "7.3.2",
+      "NeedsCompilation": "no",
+      "Author": "Daniel Oehm [aut, cre]",
+      "Repository": "CRAN"
+    },
     "ggplot2": {
       "Package": "ggplot2",
       "Version": "4.0.2",

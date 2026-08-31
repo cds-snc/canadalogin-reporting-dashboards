@@ -1,0 +1,1015 @@
+---
+title: "CanadaLogin Sign-In Activity"
+author: "EDCP Data and Research Team"  # colin.douglas@cds-snc.ca
+slug: ibmverify
+format:
+  dashboard:
+    # Written by the setup chunk at render time
+    include-before-body: page-header.html
+    include-after-body: analytics-tag.html # see _analytics.qmd
+params:
+  ga_page_title: "Sign-In Activity Dashboard"
+---
+
+```{r setup}
+# The working directory is this folder; the shared layer is two levels up.
+source("../../common/setup.R")
+
+source("R/metrics.R")
+source("R/preflight.R")
+
+library(ggbrick)
+library(reactable)
+library(htmltools)
+
+con <- connect_athena()
+
+# This dashboard's accent, same as the primary CDS brand color
+accent <- "#004986"
+
+# A failed check adds a banner. See R/preflight.R.
+preflight <- run_preflight_safety_check(con, today = Sys.Date())
+write_preflight_status(preflight)
+
+# Anchored on the newest day every table covers
+data_through <- ibm_verify_data_through(con)
+
+month_start <- as.Date(format(data_through, "%Y-%m-01"))
+
+# How far back every chart runs
+chart_months <- 3L
+
+# Trailing span for the charts that run on days and weeks.
+chart_start <- seq(data_through, by = glue("-{chart_months} months"),
+                   length.out = 2)[2]
+
+# chart_months whole calendar months plus the one in progress
+mau_start <- seq(month_start, by = glue("-{chart_months} months"),
+                 length.out = 2)[2]
+
+# "Aug 8"
+format_short_date <- function(d) {
+  d <- as.Date(d)
+  paste0(format(d, "%b"), " ", as.integer(format(d, "%d")))
+}
+
+# "August 8", not "August 08".
+data_through_label <- paste0(
+  format(data_through, "%B"), " ", as.integer(format(data_through, "%d")),
+  ", ", format(data_through, "%Y")
+)
+
+# "August", for the value box and column naming the month-to-date figure.
+month_label <- format(data_through, "%B")
+
+# Rolling windows for comparison, calendar months for the record.
+window_label <- glue("rolling {summary_window_days} days")
+prior_window_label <- glue("vs previous {summary_window_days} days")
+
+page_header <- "page-header.html"
+
+write_preflight_banner(preflight, page_header)
+
+cat(
+  c(
+    '<div class="page-strip">',
+    glue('  <p><strong>Data through {data_through_label}.</strong> ',
+         "Internal to Enterprise Digital Credentials, not for public ",
+         "consumption.</p>"),
+    "</div>"
+  ),
+  file = page_header, sep = "\n", append = TRUE
+)
+
+brand_figure <- function(p) {
+  add_cds_logo(
+    add_watermark(p, report_name = "CanadaLogin Sign-In Activity",
+                  date = data_through),
+    height = 0.09
+  )
+}
+
+# Presentation ---------------------------------------------------------------
+
+unit_colours <- c(
+  accent,
+  colors$brand[c("orange", "forest", "green", "yellow", "sky", "red")]
+)
+
+# Colours for the MFA table, from the CDS brand guide
+mfa_colours <- c(
+  "SMS OTP"            = colors$brand[["blue"]],
+  "Passkey (FIDO2)"    = colors$brand[["orange"]],
+  "Voice OTP"          = colors$brand[["forest"]],
+  "Email OTP"          = colors$brand[["green"]],
+  "TOTP"               = colors$brand[["yellow"]],
+  "Knowledge question" = colors$brand[["sky"]],
+  "QR code"            = colors$brand[["grey"]],
+  "IBM Verify push"    = colors$brand[["red"]]
+)
+
+# scale_*_manual errors on a level it has no colour for, so a factor nobody
+# has added here falls back to mid grey.
+palette_for <- function(levels) {
+  out <- unname(mfa_colours[levels])
+  out[is.na(out)] <- "#5C6670"
+  setNames(out, levels)
+}
+
+mau_chart_subtitle <- glue(
+  "Top, distinct users who have signed in so far this calendar month. ",
+  "Bottom, distinct users each day."
+)
+
+mau_chart_alt <- glue(
+  "Two charts on a shared date axis. Above, monthly active users, increasing over the",
+  "course of the month. Below, active users each day as a single line, dropping",
+  "on the weekends."
+)
+
+# Drawn only where the launch falls inside the charted span: off-chart it pins
+# to the panel edge and reads as a launch at the start of the window.
+launch_layers <- function(launched, size = 2.7, label_y = Inf) {
+  if (is.na(launched) || launched < chart_start) {
+    return(NULL)
+  }
+  list(
+    geom_vline(xintercept = launched, linetype = "dashed",
+               colour = "grey45", linewidth = 0.4),
+    annotate("text", x = launched, y = label_y,
+             label = glue(" Launched {format_short_date(launched)}"),
+             hjust = 0, vjust = 1.4, size = size, colour = "grey35")
+  )
+}
+
+# A weekly bar spans Monday to Sunday and its tick sits at the end of that
+# span, so the bar is left of the tick naming it. Move the two together.
+week_offset <- 3.5
+week_tick_offset <- 7L
+
+week_axis <- function(weeks, limits = NULL, max_labels = 14L) {
+  weeks <- sort(unique(weeks))
+  # Every other week past max_labels, counted back so the newest keeps its.
+  step <- if (length(weeks) > max_labels) 2L else 1L
+  labelled <- rev(weeks[seq(length(weeks), 1L, by = -step)])
+  scale_x_date(
+    breaks = labelled + week_tick_offset,
+    labels = format(labelled + 6L, "%b %d"),
+    limits = limits
+  )
+}
+
+# Goes with week_axis(), which labels a bar with the last day it covers.
+week_axis_title <- "Week ending"
+
+```
+
+# Overall
+
+```{r overall-summary}
+#| include: false
+daily_users_now <- average_daily_users(auth_totals(con), data_through)
+daily_users_prior <- average_daily_users(auth_totals(con),
+                                         data_through - summary_window_days)
+daily_users_delta <- fmt_delta(relative_change(daily_users_now,
+                                               daily_users_prior))
+
+# The same day of the previous month, so a month 30 days in is compared with
+# one 30 days in. Handles comparisons of months with different lengths
+previous_month_end <- month_start - 1L
+comparison_day <- min(
+  as.Date(format(previous_month_end, "%Y-%m-01")) +
+    (as.integer(format(data_through, "%d")) - 1L),
+  previous_month_end
+)
+
+mtd_now <- latest_value(auth_totals(con), "mtd_unique_users")
+mtd_prior <- auth_totals(con) |>
+  filter(date == comparison_day) |>
+  pull(mtd_unique_users)
+
+rolling_line <- "Approximate, for now"
+
+# Nothing to compare against in the first month of the data.
+mtd_line <- if (length(mtd_prior) == 0) {
+  "No comparable day last month"
+} else {
+  glue("{fmt_delta(relative_change(mtd_now, mtd_prior))} vs this time last month")
+}
+```
+
+## Row {height="150px"}
+
+::: {.valuebox color="primary"}
+Average daily users (`r window_label`)
+
+`r format(round(daily_users_now), big.mark = ",")`
+
+`r daily_users_delta` `r prior_window_label`
+:::
+
+::: {.valuebox color="info"}
+Active users in `r month_label` (to date)
+
+`r format(mtd_now, big.mark = ",")`
+
+`r mtd_line`
+:::
+
+::: {.valuebox color="secondary"}
+Active users, last 365 days
+
+`r format(latest_value(auth_totals(con), "rolling_365d_unique_users"), big.mark = ",")`
+
+`r rolling_line`
+:::
+
+## Row {height="560px"}
+
+::: {.card title="`r glue('Active users by month and by day (last {chart_months} months)')`"}
+
+```{r overall-chart}
+#| fig-width: 13
+#| fig-height: 4.6
+#| fig-alt: !expr mau_chart_alt
+
+mau <- auth_totals(con) |>
+  filter(date >= mau_start) |>
+  mutate(month = format(date, "%Y-%m"))
+
+# Each month's total, to label where its line ends.
+month_ends <- mau |>
+  group_by(month) |>
+  slice_max(date, n = 1, with_ties = FALSE) |>
+  ungroup()
+
+month_starts <- unique(as.Date(paste0(mau$month, "-01")))
+next_month <- seq(month_start, by = "1 month", length.out = 2)[2]
+month_breaks <- c(month_starts[month_starts > min(mau$date)], next_month)
+
+# Shared, a month lines up in both panels.
+axis_limits <- c(mau_start, next_month + 4L)
+
+month_axis <- scale_x_date(
+  labels = \(d) format(d, "%B"), breaks = month_starts,
+  limits = axis_limits
+)
+
+# The axis below is labelled by week, so each month names itself in place.
+month_names <- tibble(
+  start = month_starts,
+  label = ifelse(month_starts == month_start,
+                 paste0(format(month_starts, "%B"), " (in progress)"),
+                 format(month_starts, "%B"))
+)
+
+users_panel <- ggplot(mau, aes(date, mtd_unique_users, group = month)) +
+  geom_vline(xintercept = month_breaks, colour = "grey75", linewidth = 0.4,
+             linetype = "dashed") +
+  annotate("text", x = month_names$start, y = Inf, label = month_names$label,
+           hjust = -0.1, vjust = 1.4, size = 3.1, colour = "grey35") +
+  geom_line(colour = accent, linewidth = 0.9) +
+  # Above the last point, so the total stays inside its own month's band.
+  geom_text(data = month_ends, aes(label = label_comma()(mtd_unique_users)),
+            hjust = 1, vjust = -0.8, size = 3.1, colour = accent,
+            fontface = "bold") +
+  scale_y_continuous(labels = label_comma(), limits = c(0, NA),
+                     expand = expansion(mult = c(0, 0.12))) +
+  month_axis +
+  theme_cds() +
+  # The x-axis belongs to the panel below, so this one's is blank.
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  labs(
+    # No title: the card above the figure already carries it.
+    x = NULL, y = "Active users this month",
+    subtitle = mau_chart_subtitle
+  )
+
+# Daily reach under monthly reach, off the same rows as the panel above.
+daily_panel <- ggplot(mau, aes(date, unique_users)) +
+  geom_vline(xintercept = month_breaks, colour = "grey75", linewidth = 0.4,
+             linetype = "dashed") +
+  geom_line(colour = accent, linewidth = 0.7) +
+  scale_y_continuous(labels = label_comma(), limits = c(0, NA),
+                     expand = expansion(mult = c(0, 0.05))) +
+  scale_x_date(breaks = rev(seq(data_through, mau_start, by = "-2 weeks")),
+               date_labels = "%b %d", limits = axis_limits) +
+  theme_cds() +
+  labs(x = NULL, y = "Active users each day")
+
+# align = "v" with axis = "lr" so the two plotting areas line up despite
+# different y-axis label widths.
+p <- cowplot::plot_grid(
+  users_panel, daily_panel,
+  ncol = 1, align = "v", axis = "lr", rel_heights = c(1.4, 1)
+)
+
+brand_figure(p)
+```
+
+:::
+
+## Row
+
+::: {.card title="By calendar month" width="40%"}
+
+```{r overall-monthly}
+monthly_auth_totals(auth_totals(con), data_through) |>
+  # The month still filling up says so.
+  mutate(month = ifelse(month == month_start,
+                        paste0(format(month, "%B %Y"), " (to date)"),
+                        format(month, "%B %Y"))) |>
+  gt() |>
+  fmt_number(c(authentications, users), decimals = 0) |>
+  cols_label(
+    month = "Month",
+    authentications = "Authentications",
+    users = "Active users"
+  ) |>
+  tab_options(
+    table.width = pct(100),
+    table.font.size = px(14),
+    data_row.padding = px(4),
+    table.border.top.style = "none"
+  )
+```
+
+:::
+
+::: {.card title="Active users by calendar month" width="60%"}
+
+```{r overall-monthly-chart}
+#| fig-width: 8
+#| fig-height: 3.4
+#| fig-alt: |
+#|   Bar chart of active users in each calendar month, one bar per month, with
+#|   the current month drawn faded because it is still filling up.
+
+# Twelve months where there are twelve
+monthly_users <- monthly_auth_totals(auth_totals(con), data_through) |>
+  arrange(month) |>
+  tail(12) |>
+  mutate(in_progress = month == month_start)
+
+# Fade the incomplete month
+p <- ggplot(monthly_users, aes(month, users)) +
+  geom_col(aes(alpha = in_progress), fill = accent, width = 25) +
+  scale_alpha_manual(values = c("FALSE" = 1, "TRUE" = 0.4), guide = "none") +
+  scale_x_date(breaks = monthly_users$month, date_labels = "%b %Y") +
+  scale_y_continuous(labels = label_comma(), breaks = pretty_breaks(4),
+                     expand = expansion(mult = c(0, 0.08))) +
+  theme_cds() +
+  theme(panel.grid.major.x = element_blank()) +
+  labs(x = NULL, y = NULL)
+
+brand_figure(p)
+```
+
+:::
+
+# Services
+
+```{r rp-data}
+#| include: false
+
+rp_services <- external_services(con)
+
+# The parenthetical on its own line
+stacked_header <- function(label, note) {
+  htmltools::div(label, htmltools::br(), paste0("(", note, ")"))
+}
+
+# reactable, use the brand colors
+rp_theme <- reactableTheme(
+  borderColor = "#dfe2e5",
+  highlightColor = "#f5f7f9",
+  cellPadding = "6px 8px",
+  style = list(fontSize = "14px"),
+  headerStyle = list(fontWeight = 600, color = "#5C6670")
+)
+
+# Weekly sign-ins per unit, feedis both the detail chart and the sparkline
+service_weekly <- function(key) {
+  service_daily(con, key) |>
+    mutate(week = as.Date(cut(date, "week"))) |>
+    count(week, unit, wt = total_logins, name = "sign_ins") |>
+    filter(week >= chart_start, week + 6L <= data_through)
+}
+
+# One row per service: the summary columns, a sparkline, and the expandable detail
+rp_rows <- lapply(rp_services, function(key) {
+  daily <- service_daily(con, key)
+  units <- service_units(daily)
+  window_rows <- in_window(daily, data_through)
+  prior_rows <- in_window(daily, data_through - summary_window_days)
+
+  sign_ins <- sum(window_rows$total_logins)
+  prior <- sum(prior_rows$total_logins)
+
+  tibble(
+    service = key,
+    operator = coalesce(service_operators(con, key), ""),
+    launched = service_launch(daily),
+    applications = length(units),
+    sign_ins = sign_ins,
+    prior_sign_ins = prior,
+    change_value = relative_change(sign_ins, prior),
+    mtd = sum(latest_per_unit(daily, month_start, data_through)$mtd_unique_users),
+    rolling = sum(
+      latest_per_unit(daily, ibm_verify_launch, data_through)$rolling_365d_unique_users
+    )
+  )
+}) |>
+  bind_rows() |>
+  mutate(
+    launched = format(launched, "%Y-%m-%d"),
+    change = fmt_delta(change_value),
+    direction = delta_direction(change_value)
+  )
+
+# Total weekly sign-ins as a data URI, sized to sit inside a table row
+rp_sparkline <- function(key) {
+  weekly <- service_weekly(key) |>
+    count(week, wt = sign_ins, name = "sign_ins")
+  if (nrow(weekly) < 2) {
+    return('<span style="color:#5C6670">-</span>')
+  }
+  as.character(plotTag(
+    print(
+      ggplot(weekly, aes(week, sign_ins)) +
+        geom_area(fill = accent, alpha = 0.15) +
+        geom_line(colour = accent, linewidth = 0.7) +
+        scale_y_continuous(limits = c(0, NA), expand = expansion(0)) +
+        theme_void()
+    ),
+    alt = "", width = 150, height = 30,
+    device = ragg::agg_png, deviceArgs = list(background = "transparent")
+  ))
+}
+
+# The expanded row: the weekly stack beside the calendar months
+rp_detail <- function(key) {
+  daily <- service_daily(con, key)
+  units <- service_units(daily)
+  weekly <- service_weekly(key) |>
+    mutate(unit = factor(unit, levels = units))
+  launched <- service_launch(daily)
+
+  # Grey past the end of unit_colours, since scale_fill_manual() errors on a
+  # level with no corresponding color
+  palette <- rep("#5C6670", length(units))
+  taken <- seq_len(min(length(units), length(unit_colours)))
+  palette[taken] <- unit_colours[taken]
+  palette <- setNames(palette, units)
+
+  # plotTag renders at 72 dpi, so width is inches times 72 and base_size sizes
+  # text against that. suppressSize drops the img dimensions to fill the row.
+  chart <- plotTag(
+    print(
+      ggplot(weekly, aes(week + week_offset, sign_ins, fill = unit)) +
+        geom_col(width = 7, colour = "white", linewidth = 0.25) +
+        launch_layers(launched, size = 3.9) +
+        scale_fill_manual(values = palette) +
+        scale_y_continuous(labels = label_comma(),
+                           expand = expansion(mult = c(0, 0.08))) +
+        week_axis(weekly$week) +
+        theme_cds(base_size = 15) +
+        theme(legend.position = "top", legend.justification = "left",
+              legend.margin = margin(0, 0, 0, 0)) +
+        labs(x = week_axis_title, y = "Sign-ins", fill = NULL)
+    ),
+    alt = glue(
+      "Stacked bar chart of weekly sign-ins to {key} over the last ",
+      "{chart_months} months, split by application."
+    ),
+    width = 820, height = 340, pixelratio = 2,
+    suppressSize = "xy",
+    attribs = list(style = "width:100%;height:auto"),
+    device = ragg::agg_png, deviceArgs = list(background = "white")
+  )
+
+  total_or_na <- function(x) if (all(is.na(x))) NA_real_ else sum(x, na.rm = TRUE)
+
+  monthly <- monthly_unit_sign_ins(daily, data_through) |>
+    group_by(month) |>
+    summarise(sign_ins = total_or_na(sign_ins), .groups = "drop") |>
+    left_join(
+      monthly_unit_users(daily, data_through) |>
+        group_by(month) |>
+        summarise(users = total_or_na(users), .groups = "drop"),
+      by = "month"
+    ) |>
+    arrange(desc(month)) |>
+    # The current month is still filling up, and says so on its own line.
+    mutate(month = ifelse(
+      month == month_start,
+      paste0(format(month, "%B %Y"),
+             '<br><span style="color:#5C6670;font-size:0.85em">(to date)</span>'),
+      format(month, "%B %Y")
+    ))
+
+  month_columns <- list(
+    sign_ins = colDef(name = "Sign-ins", format = colFormat(separators = TRUE),
+                      na = "-"),
+    users = colDef(name = "Active users",
+                   format = colFormat(separators = TRUE), na = "-")
+  )
+
+  # We have to be a little hacky with CSS so we can get the table and the graph
+  # side-by-side
+  htmltools::div(
+    class = "rp-detail",
+    htmltools::div(
+      class = "rp-detail-split",
+      htmltools::div(
+        class = "rp-detail-chart",
+        htmltools::tags$p(
+          class = "rp-detail-heading",
+          glue("Weekly sign-ins, last {chart_months} months")
+        ),
+        chart
+      ),
+      htmltools::div(
+        class = "rp-detail-table",
+        htmltools::tags$p(
+          class = "rp-detail-heading", "By calendar month"
+        ),
+        reactable(
+          monthly,
+          columns = c(
+            list(month = colDef(name = "Month", minWidth = 130, html = TRUE)),
+            month_columns
+          ),
+          compact = TRUE, borderless = TRUE, sortable = FALSE,
+          defaultPageSize = 12, showPageSizeOptions = FALSE,
+          theme = rp_theme
+        )
+      )
+    ),
+    htmltools::div(
+      class = "figure-note",
+      glue(
+        "Whole calendar months, where everything above is a rolling window. ",
+        "Active users are running totals, so that column cannot be added up, ",
+        "and a dash is a month before the service existed, not a zero."
+      )
+    )
+  )
+}
+
+rp_rows$trend <- vapply(rp_rows$service, rp_sparkline, character(1))
+rp_details <- lapply(rp_rows$service, rp_detail)
+```
+
+```{r services-change}
+#| include: false
+# The sign carries the direction
+services_change <- relative_change(sum(rp_rows$sign_ins),
+                                   sum(rp_rows$prior_sign_ins))
+
+# The base the percentage is measured against
+services_prior_line <- glue(
+  "{ifelse(services_change >= 0, 'Up', 'Down')} from ",
+  "{format(sum(rp_rows$prior_sign_ins), big.mark = ',')} the window before"
+)
+```
+
+## Row {height="150px"}
+
+::: {.valuebox color="primary"}
+Sign-ins (`r window_label`)
+
+`r format(sum(rp_rows$sign_ins), big.mark = ",")`
+
+External services only, one event per sign-in
+:::
+
+::: {.valuebox color="info"}
+Sign-ins `r prior_window_label`
+
+`r sprintf("%+.0f%%", services_change * 100)`
+
+`r services_prior_line`
+:::
+
+::: {.valuebox color="secondary"}
+External services
+
+`r nrow(rp_rows)`
+
+`r sum(rp_rows$applications)` applications between them
+:::
+
+## Row
+
+::: {.card title="External services (click a row to expand it)"}
+
+```{r rp-table}
+reactable(
+  select(rp_rows, service, launched, trend, sign_ins, change, mtd,
+         rolling, operator, direction, applications, prior_sign_ins),
+  searchable = TRUE,
+  language = reactableLang(
+    searchPlaceholder = "Service or department",
+    searchLabel = "Search by service or department"
+  ),
+  defaultSorted = list(sign_ins = "desc"),
+  defaultPageSize = 12,
+  showPageSizeOptions = TRUE,
+  pageSizeOptions = c(12, 25, 50),
+  highlight = TRUE,
+  borderless = TRUE,
+  compact = TRUE,
+  # Click anywhere on the row, not just the arrow.
+  onClick = "expand",
+  rowStyle = list(cursor = "pointer"),
+  details = function(index) rp_details[[index]],
+  theme = rp_theme,
+  columns = list(
+    service = colDef(
+      name = "Service", minWidth = 210,
+      # The operator rides under the name rather than taking a column of its
+      # own, which keeps the numbers together on the right.
+      cell = function(value, index) {
+        htmltools::div(
+          htmltools::div(style = "font-weight:600", value),
+          htmltools::div(style = "font-size:0.85em;color:#5C6670",
+                         rp_rows$operator[index])
+        )
+      }
+    ),
+    launched = colDef(
+      name = "Launched", maxWidth = 110,
+      cell = function(value) format_short_date(value)
+    ),
+    trend = colDef(
+      name = glue("Trend ({chart_months} months)"),
+      header = stacked_header("Trend", glue("{chart_months} months")),
+      html = TRUE,
+      sortable = FALSE, maxWidth = 170
+    ),
+    sign_ins = colDef(
+      name = glue("Sign-ins ({window_label})"),
+      header = stacked_header("Sign-ins", window_label),
+      format = colFormat(separators = TRUE), maxWidth = 140
+    ),
+    change = colDef(
+      name = prior_window_label, maxWidth = 140,
+      style = function(value, index) {
+        list(color = delta_colours[[rp_rows$direction[index]]])
+      }
+    ),
+    mtd = colDef(name = glue("Active users ({month_label} to date)"),
+                 header = stacked_header("Active users",
+                                         glue("{month_label} to date")),
+                 format = colFormat(separators = TRUE), maxWidth = 130),
+    rolling = colDef(name = "Active users (365 days)",
+                     header = stacked_header("Active users", "365 days"),
+                     format = colFormat(separators = TRUE), maxWidth = 130),
+    # Hidden, but searched: the operator is printed under the service name, so
+    # searching "TBS" should find GC Digital Talent. reactable leaves hidden
+    # columns out of the search box unless a column opts back in.
+    operator = colDef(show = FALSE, searchable = TRUE),
+    direction = colDef(show = FALSE),
+    applications = colDef(show = FALSE),
+    prior_sign_ins = colDef(show = FALSE)
+  )
+)
+```
+
+::: {.figure-note}
+**Click a row** for its weekly chart and its calendar months. A *service* is one 
+relying party, and the *applications* inside it are the names IBM Verify knows it by. 
+One service can have several applications. CanadaLogin's own internal applications are 
+left out, although they still count towards the CanadaLogin-wide figures on the front 
+page.
+:::
+
+:::
+
+# Second factors
+
+```{r mfa-data}
+#| include: false
+# One read, filtered to a factor list per figure
+
+mfa_all <- mfa_successes(con)
+
+# Weekly successful attempts per factor, part weeks dropped.
+mfa_series <- function(types) {
+  mfa_all |>
+    filter(mfa_type %in% types) |>
+    mutate(week = as.Date(cut(date, "week"))) |>
+    count(week, factor_label, wt = count, name = "successes") |>
+    filter(week >= chart_start, week + 6L <= data_through) |>
+    mutate(factor_label = factor(factor_label, levels = mfa_label(types)))
+}
+
+# Each factor's share of successes over the window, as whole percentage points.
+# The largest slice is nudged so the squares sum to exactly 100.
+mfa_mix <- function(types) {
+  mix <- mfa_all |>
+    in_window(data_through) |>
+    filter(mfa_type %in% types) |>
+    group_by(mfa_type, factor_label) |>
+    summarise(successes = sum(count), .groups = "drop") |>
+    filter(successes > 0) |>
+    mutate(share = successes / sum(successes), pct = round(share * 100)) |>
+    arrange(desc(successes))
+  largest <- which.max(mix$pct)
+  mix$pct[largest] <- mix$pct[largest] + (100L - sum(mix$pct))
+  mix
+}
+
+# A bare coloured arrow, for a column with a direction but no size, includes a label
+# for screen readers.
+arrow_html <- function(direction) {
+  glyph <- c(up = "\u25b2", down = "\u25bc", flat = "")
+  label <- c(up = "share up", down = "share down", flat = "")
+  ifelse(
+    direction == "flat", "",
+    sprintf(' <span style="color:%s" role="img" aria-label="%s">%s</span>',
+            delta_colours[direction], label[direction], glyph[direction])
+  )
+}
+
+# Successes over the window against the one before it. Share moves on its own,
+# so the count arrow and the share arrow can disagree.
+mfa_table_rows <- function(types) {
+  prior <- mfa_all |>
+    in_window(data_through - summary_window_days) |>
+    filter(mfa_type %in% types) |>
+    group_by(mfa_type) |>
+    summarise(prior_successes = sum(count), .groups = "drop") |>
+    mutate(prior_share = prior_successes / sum(prior_successes))
+
+  mfa_mix(types) |>
+    left_join(prior, by = "mfa_type") |>
+    mutate(
+      prior_successes = coalesce(prior_successes, 0),
+      change_value = relative_change(successes, prior_successes),
+      change = fmt_delta(change_value),
+      direction = delta_direction(change_value),
+      share_direction = delta_direction(share - prior_share),
+      share_text = paste0(percent(share, accuracy = 1),
+                          arrow_html(share_direction))
+    )
+}
+
+mfa_summary <- mfa_table_rows(sign_in_mfa_types)
+
+mfa_total <- sum(mfa_summary$successes)
+
+passkey_row <- filter(mfa_summary, mfa_type == "fido2")
+
+# An attempt is a success or a failure. `sent` rows are not included
+mfa_attempts <- mfa_activity(con) |>
+  filter(mfa_type %in% sign_in_mfa_types, result %in% c("success", "failure"))
+
+attempts_now <- sum(in_window(mfa_attempts, data_through)$count)
+attempts_prior <- sum(
+  in_window(mfa_attempts, data_through - summary_window_days)$count
+)
+attempts_delta <- fmt_delta(relative_change(attempts_now, attempts_prior))
+
+mfa_failures <- attempts_now - mfa_total
+mfa_success_rate <- mfa_total / attempts_now
+
+# Points, not percent: 5% to 7% is a rise of two points, not 40%
+passkey_share_shift <- if (nrow(passkey_row) == 0) {
+  "No successful attempts this window"
+} else {
+  shift <- passkey_row$share - passkey_row$prior_share
+  direction <- delta_direction(shift)
+  if (direction == "flat") {
+    glue("No change vs previous {summary_window_days} days")
+  } else {
+    points <- sprintf("%+.0f", shift * 100)
+    glue("{c(up = '\u25b2', down = '\u25bc')[direction]} {points} ",
+         "{ifelse(abs(round(shift * 100)) == 1, 'point', 'points')} vs ",
+         "previous {summary_window_days} days")
+  }
+}
+
+```
+
+## Row {height="150px"}
+
+::: {.valuebox color="primary"}
+Second-factor attempts (`r window_label`)
+
+`r format(attempts_now, big.mark = ",")`
+
+`r attempts_delta` `r prior_window_label`
+:::
+
+::: {.valuebox color="info"}
+Second-factor success rate (`r window_label`)
+
+`r percent(mfa_success_rate, accuracy = 0.1)`
+
+`r format(mfa_failures, big.mark = ",")` failed attempts at a passkey or OTP
+:::
+
+::: {.valuebox color="secondary"}
+Passkey share of sign-in factors
+
+`r percent(passkey_row$share, accuracy = 1)`
+
+`r passkey_share_shift`
+:::
+
+## Row {height="520px"}
+
+::: {.card title="`r glue('Successful sign-in factors over time (last {chart_months} months)')`" width="66%"}
+
+```{r mfa-signin-chart}
+#| fig-width: 8.6
+#| fig-height: 4.1
+#| fig-alt: |
+#|   Stacked bar chart of successful multi-factor attempts per week over the last
+#|   three months, one bar per week split by sign-in factor. Blue SMS OTP fills
+#|   almost the whole of every bar, with thin bands of orange passkeys and green
+#|   voice OTP on top.
+
+rows <- mfa_series(sign_in_mfa_types)
+
+p <- ggplot(rows, aes(week + week_offset, successes, fill = factor_label)) +
+  geom_col(width = 7, colour = "white", linewidth = 0.25) +
+  scale_fill_manual(values = palette_for(levels(rows$factor_label))) +
+  scale_y_continuous(labels = label_comma(),
+                     expand = expansion(mult = c(0, 0.05))) +
+  week_axis(rows$week) +
+  theme_cds() +
+  # Legend on top and left, clear of the logo in the top-right corner.
+  theme(legend.position = "top", legend.justification = "left",
+        legend.margin = margin(0, 0, 0, 0)) +
+  labs(x = week_axis_title, y = "Successful attempts", fill = NULL,
+       subtitle = glue("Weekly successful second-factor attempts over the ",
+                       "last {chart_months} months, for the factors the ",
+                       "public can sign in with."))
+
+brand_figure(p)
+```
+
+:::
+
+::: {.card title="`r glue('Passkey uptake (last {chart_months} months)')`" width="34%"}
+
+```{r mfa-passkey-chart}
+#| fig-width: 5.0
+#| fig-height: 4.3
+#| fig-alt: |
+#|   Line chart of passkeys as a share of successful sign-in factor attempts,
+#|   one point per week over the last three months, rising from a low single
+#|   digit percentage towards the high single digits.
+
+# Passkeys are a few percent of the stack beside this, so a band a few pixels
+# tall. Share over time is where a rise in them shows.
+weekly <- mfa_series(sign_in_mfa_types) |>
+  group_by(week) |>
+  summarise(
+    share = sum(successes[factor_label == mfa_label("fido2")]) / sum(successes),
+    .groups = "drop"
+  )
+
+p <- ggplot(weekly, aes(week + week_tick_offset, share)) +
+  geom_line(colour = mfa_colours[[mfa_label("fido2")]], linewidth = 0.9) +
+  geom_point(colour = mfa_colours[[mfa_label("fido2")]], size = 1.8) +
+  scale_y_continuous(labels = percent_format(accuracy = 1), limits = c(0, NA),
+                     expand = expansion(mult = c(0, 0.1))) +
+  # A narrower card than the stack beside it, so fewer labels.
+  week_axis(weekly$week, max_labels = 7L) +
+  theme_cds() +
+  labs(x = week_axis_title, y = "Share of successful attempts",
+       subtitle = glue("Passkeys as a share of the sign-in factors\nusers ",
+                       "succeeded with, week by week."))
+
+brand_figure(p)
+```
+
+::: {.figure-note}
+A focus on passkeys, the most secure factor available to the public.
+:::
+
+:::
+
+## Row
+
+::: {.card title="`r glue('Sign-in factor mix ({window_label})')`" width="34%"}
+
+```{r mfa-signin-waffle}
+#| fig-width: 4.4
+#| fig-height: 4.6
+#| fig-alt: |
+#|   Waffle chart of one hundred squares showing each sign-in factor's share of
+#|   successful attempts over the last four weeks, dominated by blue SMS OTP
+#|   with small blocks of green voice OTP and orange passkeys.
+
+mix <- mfa_mix(sign_in_mfa_types)
+
+p <- ggplot(mix) +
+  geom_waffle0(aes(x = "", y = pct, fill = factor_label),
+               bricks_per_layer = 10) +
+  coord_waffle(10) +
+  scale_fill_manual(values = palette_for(mix$factor_label),
+                    breaks = mix$factor_label) +
+  theme_cds() +
+  theme(
+    axis.text = element_blank(),
+    axis.ticks = element_blank(),
+    panel.grid = element_blank(),
+    panel.border = element_blank(),
+    legend.position = "bottom",
+    plot.title.position = "plot"
+  ) +
+  labs(x = NULL, y = NULL, fill = NULL,
+       subtitle = "Each square is one percent of successful attempts.")
+
+brand_figure(p)
+```
+
+:::
+
+::: {.card title="`r glue('Sign-in factors ({window_label})')`" width="66%"}
+
+```{r mfa-signin-table}
+mfa_table_rows(sign_in_mfa_types) |>
+  select(factor_label, successes, change, share_text, direction) |>
+  gt() |>
+  cols_hide(direction) |>
+  fmt_number(successes, decimals = 0) |>
+  # fmt_markdown, or gt renders the arrow's span as literal text.
+  fmt_markdown(share_text) |>
+  cols_label(
+    factor_label = "Factor",
+    successes = html(glue("Successful<br>({window_label})")),
+    change = prior_window_label,
+    share_text = "Share"
+  ) |>
+  tab_style(cell_text(color = delta_colours[["up"]]),
+            cells_body(columns = change, rows = direction == "up")) |>
+  tab_style(cell_text(color = delta_colours[["down"]]),
+            cells_body(columns = change, rows = direction == "down")) |>
+  tab_style(cell_text(color = delta_colours[["flat"]]),
+            cells_body(columns = change, rows = direction == "flat")) |>
+  tab_options(
+    table.width = pct(100),
+    table.font.size = px(14),
+    data_row.padding = px(4),
+    table.border.top.style = "none"
+  )
+```
+
+::: {.figure-note}
+The multi-factor authentication factors a member of the public can present when
+signing in. Email OTP is left out: it validates an address at sign-up and cannot
+sign anyone in.
+:::
+
+:::
+
+# About
+
+## Row
+
+::: {.card title="About this dashboard"}
+
+Sign-in activity on CanadaLogin as
+[IBM Verify](https://github.com/cds-snc/canadalogin-reporting-data-pipeline)
+records it. It is internal to Enterprise Digital Credentials and the link is
+unlisted, so keep it that way. Quote it in conversation; for anything that
+leaves the team, take the numbers from the report that owns them.
+
+**Active users are users and sign-ins are events.** Someone who signs in every
+morning is one active user and many sign-ins. The active-user counts are
+running totals IBM Verify keeps, so read them off the newest day and never add
+them up across days or months.
+
+**The CanadaLogin-wide counts on Overall are inflated.** IBM Verify records
+each authentication method as its own event, so one sign-in with a password and
+a second factor lands as more than one. The per-service counts on Services are
+one event per sign-in. The two do not compare.
+
+**A red banner at the top of the page means a check failed at render time.** Do
+not quote anything until it clears.
+
+The numbers come from three daily tables in the `ibm_verify` schema, defined in
+the [metrics cookbook](https://cds-snc.github.io/canadalogin-metrics-cookbook/cookbook/ibm_verify.html).
+Yesterday's rows land each morning, so the figures end yesterday. The dashboard
+is re-rendered weekly to this one URL and each publish overwrites the last, so a
+number is only reproducible while it is still on the page.
+
+Produced by the EDCP Data and Research Team. Questions go to
+[#edcp-data-and-research](https://gcdigital.slack.com/archives/C0A6S9F7KV4).
+
+:::
+
+```{r cleanup}
+#| include: false
+# include: false matters for layout: this chunk sits in the last Row, where
+# anything visible becomes a card and takes width from the table.
+DBI::dbDisconnect(con)
+```
+
+{{< include ../../_analytics.qmd >}}
