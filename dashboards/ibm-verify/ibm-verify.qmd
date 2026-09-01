@@ -36,6 +36,15 @@ data_through <- ibm_verify_data_through(con)
 
 month_start <- as.Date(format(data_through, "%Y-%m-01"))
 
+# Part way only if the data stops before the month does. On the first of a month
+# data_through is the last day of the month before, which is complete.
+month_end <- seq(month_start, by = "1 month", length.out = 2)[2] - 1L
+partial_month <- if (data_through < month_end) month_start else as.Date(NA)
+is_partial_month <- function(month) !is.na(partial_month) & month == partial_month
+
+# " to date" on a label naming month_label, or "" once the month is complete.
+to_date_suffix <- if (is.na(partial_month)) "" else " to date"
+
 # How far back every chart runs
 chart_months <- 3L
 
@@ -43,7 +52,7 @@ chart_months <- 3L
 chart_start <- seq(data_through, by = glue("-{chart_months} months"),
                    length.out = 2)[2]
 
-# chart_months whole calendar months plus the one in progress
+# chart_months whole calendar months plus the current one, which may be complete
 mau_start <- seq(month_start, by = glue("-{chart_months} months"),
                  length.out = 2)[2]
 
@@ -164,7 +173,133 @@ week_axis_title <- "Week ending"
 
 ```
 
-# Overall
+# Overview
+
+<!-- Pinned, or this card fills the viewport and pushes the diagram below the
+     fold. Sized for the text at the narrowest width, so loose on a wide one. -->
+## Row {height="360px"}
+
+::: {.card title="About this dashboard"}
+
+This dashboard reports **sign-in activity on CanadaLogin** as recorded by
+[IBM Verify](https://github.com/cds-snc/canadalogin-reporting-data-pipeline). 
+It is internal to Enterprise Digital Credentials and the link is
+unlisted, so it isn't visible to the general public. It's for *your* information. 
+For anything that leaves EDCP, please reach out to the [Data and Research team](https://gcdigital.slack.com/archives/C0A6S9F7KV4). We are happy to provide you with a bespoke calculation or the underlying data.
+
+**A red banner at the top of the page means a check failed at render time.** Do
+not quote anything until it clears. If you don't see a red banner (its hard to miss),
+then you can assume that all of the preflight data quality checks passed.
+
+The numbers come from three daily tables in the `ibm_verify` schema, defined in
+the [metrics cookbook](https://cds-snc.github.io/canadalogin-metrics-cookbook/cookbook/ibm_verify.html). Data is exported every morning, so this dashboard should be current
+up to yesterday. Typically, these numbers are reported in periods running Monday 
+through Sunday.
+
+:::
+
+## Row
+
+::: {.card title="Understanding the metrics"}
+
+### One sign-in, many services
+
+```{=html}
+<svg viewBox="0 0 900 258" role="img" aria-labelledby="flow-title flow-desc"
+     style="width:100%;height:auto;font-family:inherit;max-width:900px;margin-bottom:1rem">
+  <title id="flow-title">How a CanadaLogin sign-in reaches a partner service</title>
+  <desc id="flow-desc">A user signs in to CanadaLogin once, presenting a password and
+    then a second factor. IBM Verify records each factor as its own authentication
+    event, so one sign-in raises two or more of them. CanadaLogin then holds a session
+    and uses it to reach any number of partner services without asking for a password
+    again, recording each of those as a single SSO event. The Authentication tab counts
+    the authentication events on the left; the Services tab counts the SSO events on
+    the right.</desc>
+
+  <defs>
+    <marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5a6672"/>
+    </marker>
+  </defs>
+
+  <g fill="#1f2933" font-size="14" text-anchor="middle">
+
+    <rect x="8" y="68" width="100" height="58" rx="6"
+          fill="#ffffff" stroke="#004986" stroke-width="1.5"/>
+    <text x="58" y="102" font-size="15" font-weight="600">User</text>
+
+    <!-- Two arrowheads end to end: the factors are presented in sequence, and each
+         is its own authentication event. One arrow, or two parallel, misreads both. -->
+    <line x1="112" y1="97" x2="208" y2="97" stroke="#5a6672" stroke-width="1.5"
+          marker-end="url(#flow-arrow)"/>
+    <text x="158" y="87" font-size="13">password</text>
+    <line x1="214" y1="97" x2="314" y2="97" stroke="#5a6672" stroke-width="1.5"
+          marker-end="url(#flow-arrow)"/>
+    <text x="266" y="87" font-size="13">second factor</text>
+
+    <rect x="320" y="52" width="152" height="90" rx="6" fill="#004986"/>
+    <text x="396" y="90" fill="#ffffff" font-size="15" font-weight="600">CanadaLogin</text>
+    <text x="396" y="112" fill="#ffffff" font-size="13">holds the session</text>
+
+    <!-- Handoffs: the session spent, no factors involved -->
+    <path d="M 478 92 C 545 92 545 46 612 46" fill="none" stroke="#5a6672"
+          stroke-width="1.5" marker-end="url(#flow-arrow)"/>
+    <path d="M 478 97 C 545 97 545 92 612 92" fill="none" stroke="#5a6672"
+          stroke-width="1.5" marker-end="url(#flow-arrow)"/>
+    <path d="M 478 102 C 545 102 545 138 612 138" fill="none" stroke="#5a6672"
+          stroke-width="1.5" marker-end="url(#flow-arrow)"/>
+
+    <rect x="618" y="24" width="204" height="44" rx="6"
+          fill="#f2f4f6" stroke="#ccd2d8" stroke-width="1.5"/>
+    <text x="720" y="52">Partner service</text>
+    <rect x="618" y="70" width="204" height="44" rx="6"
+          fill="#f2f4f6" stroke="#ccd2d8" stroke-width="1.5"/>
+    <text x="720" y="98">Partner service</text>
+    <rect x="618" y="116" width="204" height="44" rx="6"
+          fill="#f2f4f6" stroke="#ccd2d8" stroke-width="1.5"/>
+    <text x="720" y="144">Partner service</text>
+
+    <!-- One sign-in on the left, many services on the right. The event count each
+         raises differs from both, which is what the braces exist to separate. -->
+    <path d="M 8 178 V 190 H 472 V 178" fill="none" stroke="#8c97a1" stroke-width="1.5"/>
+    <text x="240" y="211" font-size="14" font-weight="600">One sign-in</text>
+    <text x="240" y="230" font-size="13">two or more authentication events</text>
+    <text x="240" y="248" font-size="13" fill="#5a6672">counted on Authentication tab</text>
+
+    <path d="M 490 178 V 190 H 822 V 178" fill="none" stroke="#8c97a1" stroke-width="1.5"/>
+    <text x="656" y="211" font-size="14" font-weight="600">Many services reached</text>
+    <text x="656" y="230" font-size="13">one SSO event each</text>
+    <text x="656" y="248" font-size="13" fill="#5a6672">counted on Services tab</text>
+
+  </g>
+</svg>
+```
+
+A user signs in to CanadaLogin **once**. They enter a password, then a second
+factor. IBM Verify records **each factor they present as its own authentication
+event**, so a single sign-in raises two or more of them. What the user is left
+with is a **session**.
+
+Reaching a partner service afterwards does not sign anyone in again. CanadaLogin
+uses the session it already has to vouch for the user, and IBM Verify records
+that as an **SSO event**. No password and no second factor are involved. We reserve 
+the phrase *sign in* for the thing a user does at the start of the process.
+
+### Reading the numbers
+
+**"Authentication" counts authentication events. "Services" counts SSO events.** IBM 
+Verify treats these as two different kinds of record and counts them separately. You 
+should not add them together or compare them against each other.
+
+**An authentication event is not a sign-in.** The password and the second factor
+are recorded separately, so a single sign-in raises more than one event. As of 
+September 2026, we do not have a good count of the number of *sign-ins*, only the 
+number of *authentication events* that such sign-ins generate.
+
+:::
+
+# Authentication
 
 ```{r overall-summary}
 #| include: false
@@ -194,7 +329,8 @@ rolling_line <- "Approximate, for now"
 mtd_line <- if (length(mtd_prior) == 0) {
   "No comparable day last month"
 } else {
-  glue("{fmt_delta(relative_change(mtd_now, mtd_prior))} vs this time last month")
+  glue("{fmt_delta(relative_change(mtd_now, mtd_prior))} vs ",
+       "{if (is.na(partial_month)) 'last month' else 'this time last month'}")
 }
 ```
 
@@ -209,7 +345,7 @@ Average daily users (`r window_label`)
 :::
 
 ::: {.valuebox color="info"}
-Active users in `r month_label` (to date)
+Active users, `r month_label``r to_date_suffix`
 
 `r format(mtd_now, big.mark = ",")`
 
@@ -258,7 +394,7 @@ month_axis <- scale_x_date(
 # The axis below is labelled by week, so each month names itself in place.
 month_names <- tibble(
   start = month_starts,
-  label = ifelse(month_starts == month_start,
+  label = ifelse(is_partial_month(month_starts),
                  paste0(format(month_starts, "%B"), " (in progress)"),
                  format(month_starts, "%B"))
 )
@@ -316,14 +452,14 @@ brand_figure(p)
 ```{r overall-monthly}
 monthly_auth_totals(auth_totals(con), data_through) |>
   # The month still filling up says so.
-  mutate(month = ifelse(month == month_start,
+  mutate(month = ifelse(is_partial_month(month),
                         paste0(format(month, "%B %Y"), " (to date)"),
                         format(month, "%B %Y"))) |>
   gt() |>
-  fmt_number(c(authentications, users), decimals = 0) |>
+  fmt_number(c(authentication_events, users), decimals = 0) |>
   cols_label(
     month = "Month",
-    authentications = "Authentications",
+    authentication_events = "Authentication events",
     users = "Active users"
   ) |>
   tab_options(
@@ -333,6 +469,13 @@ monthly_auth_totals(auth_totals(con), data_through) |>
     table.border.top.style = "none"
   )
 ```
+
+::: {.figure-note}
+An *authentication event* is what IBM Verify records while a user signs in. One
+sign-in raises more than one, because the password and the second factor are
+recorded separately, so this column runs well above the number of sign-ins.
+Read it as a measure of load, not of how many times users signed in.
+:::
 
 :::
 
@@ -349,7 +492,7 @@ monthly_auth_totals(auth_totals(con), data_through) |>
 monthly_users <- monthly_auth_totals(auth_totals(con), data_through) |>
   arrange(month) |>
   tail(12) |>
-  mutate(in_progress = month == month_start)
+  mutate(in_progress = is_partial_month(month))
 
 # Fade the incomplete month
 p <- ggplot(monthly_users, aes(month, users)) +
@@ -367,327 +510,7 @@ brand_figure(p)
 
 :::
 
-# Services
-
-```{r rp-data}
-#| include: false
-
-rp_services <- external_services(con)
-
-# The parenthetical on its own line
-stacked_header <- function(label, note) {
-  htmltools::div(label, htmltools::br(), paste0("(", note, ")"))
-}
-
-# reactable, use the brand colors
-rp_theme <- reactableTheme(
-  borderColor = "#dfe2e5",
-  highlightColor = "#f5f7f9",
-  cellPadding = "6px 8px",
-  style = list(fontSize = "14px"),
-  headerStyle = list(fontWeight = 600, color = "#5C6670")
-)
-
-# Weekly sign-ins per unit, feedis both the detail chart and the sparkline
-service_weekly <- function(key) {
-  service_daily(con, key) |>
-    mutate(week = as.Date(cut(date, "week"))) |>
-    count(week, unit, wt = total_logins, name = "sign_ins") |>
-    filter(week >= chart_start, week + 6L <= data_through)
-}
-
-# One row per service: the summary columns, a sparkline, and the expandable detail
-rp_rows <- lapply(rp_services, function(key) {
-  daily <- service_daily(con, key)
-  units <- service_units(daily)
-  window_rows <- in_window(daily, data_through)
-  prior_rows <- in_window(daily, data_through - summary_window_days)
-
-  sign_ins <- sum(window_rows$total_logins)
-  prior <- sum(prior_rows$total_logins)
-
-  tibble(
-    service = key,
-    operator = coalesce(service_operators(con, key), ""),
-    launched = service_launch(daily),
-    applications = length(units),
-    sign_ins = sign_ins,
-    prior_sign_ins = prior,
-    change_value = relative_change(sign_ins, prior),
-    mtd = sum(latest_per_unit(daily, month_start, data_through)$mtd_unique_users),
-    rolling = sum(
-      latest_per_unit(daily, ibm_verify_launch, data_through)$rolling_365d_unique_users
-    )
-  )
-}) |>
-  bind_rows() |>
-  mutate(
-    launched = format(launched, "%Y-%m-%d"),
-    change = fmt_delta(change_value),
-    direction = delta_direction(change_value)
-  )
-
-# Total weekly sign-ins as a data URI, sized to sit inside a table row
-rp_sparkline <- function(key) {
-  weekly <- service_weekly(key) |>
-    count(week, wt = sign_ins, name = "sign_ins")
-  if (nrow(weekly) < 2) {
-    return('<span style="color:#5C6670">-</span>')
-  }
-  as.character(plotTag(
-    print(
-      ggplot(weekly, aes(week, sign_ins)) +
-        geom_area(fill = accent, alpha = 0.15) +
-        geom_line(colour = accent, linewidth = 0.7) +
-        scale_y_continuous(limits = c(0, NA), expand = expansion(0)) +
-        theme_void()
-    ),
-    alt = "", width = 150, height = 30,
-    device = ragg::agg_png, deviceArgs = list(background = "transparent")
-  ))
-}
-
-# The expanded row: the weekly stack beside the calendar months
-rp_detail <- function(key) {
-  daily <- service_daily(con, key)
-  units <- service_units(daily)
-  weekly <- service_weekly(key) |>
-    mutate(unit = factor(unit, levels = units))
-  launched <- service_launch(daily)
-
-  # Grey past the end of unit_colours, since scale_fill_manual() errors on a
-  # level with no corresponding color
-  palette <- rep("#5C6670", length(units))
-  taken <- seq_len(min(length(units), length(unit_colours)))
-  palette[taken] <- unit_colours[taken]
-  palette <- setNames(palette, units)
-
-  # plotTag renders at 72 dpi, so width is inches times 72 and base_size sizes
-  # text against that. suppressSize drops the img dimensions to fill the row.
-  chart <- plotTag(
-    print(
-      ggplot(weekly, aes(week + week_offset, sign_ins, fill = unit)) +
-        geom_col(width = 7, colour = "white", linewidth = 0.25) +
-        launch_layers(launched, size = 3.9) +
-        scale_fill_manual(values = palette) +
-        scale_y_continuous(labels = label_comma(),
-                           expand = expansion(mult = c(0, 0.08))) +
-        week_axis(weekly$week) +
-        theme_cds(base_size = 15) +
-        theme(legend.position = "top", legend.justification = "left",
-              legend.margin = margin(0, 0, 0, 0)) +
-        labs(x = week_axis_title, y = "Sign-ins", fill = NULL)
-    ),
-    alt = glue(
-      "Stacked bar chart of weekly sign-ins to {key} over the last ",
-      "{chart_months} months, split by application."
-    ),
-    width = 820, height = 340, pixelratio = 2,
-    suppressSize = "xy",
-    attribs = list(style = "width:100%;height:auto"),
-    device = ragg::agg_png, deviceArgs = list(background = "white")
-  )
-
-  total_or_na <- function(x) if (all(is.na(x))) NA_real_ else sum(x, na.rm = TRUE)
-
-  monthly <- monthly_unit_sign_ins(daily, data_through) |>
-    group_by(month) |>
-    summarise(sign_ins = total_or_na(sign_ins), .groups = "drop") |>
-    left_join(
-      monthly_unit_users(daily, data_through) |>
-        group_by(month) |>
-        summarise(users = total_or_na(users), .groups = "drop"),
-      by = "month"
-    ) |>
-    arrange(desc(month)) |>
-    # The current month is still filling up, and says so on its own line.
-    mutate(month = ifelse(
-      month == month_start,
-      paste0(format(month, "%B %Y"),
-             '<br><span style="color:#5C6670;font-size:0.85em">(to date)</span>'),
-      format(month, "%B %Y")
-    ))
-
-  month_columns <- list(
-    sign_ins = colDef(name = "Sign-ins", format = colFormat(separators = TRUE),
-                      na = "-"),
-    users = colDef(name = "Active users",
-                   format = colFormat(separators = TRUE), na = "-")
-  )
-
-  # We have to be a little hacky with CSS so we can get the table and the graph
-  # side-by-side
-  htmltools::div(
-    class = "rp-detail",
-    htmltools::div(
-      class = "rp-detail-split",
-      htmltools::div(
-        class = "rp-detail-chart",
-        htmltools::tags$p(
-          class = "rp-detail-heading",
-          glue("Weekly sign-ins, last {chart_months} months")
-        ),
-        chart
-      ),
-      htmltools::div(
-        class = "rp-detail-table",
-        htmltools::tags$p(
-          class = "rp-detail-heading", "By calendar month"
-        ),
-        reactable(
-          monthly,
-          columns = c(
-            list(month = colDef(name = "Month", minWidth = 130, html = TRUE)),
-            month_columns
-          ),
-          compact = TRUE, borderless = TRUE, sortable = FALSE,
-          defaultPageSize = 12, showPageSizeOptions = FALSE,
-          theme = rp_theme
-        )
-      )
-    ),
-    htmltools::div(
-      class = "figure-note",
-      glue(
-        "Whole calendar months, where everything above is a rolling window. ",
-        "Active users are running totals, so that column cannot be added up, ",
-        "and a dash is a month before the service existed, not a zero."
-      )
-    )
-  )
-}
-
-rp_rows$trend <- vapply(rp_rows$service, rp_sparkline, character(1))
-rp_details <- lapply(rp_rows$service, rp_detail)
-```
-
-```{r services-change}
-#| include: false
-# The sign carries the direction
-services_change <- relative_change(sum(rp_rows$sign_ins),
-                                   sum(rp_rows$prior_sign_ins))
-
-# The base the percentage is measured against
-services_prior_line <- glue(
-  "{ifelse(services_change >= 0, 'Up', 'Down')} from ",
-  "{format(sum(rp_rows$prior_sign_ins), big.mark = ',')} the window before"
-)
-```
-
-## Row {height="150px"}
-
-::: {.valuebox color="primary"}
-Sign-ins (`r window_label`)
-
-`r format(sum(rp_rows$sign_ins), big.mark = ",")`
-
-External services only, one event per sign-in
-:::
-
-::: {.valuebox color="info"}
-Sign-ins `r prior_window_label`
-
-`r sprintf("%+.0f%%", services_change * 100)`
-
-`r services_prior_line`
-:::
-
-::: {.valuebox color="secondary"}
-External services
-
-`r nrow(rp_rows)`
-
-`r sum(rp_rows$applications)` applications between them
-:::
-
-## Row
-
-::: {.card title="External services (click a row to expand it)"}
-
-```{r rp-table}
-reactable(
-  select(rp_rows, service, launched, trend, sign_ins, change, mtd,
-         rolling, operator, direction, applications, prior_sign_ins),
-  searchable = TRUE,
-  language = reactableLang(
-    searchPlaceholder = "Service or department",
-    searchLabel = "Search by service or department"
-  ),
-  defaultSorted = list(sign_ins = "desc"),
-  defaultPageSize = 12,
-  showPageSizeOptions = TRUE,
-  pageSizeOptions = c(12, 25, 50),
-  highlight = TRUE,
-  borderless = TRUE,
-  compact = TRUE,
-  # Click anywhere on the row, not just the arrow.
-  onClick = "expand",
-  rowStyle = list(cursor = "pointer"),
-  details = function(index) rp_details[[index]],
-  theme = rp_theme,
-  columns = list(
-    service = colDef(
-      name = "Service", minWidth = 210,
-      # The operator rides under the name rather than taking a column of its
-      # own, which keeps the numbers together on the right.
-      cell = function(value, index) {
-        htmltools::div(
-          htmltools::div(style = "font-weight:600", value),
-          htmltools::div(style = "font-size:0.85em;color:#5C6670",
-                         rp_rows$operator[index])
-        )
-      }
-    ),
-    launched = colDef(
-      name = "Launched", maxWidth = 110,
-      cell = function(value) format_short_date(value)
-    ),
-    trend = colDef(
-      name = glue("Trend ({chart_months} months)"),
-      header = stacked_header("Trend", glue("{chart_months} months")),
-      html = TRUE,
-      sortable = FALSE, maxWidth = 170
-    ),
-    sign_ins = colDef(
-      name = glue("Sign-ins ({window_label})"),
-      header = stacked_header("Sign-ins", window_label),
-      format = colFormat(separators = TRUE), maxWidth = 140
-    ),
-    change = colDef(
-      name = prior_window_label, maxWidth = 140,
-      style = function(value, index) {
-        list(color = delta_colours[[rp_rows$direction[index]]])
-      }
-    ),
-    mtd = colDef(name = glue("Active users ({month_label} to date)"),
-                 header = stacked_header("Active users",
-                                         glue("{month_label} to date")),
-                 format = colFormat(separators = TRUE), maxWidth = 130),
-    rolling = colDef(name = "Active users (365 days)",
-                     header = stacked_header("Active users", "365 days"),
-                     format = colFormat(separators = TRUE), maxWidth = 130),
-    # Hidden, but searched: the operator is printed under the service name, so
-    # searching "TBS" should find GC Digital Talent. reactable leaves hidden
-    # columns out of the search box unless a column opts back in.
-    operator = colDef(show = FALSE, searchable = TRUE),
-    direction = colDef(show = FALSE),
-    applications = colDef(show = FALSE),
-    prior_sign_ins = colDef(show = FALSE)
-  )
-)
-```
-
-::: {.figure-note}
-**Click a row** for its weekly chart and its calendar months. A *service* is one 
-relying party, and the *applications* inside it are the names IBM Verify knows it by. 
-One service can have several applications. CanadaLogin's own internal applications are 
-left out, although they still count towards the CanadaLogin-wide figures on the front 
-page.
-:::
-
-:::
-
-# Second Factors
+# Second factors
 
 ```{r mfa-data}
 #| include: false
@@ -969,37 +792,335 @@ sign anyone in.
 
 :::
 
-# About
+# Services
+
+```{r rp-data}
+#| include: false
+
+rp_services <- external_services(con)
+
+# The parenthetical on its own line
+stacked_header <- function(label, note) {
+  htmltools::div(label, htmltools::br(), paste0("(", note, ")"))
+}
+
+# reactable, use the brand colors
+rp_theme <- reactableTheme(
+  borderColor = "#dfe2e5",
+  highlightColor = "#f5f7f9",
+  cellPadding = "6px 8px",
+  style = list(fontSize = "14px"),
+  headerStyle = list(fontWeight = 600, color = "#5C6670")
+)
+
+# Weekly SSO events per unit, feeds both the detail chart and the sparkline
+service_weekly <- function(key) {
+  service_daily(con, key) |>
+    mutate(week = as.Date(cut(date, "week"))) |>
+    count(week, unit, wt = total_logins, name = "sso_events") |>
+    filter(week >= chart_start, week + 6L <= data_through)
+}
+
+# One row per service: the summary columns, a sparkline, and the expandable detail
+rp_rows <- lapply(rp_services, function(key) {
+  daily <- service_daily(con, key)
+  units <- service_units(daily)
+  window_rows <- in_window(daily, data_through)
+  prior_rows <- in_window(daily, data_through - summary_window_days)
+
+  sso_events <- sum(window_rows$total_logins)
+  prior <- sum(prior_rows$total_logins)
+
+  tibble(
+    service = key,
+    operator = coalesce(service_operators(con, key), ""),
+    launched = service_launch(daily),
+    applications = length(units),
+    sso_events = sso_events,
+    prior_sso_events = prior,
+    change_value = relative_change(sso_events, prior),
+    mtd = sum(latest_per_unit(daily, month_start, data_through)$mtd_unique_users),
+    rolling = sum(
+      latest_per_unit(daily, ibm_verify_launch, data_through)$rolling_365d_unique_users
+    )
+  )
+}) |>
+  bind_rows() |>
+  mutate(
+    launched = format(launched, "%Y-%m-%d"),
+    change = fmt_delta(change_value),
+    direction = delta_direction(change_value)
+  )
+
+# Total weekly SSO events as a data URI, sized to sit inside a table row
+rp_sparkline <- function(key) {
+  weekly <- service_weekly(key) |>
+    count(week, wt = sso_events, name = "sso_events")
+  if (nrow(weekly) < 2) {
+    return('<span style="color:#5C6670">-</span>')
+  }
+  as.character(plotTag(
+    print(
+      ggplot(weekly, aes(week, sso_events)) +
+        geom_area(fill = accent, alpha = 0.15) +
+        geom_line(colour = accent, linewidth = 0.7) +
+        scale_y_continuous(limits = c(0, NA), expand = expansion(0)) +
+        theme_void()
+    ),
+    alt = glue("Sparkline of weekly SSO events for {key} over the last ",
+               "{chart_months} months, scaled to this service."),
+    width = 150, height = 30,
+    device = ragg::agg_png, deviceArgs = list(background = "transparent")
+  ))
+}
+
+# The expanded row: the weekly stack beside the calendar months
+rp_detail <- function(key) {
+  daily <- service_daily(con, key)
+  units <- service_units(daily)
+  weekly <- service_weekly(key) |>
+    mutate(unit = factor(unit, levels = units))
+  launched <- service_launch(daily)
+
+  # Grey past the end of unit_colours, since scale_fill_manual() errors on a
+  # level with no corresponding color
+  palette <- rep("#5C6670", length(units))
+  taken <- seq_len(min(length(units), length(unit_colours)))
+  palette[taken] <- unit_colours[taken]
+  palette <- setNames(palette, units)
+
+  # plotTag renders at 72 dpi, so width is inches times 72 and base_size sizes
+  # text against that. suppressSize drops the img dimensions to fill the row.
+  chart <- plotTag(
+    print(
+      ggplot(weekly, aes(week + week_offset, sso_events, fill = unit)) +
+        geom_col(width = 7, colour = "white", linewidth = 0.25) +
+        launch_layers(launched, size = 3.9) +
+        scale_fill_manual(values = palette) +
+        scale_y_continuous(labels = label_comma(),
+                           expand = expansion(mult = c(0, 0.08))) +
+        week_axis(weekly$week) +
+        theme_cds(base_size = 15) +
+        theme(legend.position = "top", legend.justification = "left",
+              legend.margin = margin(0, 0, 0, 0)) +
+        labs(x = week_axis_title, y = "SSO events", fill = NULL)
+    ),
+    alt = glue(
+      "Stacked bar chart of weekly SSO events for {key} over the last ",
+      "{chart_months} months, split by application."
+    ),
+    width = 820, height = 340, pixelratio = 2,
+    suppressSize = "xy",
+    attribs = list(style = "width:100%;height:auto"),
+    device = ragg::agg_png, deviceArgs = list(background = "white")
+  )
+
+  total_or_na <- function(x) if (all(is.na(x))) NA_real_ else sum(x, na.rm = TRUE)
+
+  monthly <- monthly_unit_sso_events(daily, data_through) |>
+    group_by(month) |>
+    summarise(sso_events = total_or_na(sso_events), .groups = "drop") |>
+    left_join(
+      monthly_unit_users(daily, data_through) |>
+        group_by(month) |>
+        summarise(users = total_or_na(users), .groups = "drop"),
+      by = "month"
+    ) |>
+    arrange(desc(month)) |>
+    # The current month is still filling up, and says so on its own line.
+    mutate(month = ifelse(
+      is_partial_month(month),
+      paste0(format(month, "%B %Y"),
+             '<br><span style="color:#5C6670;font-size:0.85em">(to date)</span>'),
+      format(month, "%B %Y")
+    ))
+
+  month_columns <- list(
+    sso_events = colDef(name = "SSO events", format = colFormat(separators = TRUE),
+                      na = "-"),
+    users = colDef(name = "Active users",
+                   format = colFormat(separators = TRUE), na = "-")
+  )
+
+  # We have to be a little hacky with CSS so we can get the table and the graph
+  # side-by-side
+  htmltools::div(
+    class = "rp-detail",
+    htmltools::div(
+      class = "rp-detail-split",
+      htmltools::div(
+        class = "rp-detail-chart",
+        htmltools::tags$p(
+          class = "rp-detail-heading",
+          glue("Weekly SSO events, last {chart_months} months")
+        ),
+        chart
+      ),
+      htmltools::div(
+        class = "rp-detail-table",
+        htmltools::tags$p(
+          class = "rp-detail-heading", "By calendar month"
+        ),
+        reactable(
+          monthly,
+          columns = c(
+            list(month = colDef(name = "Month", minWidth = 130, html = TRUE)),
+            month_columns
+          ),
+          compact = TRUE, borderless = TRUE, sortable = FALSE,
+          defaultPageSize = 12, showPageSizeOptions = FALSE,
+          theme = rp_theme
+        )
+      )
+    ),
+    htmltools::div(
+      class = "figure-note",
+      glue(
+        "Whole calendar months, where everything above is a rolling window. ",
+        "Active users are running totals, so that column cannot be added up, ",
+        "and a dash is a month before the service existed, not a zero."
+      )
+    )
+  )
+}
+
+rp_rows$trend <- vapply(rp_rows$service, rp_sparkline, character(1))
+rp_details <- lapply(rp_rows$service, rp_detail)
+```
+
+```{r services-change}
+#| include: false
+# The sign carries the direction
+services_change <- relative_change(sum(rp_rows$sso_events),
+                                   sum(rp_rows$prior_sso_events))
+
+# The base the percentage is measured against
+services_prior_line <- glue(
+  "{ifelse(services_change >= 0, 'Up', 'Down')} from ",
+  "{format(sum(rp_rows$prior_sso_events), big.mark = ',')} the window before"
+)
+```
+
+## Row {height="150px"}
+
+::: {.valuebox color="primary"}
+SSO events (`r window_label`)
+
+`r format(sum(rp_rows$sso_events), big.mark = ",")`
+
+External services only, no password or second factor involved
+:::
+
+::: {.valuebox color="info"}
+SSO events `r prior_window_label`
+
+`r sprintf("%+.0f%%", services_change * 100)`
+
+`r services_prior_line`
+:::
+
+::: {.valuebox color="secondary"}
+External services
+
+`r nrow(rp_rows)`
+
+`r sum(rp_rows$applications)` applications between them
+:::
 
 ## Row
 
-::: {.card title="About this dashboard"}
+::: {.card title="External services (click a row to expand it)"}
 
-Sign-in activity on CanadaLogin as
-[IBM Verify](https://github.com/cds-snc/canadalogin-reporting-data-pipeline)
-records it. It is internal to Enterprise Digital Credentials and the link is
-unlisted, so it isn't visible to the general public. It's for *your* information. 
-For anything that leaves the team, please ask the Data and Research team. We are
-happy to provide you with a bespoke calculation, or the underlying data.
+```{r rp-table}
+reactable(
+  select(rp_rows, service, launched, trend, sso_events, change, mtd,
+         rolling, operator, direction, applications, prior_sso_events),
+  searchable = TRUE,
+  language = reactableLang(
+    searchPlaceholder = "Service or department",
+    searchLabel = "Search by service or department"
+  ),
+  defaultSorted = list(sso_events = "desc"),
+  defaultPageSize = 12,
+  showPageSizeOptions = TRUE,
+  pageSizeOptions = c(12, 25, 50),
+  highlight = TRUE,
+  borderless = TRUE,
+  compact = TRUE,
+  # Click anywhere on the row, not just the arrow.
+  onClick = "expand",
+  rowStyle = list(cursor = "pointer"),
+  details = function(index) rp_details[[index]],
+  theme = rp_theme,
+  columns = list(
+    service = colDef(
+      name = "Service", minWidth = 210,
+      # The operator rides under the name rather than taking a column of its
+      # own, which keeps the numbers together on the right.
+      cell = function(value, index) {
+        htmltools::div(
+          htmltools::div(style = "font-weight:600", value),
+          htmltools::div(style = "font-size:0.85em;color:#5C6670",
+                         rp_rows$operator[index])
+        )
+      }
+    ),
+    launched = colDef(
+      name = "Launched", maxWidth = 110,
+      cell = function(value) format_short_date(value)
+    ),
+    trend = colDef(
+      name = glue("Weekly SSO events ({chart_months} months)"),
+      header = stacked_header("Weekly SSO events",
+                              glue("{chart_months} months")),
+      html = TRUE,
+      sortable = FALSE, maxWidth = 170
+    ),
+    sso_events = colDef(
+      name = glue("SSO events ({window_label})"),
+      header = stacked_header("SSO events", window_label),
+      format = colFormat(separators = TRUE), maxWidth = 140
+    ),
+    change = colDef(
+      name = prior_window_label, maxWidth = 140,
+      style = function(value, index) {
+        list(color = delta_colours[[rp_rows$direction[index]]])
+      }
+    ),
+    mtd = colDef(name = glue("Active users ({month_label}{to_date_suffix})"),
+                 header = stacked_header("Active users",
+                                         glue("{month_label}{to_date_suffix}")),
+                 format = colFormat(separators = TRUE), maxWidth = 130),
+    rolling = colDef(name = "Active users (365 days)",
+                     header = stacked_header("Active users", "365 days"),
+                     format = colFormat(separators = TRUE), maxWidth = 130),
+    # Hidden, but searched: the operator is printed under the service name, so
+    # searching "TBS" should find GC Digital Talent. reactable leaves hidden
+    # columns out of the search box unless a column opts back in.
+    operator = colDef(show = FALSE, searchable = TRUE),
+    direction = colDef(show = FALSE),
+    applications = colDef(show = FALSE),
+    prior_sso_events = colDef(show = FALSE)
+  )
+)
+```
 
-**Active users are users and sign-ins are events.** Someone who signs in every
-morning is one active user and many sign-ins. The active-user counts are
-running totals IBM Verify keeps, so read them off the newest day and never add
-them up across days or months.
+::: {.figure-note}
 
-**A red banner at the top of the page means a check failed at render time.** Do
-not quote anything until it clears.
+**Click a row** for its weekly chart and its calendar months. A *service* is one
+relying party, and the *applications* inside it are the names IBM Verify knows it
+by. One service can have several applications. CanadaLogin's own internal
+applications are left out, although they still count towards the CanadaLogin-wide
+figures on the Authentication tab.
 
-The numbers come from three daily tables in the `ibm_verify` schema, defined in
-the [metrics cookbook](https://cds-snc.github.io/canadalogin-metrics-cookbook/cookbook/ibm_verify.html).
-Yesterday's rows land each morning, so the figures end yesterday. The dashboard
-is re-rendered weekly to this one URL and each publish overwrites the last, so a
-number is only reproducible while it is still on the page.
-
-Produced by the EDCP Data and Research Team. Questions go to
-[#edcp-data-and-research](https://gcdigital.slack.com/archives/C0A6S9F7KV4).
+**These are not sign-ins.** An *SSO event* is a user reaching a service on the
+CanadaLogin session they already have, so no password and no second factor are
+involved. One sign-in can raise several. See the notes on the Overview tab.
 
 :::
+
+:::
+
 
 ```{r cleanup}
 #| include: false

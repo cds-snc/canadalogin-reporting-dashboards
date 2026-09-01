@@ -9,7 +9,7 @@
 run_preflight_safety_check <- function(con,
                                        today = Sys.Date(),
                                        lookback_days = 14L,
-                                       min_sign_in_success_rate = 0.50,
+                                       min_auth_success_rate = 0.50,
                                        collapse_to = 0.10,
                                        collapse_min_prior = 100) {
 
@@ -85,19 +85,19 @@ run_preflight_safety_check <- function(con,
   #
   # An application that quietly stops reporting while the tables stay current
   # renders as a service nobody used, not as a gap.
-  service_window_sign_ins <- function(as_of) {
+  service_window_sso_events <- function(as_of) {
     labelled_app_logins(con) |>
       in_window(as_of) |>
       group_by(service_name) |>
-      summarise(sign_ins = sum(total_logins), .groups = "drop")
+      summarise(sso_events = sum(total_logins), .groups = "drop")
   }
 
-  current <- service_window_sign_ins(as_of)
-  prior <- service_window_sign_ins(as_of - summary_window_days)
+  current <- service_window_sso_events(as_of)
+  prior <- service_window_sso_events(as_of - summary_window_days)
 
   went_quiet <- prior |>
-    filter(sign_ins > 0) |>
-    anti_join(filter(current, sign_ins > 0), by = "service_name")
+    filter(sso_events > 0) |>
+    anti_join(filter(current, sso_events > 0), by = "service_name")
 
   record_check(
     2,
@@ -105,12 +105,12 @@ run_preflight_safety_check <- function(con,
          "{summary_window_days} days still has traffic"),
     passed = nrow(went_quiet) == 0,
     details = if (nrow(went_quiet) == 0) {
-      glue("{nrow(current)} service(s) reporting sign-ins in the ",
+      glue("{nrow(current)} service(s) reporting SSO events in the ",
            "{summary_window_days} days ending {format_date(as_of)}")
     } else {
       glue(
-        "{went_quiet$service_name}: {format(went_quiet$sign_ins, big.mark = ',')} ",
-        "sign-in(s) in the preceding {summary_window_days} days and none since; ",
+        "{went_quiet$service_name}: {format(went_quiet$sso_events, big.mark = ',')} ",
+        "SSO event(s) in the preceding {summary_window_days} days and none since; ",
         "check whether the application stopped reporting or stopped being used"
       )
     }
@@ -163,20 +163,20 @@ run_preflight_safety_check <- function(con,
       glue("no authentication events at all in the {summary_window_days} days ",
            "ending {format_date(as_of)}")
     )
-  } else if (success_rate < min_sign_in_success_rate) {
+  } else if (success_rate < min_auth_success_rate) {
     plausibility_problems <- c(
       plausibility_problems,
-      glue("CanadaLogin-wide sign-in success rate is ",
+      glue("CanadaLogin-wide authentication success rate is ",
            "{as_percent(success_rate)} over the {summary_window_days} days ",
            "ending {format_date(as_of)}, below the ",
-           "{as_percent(min_sign_in_success_rate)} floor; the observed range is ",
+           "{as_percent(min_auth_success_rate)} floor; the observed range is ",
            "roughly 75% to 87%, so a rate this low means something stopped ",
            "working rather than that users stopped succeeding")
     )
   }
 
   collapsed <- full_join(
-    rename(current, now = sign_ins), rename(prior, before = sign_ins),
+    rename(current, now = sso_events), rename(prior, before = sso_events),
     by = "service_name"
   ) |>
     mutate(now = coalesce(now, 0), before = coalesce(before, 0)) |>
@@ -186,7 +186,7 @@ run_preflight_safety_check <- function(con,
     plausibility_problems <- c(
       plausibility_problems,
       glue(
-        "{collapsed$service_name}: sign-ins fell from ",
+        "{collapsed$service_name}: SSO events fell from ",
         "{format(collapsed$before, big.mark = ',')} to ",
         "{format(collapsed$now, big.mark = ',')} against the preceding ",
         "{summary_window_days} days"
@@ -196,14 +196,14 @@ run_preflight_safety_check <- function(con,
 
   record_check(
     4,
-    glue("Plausibility - sign-in success rate at or above ",
-         "{as_percent(min_sign_in_success_rate)} and no service's sign-ins ",
+    glue("Plausibility - authentication success rate at or above ",
+         "{as_percent(min_auth_success_rate)} and no service's SSO events ",
          "collapsing"),
     passed = length(plausibility_problems) == 0,
     details = if (length(plausibility_problems) == 0) {
-      glue("sign-in success rate is {as_percent(success_rate)} over the ",
+      glue("authentication success rate is {as_percent(success_rate)} over the ",
            "{summary_window_days} days ending {format_date(as_of)}, and no ",
-           "service with {collapse_min_prior} or more sign-ins in the ",
+           "service with {collapse_min_prior} or more SSO events in the ",
            "preceding window lost {as_percent(1 - collapse_to)} of them")
     } else {
       plausibility_problems

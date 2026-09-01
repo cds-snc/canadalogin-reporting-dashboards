@@ -98,7 +98,7 @@ monthly_auth_totals <- function(rows, as_of) {
     dplyr::mutate(month = as.Date(format(date, "%Y-%m-01"))) |>
     dplyr::group_by(month) |>
     dplyr::summarise(
-      authentications = sum(successful_logins + failed_logins),
+      authentication_events = sum(successful_logins + failed_logins),
       users = mtd_unique_users[which.max(date)],
       .groups = "drop"
     ) |>
@@ -137,8 +137,8 @@ services_by_volume <- function(rows) {
   rows |>
     dplyr::filter(!is.na(service_name)) |>
     dplyr::group_by(service_name) |>
-    dplyr::summarise(sign_ins = sum(total_logins), .groups = "drop") |>
-    dplyr::arrange(dplyr::desc(sign_ins)) |>
+    dplyr::summarise(sso_events = sum(total_logins), .groups = "drop") |>
+    dplyr::arrange(dplyr::desc(sso_events)) |>
     dplyr::pull(service_name)
 }
 
@@ -204,9 +204,9 @@ monthly_unit_users <- function(rows, as_of) {
     dplyr::select(month, unit, users)
 }
 
-# Sign-ins per unit per calendar month
+# SSO events per unit per calendar month
 
-monthly_unit_sign_ins <- function(rows, as_of) {
+monthly_unit_sso_events <- function(rows, as_of) {
   as_of <- as.Date(as_of)
   current_month <- as.Date(format(as_of, "%Y-%m-01"))
   months <- seq(as.Date(format(min(rows$date), "%Y-%m-01")), current_month,
@@ -216,26 +216,26 @@ monthly_unit_sign_ins <- function(rows, as_of) {
     dplyr::filter(date <= as_of) |>
     dplyr::mutate(month = as.Date(format(date, "%Y-%m-01"))) |>
     dplyr::group_by(month, unit) |>
-    dplyr::summarise(sign_ins = sum(total_logins), .groups = "drop")
+    dplyr::summarise(sso_events = sum(total_logins), .groups = "drop")
 
   tidyr::expand_grid(month = months, unit = service_units(rows)) |>
     dplyr::left_join(measured, by = c("month", "unit")) |>
     dplyr::left_join(unit_first_seen(rows), by = "unit") |>
     dplyr::mutate(
-      sign_ins = dplyr::if_else(
+      sso_events = dplyr::if_else(
         month < as.Date(format(first_seen, "%Y-%m-01")),
-        NA_real_, dplyr::coalesce(sign_ins, 0)
+        NA_real_, dplyr::coalesce(sso_events, 0)
       )
     ) |>
-    dplyr::select(month, unit, sign_ins)
+    dplyr::select(month, unit, sso_events)
 }
 
 # Units, busiest first, so the stack and the table read in the same order.
 service_units <- function(rows) {
   rows |>
     dplyr::group_by(unit) |>
-    dplyr::summarise(sign_ins = sum(total_logins), .groups = "drop") |>
-    dplyr::arrange(dplyr::desc(sign_ins)) |>
+    dplyr::summarise(sso_events = sum(total_logins), .groups = "drop") |>
+    dplyr::arrange(dplyr::desc(sso_events)) |>
     dplyr::pull(unit)
 }
 
