@@ -92,17 +92,33 @@ average_daily_users <- function(rows, as_of, days = summary_window_days) {
 }
 
 # CanadaLogin-wide calendar months -  useful for billing and monthly reporting
-monthly_auth_totals <- function(rows, as_of) {
+#
+# `estimated_sign_ins` is based on the number of completed "first factor" events.
+# see the Cookbook `Completed Sign-In Sessions (Estimated)` recipe.
+monthly_auth_totals <- function(rows, mfa, as_of) {
   as_of <- as.Date(as_of)
+  mfa_successes_by_month <- mfa |>
+    dplyr::filter(date <= as_of, result == "success",
+                  mfa_type %in% sign_in_mfa_types) |>
+    dplyr::mutate(month = as.Date(format(date, "%Y-%m-01"))) |>
+    dplyr::group_by(month) |>
+    dplyr::summarise(mfa_successes = sum(count), .groups = "drop")
+
   rows |>
     dplyr::filter(date <= as_of) |>
     dplyr::mutate(month = as.Date(format(date, "%Y-%m-01"))) |>
     dplyr::group_by(month) |>
     dplyr::summarise(
       authentication_events = sum(successful_logins + failed_logins),
+      successful_events = sum(successful_logins),
       users = mtd_unique_users[which.max(date)],
       .groups = "drop"
     ) |>
+    dplyr::left_join(mfa_successes_by_month, by = "month") |>
+    dplyr::mutate(
+      estimated_sign_ins = successful_events - dplyr::coalesce(mfa_successes, 0)
+    ) |>
+    dplyr::select(month, authentication_events, estimated_sign_ins, users) |>
     dplyr::arrange(dplyr::desc(month))
 }
 

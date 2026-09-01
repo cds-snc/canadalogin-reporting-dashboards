@@ -450,16 +450,17 @@ brand_figure(p)
 ::: {.card title="By calendar month" width="40%"}
 
 ```{r overall-monthly}
-monthly_auth_totals(auth_totals(con), data_through) |>
+monthly_auth_totals(auth_totals(con), mfa_activity(con), data_through) |>
   # The month still filling up says so.
   mutate(month = ifelse(is_partial_month(month),
                         paste0(format(month, "%B %Y"), " (to date)"),
                         format(month, "%B %Y"))) |>
   gt() |>
-  fmt_number(c(authentication_events, users), decimals = 0) |>
+  fmt_number(c(authentication_events, estimated_sign_ins, users), decimals = 0) |>
   cols_label(
     month = "Month",
     authentication_events = "Authentication events",
+    estimated_sign_ins = "Sign-ins (est.)",
     users = "Active users"
   ) |>
   tab_options(
@@ -471,10 +472,9 @@ monthly_auth_totals(auth_totals(con), data_through) |>
 ```
 
 ::: {.figure-note}
-An *authentication event* is what IBM Verify records while a user signs in. One
-sign-in raises more than one, because the password and the second factor are
-recorded separately, so this column runs well above the number of sign-ins.
-Read it as a measure of load, not of how many times users signed in.
+An *authentication event* is what IBM Verify records while a user signs in (or 
+validates their email during sign-up). One sign-in raises more than one event because the 
+password and the second factor are recorded separately. 
 :::
 
 :::
@@ -489,7 +489,7 @@ Read it as a measure of load, not of how many times users signed in.
 #|   the current month drawn faded because it is still filling up.
 
 # Twelve months where there are twelve
-monthly_users <- monthly_auth_totals(auth_totals(con), data_through) |>
+monthly_users <- monthly_auth_totals(auth_totals(con), mfa_activity(con), data_through) |>
   arrange(month) |>
   tail(12) |>
   mutate(in_progress = is_partial_month(month))
