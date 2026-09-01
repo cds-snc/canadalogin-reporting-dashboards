@@ -2,8 +2,10 @@
 #' dashboard-specific and live in dashboards/<name>/R/preflight.R; what a
 #' dashboard does with the result is not.
 #'
-#' A check function accumulates a list of `list(number, title, passed, details)`
-#' and returns `list(passed, checks, failed)`. Both writers below take that.
+#' A check function accumulates a list of `list(slug, title, passed, details)`
+#' and returns `list(passed, checks, failed)`. `slug` is the stable id used to
+#' reference a check outside this file, so it must not change when a check is
+#' added, removed or reordered. Both writers below take that.
 
 preflight_contact_url <- "https://gcdigital.slack.com/archives/C0A6S9F7KV4"
 
@@ -20,9 +22,10 @@ write_preflight_banner <- function(result, path = "page-header.html") {
   }
 
   items <- purrr::map_chr(result$failed, \(check) {
+    slug <- htmltools::htmlEscape(check$slug)
     title <- htmltools::htmlEscape(check$title)
     details <- htmltools::htmlEscape(glue::glue_collapse(check$details, sep = "; "))
-    glue::glue("<li><strong>Check {check$number}: {title}.</strong> {details}</li>")
+    glue::glue("<li><strong><code>{slug}</code> - {title}.</strong> {details}</li>")
   })
 
   writeLines(c(
@@ -50,7 +53,7 @@ write_preflight_status <- function(result, path = "preflight-status.json") {
       generated_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
       failed = purrr::map(result$failed, \(check) {
         list(
-          number = check$number,
+          slug = check$slug,
           title = check$title,
           details = as.character(check$details)
         )

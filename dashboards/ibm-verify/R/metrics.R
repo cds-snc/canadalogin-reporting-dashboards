@@ -7,7 +7,8 @@ ibm_verify_launch <- as.Date("2026-04-22")
 summary_window_days <- 28L
 
 # Yesterday's rows land at about 06:00 ET, so the newest day to expect is
-# today minus one. Preflight check 1 is what reports a table that fell behind.
+# today minus one. The `freshness` preflight check is what reports a table
+# that fell behind.
 ibm_verify_lag_days <- 1L
 
 # Reads ----------------------------------------------------------------------
@@ -116,8 +117,8 @@ latest_per_unit <- function(rows, from, to) {
 
 # Services --------------------------------------------------------------------
 
-# Daily application rows with the service each belongs to. An application missing from 
-# rp.alias is NA rather than dropped. Preflight check 3 fails on an NA here.
+# Daily application rows with the service each belongs to. An application
+# missing from rp.alias is NA rather than dropped; `rp-resolution` fails on it.
 labelled_app_logins <- local({
   cached <- NULL
   function(con) {

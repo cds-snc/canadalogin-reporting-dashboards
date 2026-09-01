@@ -26,9 +26,9 @@ run_preflight_safety_check <- function(con,
 
   # Accumulated so every check runs, rather than stopping at the first problem.
   checks <- list()
-  record_check <- function(number, title, passed, details = character()) {
+  record_check <- function(slug, title, passed, details = character()) {
     checks[[length(checks) + 1L]] <<- list(
-      number = number, title = as.character(title), passed = passed,
+      slug = slug, title = as.character(title), passed = passed,
       details = as.character(details)
     )
   }
@@ -39,7 +39,7 @@ run_preflight_safety_check <- function(con,
   as_of <- today - ga_export_lag_days
   freshness_start <- as_of - (lookback_days - 1L)
 
-  # The span the per-party table reports on; check 3 sweeps the same span.
+  # The span the per-party table reports on; rp-lookup sweeps the same span.
   lookup_start <- as_of - (long_window_days - 1L)
   long_window <- as.character(long_window_days)
 
@@ -83,7 +83,7 @@ run_preflight_safety_check <- function(con,
   }
 
   record_check(
-    1,
+    "ga-freshness",
     glue("GA freshness - 1-day rows through {format_date(as_of)} ",
          "with no gaps over the last {lookback_days} days"),
     passed = length(freshness_problems) == 0,
@@ -101,7 +101,7 @@ run_preflight_safety_check <- function(con,
   missing_funnels <- setdiff(required_funnels, funnels_present)
 
   record_check(
-    2,
+    "funnels-present",
     "Required funnels present",
     passed = length(missing_funnels) == 0,
     details = if (length(missing_funnels) == 0) {
@@ -128,7 +128,7 @@ run_preflight_safety_check <- function(con,
   unmapped <- data_parties[is.na(labelled$service_name)]
 
   record_check(
-    3,
+    "rp-lookup",
     "Relying-party lookup complete - every party in the data is labelled",
     passed = length(unmapped) == 0,
     details = if (length(unmapped) == 0) {
@@ -172,7 +172,7 @@ run_preflight_safety_check <- function(con,
   }
 
   record_check(
-    4,
+    "long-window",
     glue("Long window present - complete {long_window}-day window ending ",
          "{format_date(as_of)}"),
     passed = length(window_problems) == 0,
@@ -219,7 +219,7 @@ run_preflight_safety_check <- function(con,
   }
 
   record_check(
-    5,
+    "ratio-steps",
     "Ratio steps present - task success numerator and denominator readable",
     passed = length(step_problems) == 0,
     details = if (length(step_problems) == 0) {
@@ -248,7 +248,7 @@ run_preflight_safety_check <- function(con,
   help_missing <- expected_days[!expected_days %in% help_days]
 
   record_check(
-    6,
+    "help-freshness",
     glue("Help site stream reporting through {format_date(as_of)}"),
     passed = length(help_missing) == 0,
     details = if (length(help_missing) == 0) {
@@ -274,7 +274,7 @@ run_preflight_safety_check <- function(con,
   identity_ok <- identical(help_names, help_stream_name)
 
   record_check(
-    7,
+    "help-identity",
     "Help site stream identity - the stream id still names the help site",
     passed = identity_ok,
     details = if (identity_ok) {
@@ -358,7 +358,7 @@ run_preflight_safety_check <- function(con,
   }
 
   record_check(
-    8,
+    "plausibility",
     glue("Task success plausibility - no funnel below ",
          "{as_percent(min_task_success_rate)} on a displayed window"),
     passed = length(rate_problems) == 0,
@@ -372,18 +372,19 @@ run_preflight_safety_check <- function(con,
     }
   )
 
-  for (check in checks) {
+  for (i in seq_along(checks)) {
+    check <- checks[[i]]
     mark <- if (check$passed) "PASS" else "FAIL"
-    message(glue("[{mark}] Check {check$number}: {check$title}"))
+    message(glue("[{mark}] {i}. {check$slug}: {check$title}"))
     for (detail in check$details) message(glue("       {detail}"))
   }
 
   failed_checks <- purrr::keep(checks, \(check) !check$passed)
   if (length(failed_checks) > 0) {
-    failed_numbers <- purrr::map_int(failed_checks, "number")
+    failed_slugs <- purrr::map_chr(failed_checks, "slug")
     warning(
-      glue("Preflight safety check failed: check ",
-           "{glue_collapse(failed_numbers, sep = ', ', last = ' and ')} ",
+      glue("Preflight safety check failed: ",
+           "{glue_collapse(failed_slugs, sep = ', ', last = ' and ')} ",
            "did not hold (see the checklist above). The dashboard will still ",
            "render, with a banner across the top; do not publish it."),
       call. = FALSE

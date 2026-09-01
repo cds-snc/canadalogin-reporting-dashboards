@@ -15,7 +15,8 @@ required_funnels <- c(
 )
 
 # Mirrors the `metrics:` block of each funnel's YAML in the pipeline repo, which
-# is canonical. Preflight check 5 fails the render if these drift from the data.
+# is canonical. The `ratio-steps` preflight check fails the render if these
+# drift from the data.
 funnel_ratio_steps <- list(
   sign_in = c(numerator = "mfa", denominator = "enter_email"),
   sign_up = c(numerator = "complete", denominator = "terms"),

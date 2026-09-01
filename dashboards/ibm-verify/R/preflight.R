@@ -28,9 +28,9 @@ run_preflight_safety_check <- function(con,
 
   # Accumulated so every check runs, rather than stopping at the first problem.
   checks <- list()
-  record_check <- function(number, title, passed, details = character()) {
+  record_check <- function(slug, title, passed, details = character()) {
     checks[[length(checks) + 1L]] <<- list(
-      number = number, title = as.character(title), passed = passed,
+      slug = slug, title = as.character(title), passed = passed,
       details = as.character(details)
     )
   }
@@ -68,7 +68,7 @@ run_preflight_safety_check <- function(con,
   }
 
   record_check(
-    1,
+    "freshness",
     glue("Freshness - all three tables report through ",
          "{format_date(newest_expected)} with no gaps over the last ",
          "{lookback_days} days"),
@@ -100,7 +100,7 @@ run_preflight_safety_check <- function(con,
     anti_join(filter(current, sso_events > 0), by = "service_name")
 
   record_check(
-    2,
+    "service-coverage",
     glue("Service coverage - every service with traffic in the preceding ",
          "{summary_window_days} days still has traffic"),
     passed = nrow(went_quiet) == 0,
@@ -128,7 +128,7 @@ run_preflight_safety_check <- function(con,
   applications <- unique(app_logins(con)$application_name)
 
   record_check(
-    3,
+    "rp-resolution",
     "Relying-party resolution - every application name is labelled",
     passed = length(unmapped) == 0,
     details = if (length(unmapped) == 0) {
@@ -195,7 +195,7 @@ run_preflight_safety_check <- function(con,
   }
 
   record_check(
-    4,
+    "plausibility",
     glue("Plausibility - authentication success rate at or above ",
          "{as_percent(min_auth_success_rate)} and no service's SSO events ",
          "collapsing"),
@@ -210,18 +210,19 @@ run_preflight_safety_check <- function(con,
     }
   )
 
-  for (check in checks) {
+  for (i in seq_along(checks)) {
+    check <- checks[[i]]
     mark <- if (check$passed) "PASS" else "FAIL"
-    message(glue("[{mark}] Check {check$number}: {check$title}"))
+    message(glue("[{mark}] {i}. {check$slug}: {check$title}"))
     for (detail in check$details) message(glue("       {detail}"))
   }
 
   failed_checks <- purrr::keep(checks, \(check) !check$passed)
   if (length(failed_checks) > 0) {
-    failed_numbers <- purrr::map_int(failed_checks, "number")
+    failed_slugs <- purrr::map_chr(failed_checks, "slug")
     warning(
-      glue("Preflight safety check failed: check ",
-           "{glue_collapse(failed_numbers, sep = ', ', last = ' and ')} ",
+      glue("Preflight safety check failed: ",
+           "{glue_collapse(failed_slugs, sep = ', ', last = ' and ')} ",
            "did not hold (see the checklist above). The dashboard will still ",
            "render, with a banner across the top; do not publish it."),
       call. = FALSE
