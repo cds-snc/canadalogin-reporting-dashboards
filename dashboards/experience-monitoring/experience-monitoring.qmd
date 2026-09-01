@@ -263,24 +263,64 @@ internal_note <- glue(
 
 # Overview
 
-## Row
+<!-- Pinned, or this card fills the viewport and pushes the rest below the
+     fold. Sized for the text at the narrowest width, so loose on a wide one. -->
+## Row {height="360px"}
 
 ::: {.card title="About this dashboard"}
 
-This is an internal working instrument for the EDCP Data and Research Team. It
-watches how people get through CanadaLogin between report cycles, so analysts
-get the numbers in one place without digging through Google Analytics. 
+This dashboard watches **task success on CanadaLogin** as recorded by
+[Google Analytics 4](https://github.com/cds-snc/canadalogin-reporting-data-pipeline/tree/main/infra/modules/google_analytics/funnel_src/funnels).
+It is internal to the Data and Research Team and the link is unlisted, so it
+isn't visible to the general public. It's for *your* information.
+For anything that leaves EDCP, please reach out to the
+[Data and Research team](https://gcdigital.slack.com/archives/C0A6S9F7KV4).
+We are happy to provide you with a bespoke calculation or the underlying data.
 
-Task success is the share of users who start a flow and reach its defined
-finishing point, measured from [Google Analytics 4 funnel data](https://github.com/cds-snc/canadalogin-reporting-data-pipeline/tree/main/infra/modules/google_analytics/funnel_src/funnels). Google Analytics
-runs on a deliberate two-day processing lag, so the data ends a couple of days
-before today; the "Data through" date says how current it is.
+**A red banner at the top of the page means a check failed at render time.** Do
+not quote anything until it clears. If you don't see a red banner (it's hard to miss),
+then you can assume that all of the preflight data quality checks passed.
 
-Numbers from this dashboard are preliminary. The canonical task success metrics live in the
-[monthly task success report](https://drive.google.com/drive/folders/1gqU2XQfkH5ARbdc1gVRS4SdnZivZzjnR).
-This dashboard should not be shared with partners or the public. It is not a substitute
-for the monthly report, which is created thoughtfully and contains proper analysis and
-context.
+The numbers come from Google Analytics funnel data, defined in the
+[metrics cookbook](https://cds-snc.github.io/canadalogin-metrics-cookbook/). Google
+Analytics runs on a deliberate two-day processing lag, so the data ends a couple of
+days before today; the "Data through" date says how current it is. Numbers from this
+dashboard are preliminary. The canonical task success metrics live in the
+[monthly task success report](https://drive.google.com/drive/folders/1gqU2XQfkH5ARbdc1gVRS4SdnZivZzjnR),
+which is created thoughtfully and contains proper analysis and context.
+
+:::
+
+## Row
+
+::: {.card title="Understanding the metrics"}
+
+### What task success measures
+
+Task success is the share of users who **start a flow and reach its defined
+finishing point**. Each tab on this dashboard tracks one flow: sign in, sign up,
+recover password, and the two migration paths.
+
+The rate is shown over two rolling windows. The **7-day rate** is the primary
+series on every chart, one point per day showing the rate over the week ending
+that day. The **`r long_window_days`-day rate** is the headline figure, a single
+number covering about a month. Both are rolling windows, not calendar months.
+Underneath the 7-day line, faint grey points show the **daily rate**, sized by
+how many people were in that day's denominator: a small point is a thin day,
+where one person can move the rate by double digits.
+
+### Reading the numbers
+
+**Each funnel page shows a table below the chart.** The table lists the
+`r number_words[party_rows]` busiest services and a total row across all of
+them. The rows do not add up to the total, because the total includes every
+service and the table is only a top `r number_words[party_rows]`.
+
+**Sign-in and sign-up are not comparable to each other.** Sign-up's exit is a
+real confirmation page, so it is a true completion rate. Sign-in's exit is only
+reaching MFA selection, the last thing Google Analytics can see before the
+redirect to IBM Verify, so it reads lower by construction. Do not present the
+gap between them as a performance difference.
 
 :::
 
