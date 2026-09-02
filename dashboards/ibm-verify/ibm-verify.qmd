@@ -192,9 +192,8 @@ not quote anything until it clears. If you don't see a red banner (its hard to m
 then you can assume that all of the preflight data quality checks passed.
 
 The numbers come from three daily tables in the `ibm_verify` schema, defined in
-the [metrics cookbook](https://cds-snc.github.io/canadalogin-metrics-cookbook/cookbook/ibm_verify.html). Data is exported every morning, so this dashboard should be current
-up to yesterday. Typically, these numbers are reported in periods running Monday 
-through Sunday.
+the [metrics cookbook](https://cds-snc.github.io/canadalogin-metrics-cookbook/cookbook/ibm_verify.html). The dashboard is updated once a week on Monday mornings. Typically, these 
+numbers are reported in periods running Monday through Sunday.
 
 :::
 
