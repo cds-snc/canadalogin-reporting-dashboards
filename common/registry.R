@@ -3,8 +3,8 @@
 #' included) to an rp_id; rp.service holds the service's name, operator and
 #' is_internal. Both are synced each weekday from a hand-maintained sheet by
 #' the rp-sync Lambda in the pipeline repo. Operators are abbreviated through
-#' common/gcorg.R. Each dashboard's own preflight (rp-lookup in Experience
-#' Monitoring, rp-resolution in Sign-In Activity) fails the render on any
+#' common/gcorg.R. Each dashboard's own preflight (rp-resolution, in both
+#' Experience Monitoring and Sign-In Activity) fails the render on any
 #' unlabelled rp_name.
 
 # What GA reports when the rp_name custom event did not fire. Not relying

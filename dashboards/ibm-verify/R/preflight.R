@@ -68,8 +68,8 @@ run_preflight_safety_check <- function(con,
   }
 
   record_check(
-    "freshness",
-    glue("Freshness - all three tables report through ",
+    "verify-freshness",
+    glue("All three tables must report through ",
          "{format_date(newest_expected)} with no gaps over the last ",
          "{lookback_days} days"),
     passed = length(freshness_problems) == 0,
@@ -101,8 +101,8 @@ run_preflight_safety_check <- function(con,
 
   record_check(
     "service-coverage",
-    glue("Service coverage - every service with traffic in the preceding ",
-         "{summary_window_days} days still has traffic"),
+    glue("Every service with traffic in the preceding ",
+         "{summary_window_days} days must still have traffic"),
     passed = nrow(went_quiet) == 0,
     details = if (nrow(went_quiet) == 0) {
       glue("{nrow(current)} service(s) reporting SSO events in the ",
@@ -129,7 +129,7 @@ run_preflight_safety_check <- function(con,
 
   record_check(
     "rp-resolution",
-    "Relying-party resolution - every application name is labelled",
+    "Every application name must be labelled",
     passed = length(unmapped) == 0,
     details = if (length(unmapped) == 0) {
       glue("{length(applications)} application name(s) in app_login_counts, ",
@@ -196,8 +196,8 @@ run_preflight_safety_check <- function(con,
 
   record_check(
     "plausibility",
-    glue("Plausibility - authentication success rate at or above ",
-         "{as_percent(min_auth_success_rate)} and no service's SSO events ",
+    glue("Authentication success rate must be at or above ",
+         "{as_percent(min_auth_success_rate)}, with no service's SSO events ",
          "collapsing"),
     passed = length(plausibility_problems) == 0,
     details = if (length(plausibility_problems) == 0) {

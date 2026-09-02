@@ -39,7 +39,7 @@ run_preflight_safety_check <- function(con,
   as_of <- today - ga_export_lag_days
   freshness_start <- as_of - (lookback_days - 1L)
 
-  # The span the per-party table reports on; rp-lookup sweeps the same span.
+  # The span the per-party table reports on; rp-resolution sweeps the same span.
   lookup_start <- as_of - (long_window_days - 1L)
   long_window <- as.character(long_window_days)
 
@@ -84,7 +84,7 @@ run_preflight_safety_check <- function(con,
 
   record_check(
     "ga-freshness",
-    glue("GA freshness - 1-day rows through {format_date(as_of)} ",
+    glue("1-day rows must reach {format_date(as_of)} ",
          "with no gaps over the last {lookback_days} days"),
     passed = length(freshness_problems) == 0,
     details = if (length(freshness_problems) == 0) {
@@ -102,7 +102,7 @@ run_preflight_safety_check <- function(con,
 
   record_check(
     "funnels-present",
-    "Required funnels present",
+    "Every required funnel must be present",
     passed = length(missing_funnels) == 0,
     details = if (length(missing_funnels) == 0) {
       glue("all required funnels found: ",
@@ -128,8 +128,8 @@ run_preflight_safety_check <- function(con,
   unmapped <- data_parties[is.na(labelled$service_name)]
 
   record_check(
-    "rp-lookup",
-    "Relying-party lookup complete - every party in the data is labelled",
+    "rp-resolution",
+    "Every relying party in the data must be labelled",
     passed = length(unmapped) == 0,
     details = if (length(unmapped) == 0) {
       glue("{length(data_parties)} relying part",
@@ -173,7 +173,7 @@ run_preflight_safety_check <- function(con,
 
   record_check(
     "long-window",
-    glue("Long window present - complete {long_window}-day window ending ",
+    glue("A complete {long_window}-day window must end ",
          "{format_date(as_of)}"),
     passed = length(window_problems) == 0,
     details = if (length(window_problems) == 0) {
@@ -220,7 +220,7 @@ run_preflight_safety_check <- function(con,
 
   record_check(
     "ratio-steps",
-    "Ratio steps present - task success numerator and denominator readable",
+    "Task success numerator and denominator must be readable",
     passed = length(step_problems) == 0,
     details = if (length(step_problems) == 0) {
       glue("entry and exit steps found for ",
@@ -249,7 +249,7 @@ run_preflight_safety_check <- function(con,
 
   record_check(
     "help-freshness",
-    glue("Help site stream reporting through {format_date(as_of)}"),
+    glue("The help site stream must report through {format_date(as_of)}"),
     passed = length(help_missing) == 0,
     details = if (length(help_missing) == 0) {
       glue("help site has page views on all {lookback_days} days ",
@@ -275,7 +275,7 @@ run_preflight_safety_check <- function(con,
 
   record_check(
     "help-identity",
-    "Help site stream identity - the stream id still names the help site",
+    "The stream id must still name the help site",
     passed = identity_ok,
     details = if (identity_ok) {
       glue("stream {help_stream_id} is '{help_stream_name}'")
@@ -359,7 +359,7 @@ run_preflight_safety_check <- function(con,
 
   record_check(
     "plausibility",
-    glue("Task success plausibility - no funnel below ",
+    glue("Every funnel must stay at or above ",
          "{as_percent(min_task_success_rate)} on a displayed window"),
     passed = length(rate_problems) == 0,
     details = if (length(rate_problems) == 0) {
