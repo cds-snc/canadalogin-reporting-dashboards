@@ -7,6 +7,7 @@ built on shared Quarto branding, connection and publishing conventions.
 
 - <img src="img/accent-expmon.svg" width="16" height="16" alt=""> [Experience Monitoring](dashboards/experience-monitoring/README.md) (expmon) - task success rates and help site page views for CanadaLogin.
 - <img src="img/accent-ibmverify.svg" width="16" height="16" alt=""> [Sign-In Activity](dashboards/ibm-verify/README.md) (ibmverify) - sign-in volume, active users and MFA factor use from IBM Verify.
+- <img src="img/accent-support.svg" width="16" height="16" alt=""> [Support](dashboards/support/README.md) (support) - call centre volume and topics, and PSOM partner support tickets.
 - 📶 Are you looking for Signal Check? That's a special case, and you can find them
 [here](https://www.github.com/cds-snc/canadalogin-reporting-signal-check).
 

@@ -1,0 +1,474 @@
+---
+title: "CanadaLogin Support"
+author: "EDCP Data and Research Team"  # colin.douglas@cds-snc.ca
+slug: support
+format:
+  dashboard:
+    include-before-body: page-header.html
+    include-after-body: analytics-tag.html # see _analytics.qmd
+params:
+  ga_page_title: "Support Dashboard"
+---
+
+```{r setup}
+# The working directory is this folder, shared layer is two levels up
+source("../../common/setup.R")
+
+source("R/metrics.R")
+source("R/preflight.R")
+
+con <- connect_athena()
+
+accent <- "#115740"
+
+# A failed check adds a banner. See R/preflight.R.
+preflight <- run_preflight_safety_check(con, today = Sys.Date())
+write_preflight_status(preflight)
+
+# The two sources are current to different days
+data_through <- call_centre_data_through(con)
+snapshot_date <- psom_snapshot_date(con)
+
+psom_through <- snapshot_date - 1L
+
+# How far back every weekly chart runs
+chart_from <- seq(as.Date(format(max(data_through, psom_through), "%Y-%m-01")),
+                  by = "-2 months", length.out = 2)[2]
+
+# For a card title, where the exact dates are on the axis below it.
+chart_span_label <- "last three months"
+
+# "Aug 8"
+format_short_date <- function(d) {
+  d <- as.Date(d)
+  paste0(format(d, "%b"), " ", as.integer(format(d, "%d")))
+}
+
+# "August 8", not "August 08"
+format_long_date <- function(d) {
+  d <- as.Date(d)
+  paste0(format(d, "%B"), " ", as.integer(format(d, "%d")))
+}
+
+window_label <- glue("last {tolower(fmt_count(summary_window_weeks, 'week'))}")
+prior_window_label <- "vs previous"
+
+page_header <- "page-header.html"
+
+write_preflight_banner(preflight, page_header)
+
+cat(
+  c(
+    '<div class="page-strip">',
+    # The PSOM half of this line is held back with the Partner support page.
+    glue('  <p><strong>Call centre data through {format_long_date(data_through)}.',
+         "</strong> Internal to Enterprise Digital Credentials, not for public ",
+         "consumption.</p>"),
+    "</div>"
+  ),
+  file = page_header, sep = "\n", append = TRUE
+)
+
+brand_figure <- function(p, height = 0.09) {
+  add_cds_logo(
+    add_watermark(p, report_name = "CanadaLogin Support", date = data_through),
+    height = height
+  )
+}
+
+# A bar spans its seven days and its tick sits at the end of that span, so the
+# two move together.
+week_offset <- 3.5
+week_tick_offset <- 7L
+
+week_axis <- function(weeks, limits = NULL, max_labels = 14L,
+                     expand = waiver()) {
+  weeks <- sort(unique(weeks))
+  # Every other week past max_labels, counted back so the newest keeps its.
+  step <- if (length(weeks) > max_labels) 2L else 1L
+  labelled <- rev(weeks[seq(length(weeks), 1L, by = -step)])
+  scale_x_date(
+    breaks = labelled + week_tick_offset,
+    labels = format(labelled + 6L, "%b %d"),
+    limits = limits,
+    expand = expand
+  )
+}
+
+# Goes with week_axis(), which labels a bar with the last day it covers.
+week_axis_title <- "Week ending"
+
+table_options <- function(table) {
+  tab_options(
+    table,
+    table.width = pct(100),
+    table.font.size = px(14),
+    data_row.padding = px(4),
+    table.border.top.style = "none"
+  )
+}
+```
+
+# Overview
+
+## Row {height="330px"}
+
+::: {.card title="About this dashboard"}
+
+This dashboard reports the **support the CanadaLogin team provides**.
+It is internal to Enterprise Digital Credentials and the link is unlisted, so
+it isn't visible to the general public. It's for *your* information. For
+anything that leaves EDCP, please reach out to the
+[Data and Research team](https://gcdigital.slack.com/archives/C0A6S9F7KV4). We
+are happy to provide you with a bespoke calculation or the underlying data.
+
+**A red banner at the top of the page means a check failed at render time.** Do
+not quote anything until it clears. If you don't see a red banner (it's hard to
+miss), then you can assume that all of the preflight data quality checks passed.
+
+The definitions come from the
+[metrics cookbook](https://cds-snc.github.io/canadalogin-metrics-cookbook/cookbook/call_centre.html),
+which is the source of truth. This page is republished in place every week.
+
+:::
+
+## Row
+
+::: {.card title="About the call centre"}
+
+The **Call centre** tab counts calls from members of the public to the
+CanadaLogin support line. The call centre sends a weekly report covering
+Sunday to Saturday, a few days after the week ends, so the newest week here is
+usually last week's. Each call's reason is recorded as a *topic*. One call may
+cover several topics, and some calls have no topic recorded at all.
+
+:::: {.content-hidden when-format="html"}
+The **Partner support** tab counts tickets on the Partner Success and
+Operations (PSOM) Jira board, where departments integrating a service with
+CanadaLogin ask for help. This includes things like onboarding requests, environment
+access, and escalations to product teams. It is not where members of the public go.
+Partner support metrics are currently in development, and **hidden** in this view.
+::::
+
+Volumes are small: a few dozen calls or a coule tickets a week. A change
+of a few calls turns into a large percentage, so trust the counts before the
+percentages. Every comparison is the last four reported weeks against the four
+before them.
+
+:::
+
+# Call centre
+
+```{r calls-summary}
+#| include: false
+
+weeks <- call_weeks(con)
+topics <- call_topics(con)
+
+current <- recent_weeks(weeks, data_through)
+prior <- prior_weeks(weeks, data_through)
+
+calls_now <- sum(current$calls)
+calls_prior <- sum(prior$calls)
+calls_delta <- fmt_delta(relative_change(calls_now, calls_prior))
+
+wait_now <- weighted_weekly(current, "avg_delay_seconds")
+abandoned_now <- sum(current$calls_abandoned)
+length_now <- weighted_weekly(current, "avg_call_length_seconds")
+
+window_weeks_label <- glue(
+  "{format_short_date(min(current$week))} to {format_short_date(max(current$week_end))}"
+)
+
+# The charts run on the reported weeks ending inside the charted span.
+charted <- weeks |> filter(week_end >= chart_from)
+
+# A week the sign-in data does not cover has no rate and is left off the chart
+charted_rate <- call_rate(charted, daily_active_users(con)) |>
+  filter(!is.na(calls_per_100))
+newest_rate <- charted_rate |> slice_max(week, n = 1)
+```
+
+## Row {height="150px"}
+
+::: {.valuebox color="primary"}
+Calls, excluding test calls (`r window_label`)
+
+`r format(calls_now, big.mark = ",")`
+
+`r calls_delta` `r prior_window_label`
+:::
+
+::: {.valuebox color="info"}
+Average wait to answer (`r window_label`)
+
+`r fmt_duration(wait_now)`
+
+`r fmt_count(abandoned_now, "call")` abandoned before being answered
+:::
+
+::: {.valuebox color="secondary"}
+Average call length (`r window_label`)
+
+`r fmt_duration(length_now)`
+
+Includes test calls
+:::
+
+## Row {height="500px"}
+
+::: {.card title="Call volume" width="60%"}
+
+```{r calls-chart}
+#| fig-width: 8.2
+#| fig-height: 4.1
+#| fig-alt: |
+#|   Bar chart of calls to the CanadaLogin support line per week, one bar per
+#|   reported week, excluding test calls.
+
+p <- ggplot(charted, aes(week + week_offset, calls)) +
+  geom_col(width = 7, fill = accent, colour = "white", linewidth = 0.25) +
+  geom_text(aes(label = calls), vjust = -0.5, size = 3, colour = "grey30") +
+  scale_y_continuous(breaks = pretty_breaks(5),
+                     expand = expansion(mult = c(0, 0.1))) +
+  week_axis(charted$week) +
+  theme_cds() +
+  theme(panel.grid.major.x = element_blank()) +
+  labs(x = week_axis_title, y = "Calls",
+       subtitle = "Calls accepted by the support line each week, excluding test calls.")
+
+brand_figure(p)
+```
+
+:::
+
+::: {.card title="`r glue('Why users called ({window_label})')`" width="40%"}
+
+```{r topics-chart}
+#| fig-width: 5.4
+#| fig-height: 4.3
+#| fig-alt: |
+#|   Horizontal bar chart of calls over the last four weeks, grouped by what they
+#|   were about and sorted from most to least common, each bar labelled with its
+#|   count of calls and its share of all calls in the window.
+
+window_topics <- topics_in_weeks(topics, current)
+
+# distinct() so a call recorded against two topics in one category counts once
+by_category <- window_topics |>
+  distinct(call_no, category) |>
+  count(category, name = "calls") |>
+  # Keep every named category on the axis so the chart always has the same rows
+  complete(category = factor(topic_category_levels, levels = topic_category_levels),
+           fill = list(calls = 0L)) |>
+  filter(category != "Other" | calls > 0) |>
+  arrange(calls) |>
+  mutate(category = factor(category, levels = category))
+
+# Calls the report counted that the topic dump has no reason
+calls_without_topic <- calls_now - n_distinct(window_topics$call_no)
+
+p <- ggplot(by_category, aes(calls, category)) +
+  geom_col(fill = accent, width = 0.7) +
+  geom_text(aes(label = paste0(calls, " (", round(100 * calls / calls_now), "%)")),
+            hjust = -0.2, size = 3.2, colour = "grey30") +
+  scale_x_continuous(breaks = pretty_breaks(4),
+                     expand = expansion(mult = c(0, 0.3))) +
+  theme_cds() +
+  theme(panel.grid.major.y = element_blank()) +
+  labs(x = "Calls", y = NULL,
+       subtitle = glue("Calls by what they were about, {window_weeks_label},\n",
+                       "from the topics the call centre recorded."))
+
+brand_figure(p, height = 0.11)
+```
+
+::: {.figure-note}
+Each bar counts **calls**, not topic records. One call may have many topics, one or 
+none. Because of that, the percentages do not necessarily add to 100%.
+:::
+
+:::
+
+## Row {height="420px"}
+
+::: {.card title="`r glue('Support demand ({chart_span_label})')`"}
+
+```{r call-rate-chart}
+#| fig-width: 12
+#| fig-height: 3.5
+#| fig-alt: |
+#|   Scatter plot of calls per 100 daily active users for each reported week, one
+#|   dot per week, with a LOESS smoothing line through them and the newest week
+#|   labelled with its value.
+
+p <- ggplot(charted_rate, aes(week + week_offset, calls_per_100)) +
+  geom_smooth(method = "loess", formula = y ~ x, se = FALSE,
+              colour = "grey40", linewidth = 0.9) +
+  geom_point(colour = accent, size = 2.4) +
+  geom_text(data = newest_rate, aes(label = sprintf("%.2f", calls_per_100)),
+            vjust = -1.2, colour = accent, fontface = "bold", size = 3.4) +
+  scale_y_continuous(breaks = pretty_breaks(5),
+                     expand = expansion(mult = c(0.05, 0.15))) +
+  # Not a scale limit, which would silently drop the line falling below it.
+  expand_limits(y = 0) +
+  # An extra week of slack so we don't accidentally truncate labels
+  week_axis(charted_rate$week, expand = expansion(add = c(2, 7))) +
+  theme_cds() +
+  labs(x = week_axis_title, y = "Calls per 100 daily users",
+       subtitle = paste("Call centre demand, measured against the size of the user base"))
+
+brand_figure(p)
+```
+
+::: {.figure-note}
+Each week's calls, excluding test calls, divided by the sign-in user-days in
+that same week. Read as a percentage: 0.5 calls per 100 users means 0.5% of the people
+who signed in that called for support.
+:::
+
+:::
+
+## Row
+
+::: {.card title="`r glue('Call metrics ({window_label})')`"}
+
+```{r metrics-table}
+# One row per metric for cols_nanoplot()
+call_metrics <- tibble::tribble(
+  ~label,                        ~column,                   ~unit,      ~good,  ~agg,
+  "Calls, excluding test calls", "calls",                   "count",    NA,     "mean",
+  "Calls accepted",              "calls_accepted",          "count",    NA,     "mean",
+  "Calls abandoned",             "calls_abandoned",         "count",    "down", "mean",
+  "Test calls",                  "test_calls",              "count",    NA,     "mean",
+  "Answered within 60 s",        "pct_answered_within_60s", "percent",  "up",   "weighted",
+  "Average wait (m:s)",         "avg_delay_seconds",        "duration", "down", "weighted",
+  "Average call (m:s)",         "avg_call_length_seconds",  "duration", NA,     "weighted"
+)
+
+# One column holds every unit, so a value is formatted before it gets there and
+# the row label carries the unit.
+fmt_metric <- function(x, unit) {
+  switch(unit,
+    count = format(round(x, 1), big.mark = ","),
+    percent = sprintf("%.0f%%", x * 100),
+    duration = fmt_minutes(x)
+  )
+}
+
+# The summary window, oldest first, so a row reads left to right into its trend.
+window_weeks <- charted |>
+  slice_max(week_end, n = summary_window_weeks) |>
+  arrange(week_end)
+
+week_labels <- format_short_date(window_weeks$week_end)
+newest <- nrow(window_weeks)
+
+# One formatted string per metric per week: metrics down the rows, weeks across.
+cells <- t(mapply(\(col, unit) fmt_metric(window_weeks[[col]], unit),
+                  call_metrics$column, call_metrics$unit))
+colnames(cells) <- week_labels
+
+arrows <- c(up = "\u25b2", down = "\u25bc", flat = "\u2013")
+
+# Sometimes up is good and sometimes up is bad. We use "good"/"bad" to be explicit
+verdict_colours <- c(good = "#008B45",
+                     bad = colors$brand[["red"]],
+                     none = "#5C6670")
+verdict_weights <- c(good = "700", bad = "700", none = "400")
+
+direction <- purrr::map_chr(call_metrics$column, \(col) {
+  delta_direction(relative_change(window_weeks[[col]][newest],
+                                  window_weeks[[col]][newest - 1L]))
+})
+
+verdict <- purrr::map2_chr(direction, call_metrics$good, \(moved, good) {
+  if (moved == "flat" || is.na(good)) "none" else if (moved == good) "good" else "bad"
+})
+
+# Only the newest week carries an arrow; the earlier columns are the record.
+cells[, newest] <- paste0(
+  cells[, newest],
+  ' <span style="color: ', verdict_colours[verdict],
+  "; font-weight: ", verdict_weights[verdict], '">', arrows[direction], "</span>"
+)
+
+# Counts just use a regular average, not weighted
+averages <- purrr::pmap_chr(
+  list(call_metrics$column, call_metrics$unit, call_metrics$agg),
+  \(col, unit, agg) {
+    fmt_metric(
+      if (agg == "weighted") weighted_weekly(window_weeks, col) else mean(window_weeks[[col]]),
+      unit
+    )
+  }
+)
+
+series <- charted |>
+  arrange(week_end) |>
+  transmute(week = format(week_end, "w%m%d"), across(all_of(call_metrics$column))) |>
+  pivot_longer(-week, names_to = "column") |>
+  pivot_wider(names_from = week, values_from = value)
+
+dplyr::bind_cols(call_metrics["label"], tibble::tibble(average = averages),
+                 as.data.frame(cells)) |>
+  mutate(column = call_metrics$column) |>
+  left_join(series, by = "column") |>
+  select(-column) |>
+  gt() |>
+  fmt_markdown(columns = all_of(week_labels[newest])) |>
+  cols_nanoplot(
+    columns = -c(label, average, all_of(week_labels)),
+    plot_type = "bar",
+    # Bars run from zero, so a metric that only moves between four and five
+    # draws even bars rather than a sawtooth.
+    expand_y = 0,
+    new_col_name = "trend",
+    new_col_label = glue("Trend, {chart_span_label}"),
+    options = nanoplot_options(
+      data_bar_fill_color = accent,
+      data_bar_stroke_color = accent
+    )
+  ) |>
+  cols_label(
+    label = "",
+    average = html(glue("{fmt_count(summary_window_weeks)}-week<br>average"))
+  ) |>
+  cols_align("right", columns = c(average, all_of(week_labels))) |>
+  cols_align("center", columns = trend) |>
+  # Ruled off, or a column of averages sitting in front of four date headings
+  # reads as another week.
+  tab_style(
+    cell_borders(sides = "right", color = "#DFE2E5", weight = px(1)),
+    list(cells_body(columns = average), cells_column_labels(columns = average))
+  ) |>
+  cols_width(label ~ pct(24), trend ~ pct(28), everything() ~ pct(9.6)) |>
+  table_options()
+```
+
+::: {.figure-note}
+
+The color of the arrow indications whether the movement is positive or negative, 
+independent of the direction. Some metrics do not an inherent value to their movement,
+so they are coloured grey.
+
+*Accepted* is every call that reached the queue, answered or abandoned. *Calls* is 
+accepted minus test calls. Averages are the call centre's own weekly figures.
+
+:::
+
+:::
+
+```{r partner-support-held-back}
+#| include: false
+# Put _partner-support.qmd back here when you're ready to sharea it
+```
+
+```{r cleanup}
+#| include: false
+# include: false matters for layout: this chunk sits in the last Row, where
+# anything visible becomes a card and takes width from the table.
+DBI::dbDisconnect(con)
+```
+
+{{< include ../../_analytics.qmd >}}

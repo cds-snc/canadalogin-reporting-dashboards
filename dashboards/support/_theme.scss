@@ -1,0 +1,10 @@
+// This dashboard's accent. Every dashboard shares the CDS palette in
+// ../../_brand.yml and overrides only what makes it distinct.
+
+/*-- scss:defaults --*/
+
+// The brand's forest green
+$primary: #115740;
+
+// Same hue, saturation 34%, lightness 85%.
+$info: #CCE6DD;
