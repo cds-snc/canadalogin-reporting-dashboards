@@ -888,31 +888,41 @@ rp_detail <- function(key) {
   palette[taken] <- unit_colours[taken]
   palette <- setNames(palette, units)
 
-  # plotTag renders at 72 dpi, so width is inches times 72 and base_size sizes
-  # text against that. suppressSize drops the img dimensions to fill the row.
-  chart <- plotTag(
-    print(
-      ggplot(weekly, aes(week + week_offset, sso_events, fill = unit)) +
-        geom_col(width = 7, colour = "white", linewidth = 0.25) +
-        launch_layers(launched, size = 3.9) +
-        scale_fill_manual(values = palette) +
-        scale_y_continuous(labels = label_comma(),
-                           expand = expansion(mult = c(0, 0.08))) +
-        week_axis(weekly$week) +
-        theme_cds(base_size = 15) +
-        theme(legend.position = "top", legend.justification = "left",
-              legend.margin = margin(0, 0, 0, 0)) +
-        labs(x = week_axis_title, y = "SSO events", fill = NULL)
-    ),
-    alt = glue(
-      "Stacked bar chart of weekly SSO events for {key} over the last ",
-      "{chart_months} months, split by application."
-    ),
-    width = 820, height = 340, pixelratio = 2,
-    suppressSize = "xy",
-    attribs = list(style = "width:100%;height:auto"),
-    device = ragg::agg_png, deviceArgs = list(background = "white")
-  )
+  # A service that launched inside the current week has no complete week yet,
+  # so there is nothing to stack and week_axis() would break.
+  chart <- if (nrow(weekly) == 0) {
+    htmltools::div(
+      class = "figure-note",
+      glue("Nothing to chart yet. The weekly bars start once this service has ",
+           "been live for a full Monday to Sunday week.")
+    )
+  } else {
+    # plotTag renders at 72 dpi, so width is inches times 72 and base_size sizes
+    # text against that. suppressSize drops the img dimensions to fill the row.
+    plotTag(
+      print(
+        ggplot(weekly, aes(week + week_offset, sso_events, fill = unit)) +
+          geom_col(width = 7, colour = "white", linewidth = 0.25) +
+          launch_layers(launched, size = 3.9) +
+          scale_fill_manual(values = palette) +
+          scale_y_continuous(labels = label_comma(),
+                             expand = expansion(mult = c(0, 0.08))) +
+          week_axis(weekly$week) +
+          theme_cds(base_size = 15) +
+          theme(legend.position = "top", legend.justification = "left",
+                legend.margin = margin(0, 0, 0, 0)) +
+          labs(x = week_axis_title, y = "SSO events", fill = NULL)
+      ),
+      alt = glue(
+        "Stacked bar chart of weekly SSO events for {key} over the last ",
+        "{chart_months} months, split by application."
+      ),
+      width = 820, height = 340, pixelratio = 2,
+      suppressSize = "xy",
+      attribs = list(style = "width:100%;height:auto"),
+      device = ragg::agg_png, deviceArgs = list(background = "white")
+    )
+  }
 
   total_or_na <- function(x) if (all(is.na(x))) NA_real_ else sum(x, na.rm = TRUE)
 
