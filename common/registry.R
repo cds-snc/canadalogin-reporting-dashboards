@@ -61,6 +61,16 @@ service_operators <- function(con, service_names) {
     dplyr::pull(operator_abbr)
 }
 
+# "Full operator name (ABBR)" for each service name. Falls back to the bare
+# name when there is no abbreviation.
+service_operator_labels <- function(con, service_names) {
+  rows <- dplyr::tibble(service_name = service_names) |>
+    dplyr::left_join(relying_party_services(con), by = "service_name")
+  ifelse(is.na(rows$operator) | rows$operator == rows$operator_abbr,
+         rows$operator,
+         paste0(rows$operator, " (", rows$operator_abbr, ")"))
+}
+
 # TRUE for each rp_name belonging to an internal service. Unknown names count
 # as external: they are real, unattributed users.
 is_internal_rp <- function(con, rp_names) {

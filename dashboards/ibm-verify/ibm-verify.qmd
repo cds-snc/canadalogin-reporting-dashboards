@@ -832,7 +832,7 @@ rp_rows <- lapply(rp_services, function(key) {
 
   tibble(
     service = key,
-    operator = coalesce(service_operators(con, key), ""),
+    operator = coalesce(service_operator_labels(con, key), ""),
     launched = service_launch(daily),
     applications = length(units),
     sso_events = sso_events,
