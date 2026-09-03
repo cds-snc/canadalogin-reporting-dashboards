@@ -30,11 +30,8 @@ write_preflight_banner <- function(result, path = "page-header.html") {
 
   writeLines(c(
     '<div class="preflight-banner" role="alert">',
-    '  <p class="preflight-banner-title">Preflight safety checks failed</p>',
-    "  <p>The numbers below may be wrong or incomplete. Check the data before",
-    "     quoting them, notify someone in",
-    paste0('     <a href="', preflight_contact_url, '">#edcp-data-and-research</a>'),
-    "     and do not publish this dashboard as it stands.</p>",
+    '  <p class="preflight-banner-title">Preflight safety checks failed.</p>',
+    "  <p>There are issues with the data quality, and the numbers below may be wrong or incomplete.</p>",
     paste0("  <ul>", paste(items, collapse = ""), "</ul>"),
     "</div>"
   ), path)

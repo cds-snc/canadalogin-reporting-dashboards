@@ -136,7 +136,7 @@ run_preflight_safety_check <- function(con,
            "all resolved through rp.alias to ",
            "{length(all_services(con))} service(s)")
     } else {
-      glue("application name(s) with no row in rp.alias: ",
+      glue("Application name(s) with no row in rp.alias: ",
            "{glue_collapse(unmapped, sep = ', ')}; ",
            "add them to the CanadaLogin Relying Parties sheet")
     }
