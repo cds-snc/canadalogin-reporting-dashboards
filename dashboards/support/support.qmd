@@ -60,8 +60,8 @@ write_preflight_banner(preflight, page_header)
 cat(
   c(
     '<div class="page-strip">',
-    # The PSOM half of this line is held back with the Partner support page.
-    glue('  <p><strong>Call centre data through {format_long_date(data_through)}.',
+    glue('  <p><strong>Call centre data through {format_long_date(data_through)}, ',
+         "PSOM board as of {format_long_date(psom_through)}.",
          "</strong> Internal to Enterprise Digital Credentials, not for public ",
          "consumption.</p>"),
     "</div>"
@@ -69,9 +69,10 @@ cat(
   file = page_header, sep = "\n", append = TRUE
 )
 
-brand_figure <- function(p, height = 0.09) {
+# Each figure names the date of the source behind it.
+brand_figure <- function(p, height = 0.09, date = data_through) {
   add_cds_logo(
-    add_watermark(p, report_name = "CanadaLogin Support", date = data_through),
+    add_watermark(p, report_name = "CanadaLogin Support", date = date),
     height = height
   )
 }
@@ -136,21 +137,18 @@ which is the source of truth. This page is republished in place every week.
 
 ::: {.card title="About the call centre"}
 
-The **Call centre** tab counts calls from members of the public to the
+The **Call centre** page counts calls from members of the public to the
 CanadaLogin support line. The call centre sends a weekly report covering
 Sunday to Saturday, a few days after the week ends, so the newest week here is
 usually last week's. Each call's reason is recorded as a *topic*. One call may
 cover several topics, and some calls have no topic recorded at all.
 
-:::: {.content-hidden when-format="html"}
-The **Partner support** tab counts tickets on the Partner Success and
+The **Partner support** page counts tickets on the Partner Success and
 Operations (PSOM) Jira board, where departments integrating a service with
 CanadaLogin ask for help. This includes things like onboarding requests, environment
 access, and escalations to product teams. It is not where members of the public go.
-Partner support metrics are currently in development, and **hidden** in this view.
-::::
 
-Volumes are small: a few dozen calls or a coule tickets a week. A change
+Volumes are small: a few dozen calls or a couple of tickets a week. A change
 of a few calls turns into a large percentage, so trust the counts before the
 percentages. Every comparison is the last four reported weeks against the four
 before them.
@@ -458,10 +456,109 @@ accepted minus test calls. Averages are the call centre's own weekly figures.
 
 :::
 
-```{r partner-support-held-back}
+# Partner support
+
+```{r psom-summary}
 #| include: false
-# Put _partner-support.qmd back here when you're ready to sharea it
+
+board <- psom_board(psom_snapshots(con))
+
+opened_now <- nrow(created_in_window(board, psom_through))
+opened_prior <- nrow(created_in_window(board, psom_through - summary_window_days))
+opened_delta <- fmt_delta(relative_change(opened_now, opened_prior))
+
+closed_now <- nrow(closed_in_window(board, psom_through))
+closed_prior <- nrow(closed_in_window(board, psom_through - summary_window_days))
+closed_delta <- fmt_delta(relative_change(closed_now, closed_prior))
+
+# Median, not mean: the tail is long enough that a few slow tickets would set it.
+ages <- psom_ages(board, psom_through)
+median_age <- fmt_days(median(ages$age))
+
+weekly <- psom_weekly(board, chart_from, psom_through)
+
+# Panel order. Opened and closed are flows; the queue is the level they leave.
+panels <- c(opened = "Tickets opened", closed = "Tickets completed",
+            open = "Tickets awaiting handling")
+
+charted_psom <- weekly |>
+  pivot_longer(all_of(names(panels)), names_to = "measure", values_to = "tickets") |>
+  mutate(panel = factor(panels[measure], levels = panels))
+
+# Counts are whole tickets, so a half-ticket break would be nonsense.
+whole_breaks <- function(x) {
+  breaks <- pretty_breaks(4)(x)
+  breaks[breaks == floor(breaks)]
+}
 ```
+
+## Row {height="150px"}
+
+::: {.valuebox color="primary"}
+Tickets opened (`r window_label`)
+
+`r opened_now`
+
+`r opened_delta` `r prior_window_label`
+:::
+
+::: {.valuebox color="info"}
+Tickets closed (`r window_label`)
+
+`r closed_now`
+
+`r closed_delta` `r prior_window_label`
+:::
+
+::: {.valuebox color="secondary"}
+Median time a ticket was open
+
+`r median_age`
+
+over `r fmt_count(nrow(ages), 'ticket')`, the slowest `r max(ages$age)` days
+:::
+
+## Row {height="720px"}
+
+::: {.card title="`r glue('The PSOM queue ({chart_span_label})')`"}
+
+```{r psom-flow-chart}
+#| fig-width: 9
+#| fig-height: 6.5
+#| fig-alt: |
+#|   Three stacked charts sharing a weekly axis. Tickets opened per week and
+#|   tickets closed per week are bars, each running from zero to a handful.
+#|   Open tickets at the end of each week is a line, mostly in the low single
+#|   digits with a bump to eight in August.
+
+is_queue <- function(d) d$panel == panels[["open"]]
+
+p <- ggplot(charted_psom, aes(week + week_offset, tickets)) +
+  geom_col(data = \(d) d[!is_queue(d), ], width = 7, fill = accent,
+           colour = "white", linewidth = 0.25) +
+  geom_line(data = \(d) d[is_queue(d), ], colour = accent, linewidth = 0.9) +
+  geom_point(data = \(d) d[is_queue(d), ], colour = accent, size = 1.8) +
+  geom_text(aes(label = ifelse(tickets > 0, tickets, "")), vjust = -0.7,
+            size = 3, colour = "grey30") +
+  facet_wrap(~panel, ncol = 1, scales = "free_y", strip.position = "top") +
+  scale_y_continuous(breaks = whole_breaks, limits = c(0, NA),
+                     expand = expansion(mult = c(0, 0.15))) +
+  week_axis(weekly$week) +
+  theme_cds() +
+  theme(panel.grid.major.x = element_blank()) +
+  labs(x = week_axis_title, y = "Tickets",
+       subtitle = "Tickets opened and closed in a week (Mo-Su)")
+
+brand_figure(p, date = psom_through)
+```
+
+::: {.figure-note}
+Counted off the current board, test tickets included, so a ticket opened and closed in
+one week never reaches the queue. Closed means first seen at *Done*, *Canceled* or
+*Ready to archive*.
+:::
+
+:::
 
 ```{r cleanup}
 #| include: false

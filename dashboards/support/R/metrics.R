@@ -7,9 +7,9 @@ summary_window_weeks <- 4L
 # The same span in days for the Jira side
 summary_window_days <- summary_window_weeks * 7L
 
-# A week's report is emailed/ETL'd on the Wednesday or Thursday after the week ends,
-# so the newest week to expect ended within this many days of today
-call_centre_lag_days <- 13L
+# A week ends Saturday and its report is emailed/ETL'd the Wednesday or Thursday
+# after, so that week is due once this many days have passed since it ended.
+call_centre_report_due_days <- 5L
 
 # The snapshot lands early Monday, so the newest partition to expect is within a
 # week of today.
@@ -227,17 +227,32 @@ psom_closed_on <- function(rows) {
     dplyr::summarise(closed_on = min(status_changed), .groups = "drop")
 }
 
-# One row per Monday-to-Sunday week: tickets opened, tickets closed, and how
-# many stood open at the end of it. All three come from the current board's
-# own dates rather than the snapshot series, so the queue is the running total
-# of the two columns beside it and the three read as one flow. The cost is
-# that a ticket deleted from the board disappears from its own history.
-psom_weekly <- function(rows, from, through) {
-  through <- as.Date(through)
-  life <- rows |>
+# The board as it stands, one row per ticket, with the day it closed attached.
+psom_board <- function(rows) {
+  rows |>
     dplyr::filter(snapshot == max(snapshot)) |>
-    dplyr::select(key, created) |>
     dplyr::left_join(psom_closed_on(rows), by = "key")
+}
+
+# Tickets closed in the `days` days ending on `as_of` inclusive.
+closed_in_window <- function(rows, as_of, days = summary_window_days) {
+  as_of <- as.Date(as_of)
+  dplyr::filter(rows, !is.na(closed_on), closed_on > as_of - days, closed_on <= as_of)
+}
+
+# Days open, to the close or to `as_of`. Everything closed in the window plus
+# everything still open, because a cohort by creation date is right-censored.
+psom_ages <- function(board, as_of, days = summary_window_days) {
+  as_of <- as.Date(as_of)
+  board |>
+    dplyr::filter(is.na(closed_on) | closed_on > as_of - days) |>
+    dplyr::mutate(age = as.integer(dplyr::coalesce(closed_on, as_of) - created))
+}
+
+# One row per Monday-to-Sunday week: opened, closed, and open at the end of it.
+# All read off the board's own dates, so open is the running total of the rest.
+psom_weekly <- function(life, from, through) {
+  through <- as.Date(through)
 
   # The current week is not over, so its counts would read short.
   weeks <- seq(week_of(from), week_of(through), by = "7 days")
@@ -307,6 +322,16 @@ fmt_duration <- function(seconds) {
     paste0(whole, "&nbsp;", if (whole == 1) "second" else "seconds")
   } else {
     paste0(sprintf("%.1f", seconds / 60), "&nbsp;minutes")
+  }
+}
+
+# "4 days" or "3.5 days", for a value box. The nbsp keeps the value box class.
+fmt_days <- function(days) {
+  if (is.na(days)) {
+    "-"
+  } else {
+    whole <- if (days == round(days)) format(round(days)) else sprintf("%.1f", days)
+    paste0(whole, "&nbsp;", if (days == 1) "day" else "days")
   }
 }
 
