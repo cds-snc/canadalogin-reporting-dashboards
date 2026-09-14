@@ -171,7 +171,7 @@ topic_patterns <- c(
     "Sign-in problems",
   "Follow-Up Procedure" =
     "Follow-up requests",
-  "PrairiesCan|GC Digital Talent|VAC Healthshare|CED Client Space|MyCGC|O-Canada|ATIP" =
+  "PrairiesCan|GC Digital Talent|VAC Healthshare|CED Client Space|MyCGC|O-Canada|ATIP|Access to Information" =
     "Partner and other services"
 )
 
@@ -214,16 +214,45 @@ psom_closed_statuses <- c("Done", "Canceled", "Ready to archive")
 
 psom_open <- function(rows) dplyr::filter(rows, !status %in% psom_closed_statuses)
 
-# Open tickets at every snapshot
-psom_backlog <- function(rows) {
+# The Monday of the week a date falls in
+week_of <- function(d) as.Date(d) - (as.integer(format(as.Date(d), "%u")) - 1L)
+
+# The day a ticket first reached a closed status, NA while it is still open.
+# Read as the earliest status change on a closed row, so a ticket that went
+# Done and then Ready to archive keeps the day it was done.
+psom_closed_on <- function(rows) {
   rows |>
-    dplyr::group_by(snapshot) |>
-    dplyr::summarise(
-      open = sum(!status %in% psom_closed_statuses),
-      escalated = sum(grepl("^Escalated", status)),
-      .groups = "drop"
-    ) |>
-    dplyr::arrange(snapshot)
+    dplyr::filter(status %in% psom_closed_statuses) |>
+    dplyr::group_by(key) |>
+    dplyr::summarise(closed_on = min(status_changed), .groups = "drop")
+}
+
+# One row per Monday-to-Sunday week: tickets opened, tickets closed, and how
+# many stood open at the end of it. All three come from the current board's
+# own dates rather than the snapshot series, so the queue is the running total
+# of the two columns beside it and the three read as one flow. The cost is
+# that a ticket deleted from the board disappears from its own history.
+psom_weekly <- function(rows, from, through) {
+  through <- as.Date(through)
+  life <- rows |>
+    dplyr::filter(snapshot == max(snapshot)) |>
+    dplyr::select(key, created) |>
+    dplyr::left_join(psom_closed_on(rows), by = "key")
+
+  # The current week is not over, so its counts would read short.
+  weeks <- seq(week_of(from), week_of(through), by = "7 days")
+  ends <- weeks[weeks + 6L <= through] + 6L
+
+  in_week <- function(d, end) !is.na(d) & d > end - 7L & d <= end
+  tibble::tibble(
+    week = ends - 6L,
+    week_end = ends,
+    opened = vapply(ends, \(e) sum(in_week(life$created, e)), integer(1)),
+    closed = vapply(ends, \(e) sum(in_week(life$closed_on, e)), integer(1)),
+    open = vapply(ends, \(e) {
+      sum(life$created <= e & (is.na(life$closed_on) | life$closed_on > e))
+    }, integer(1))
+  )
 }
 
 # Change ----------------------------------------------------------------------
