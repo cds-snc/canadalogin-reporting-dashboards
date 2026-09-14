@@ -340,7 +340,6 @@ call_metrics <- tibble::tribble(
   "Calls, excluding test calls", "calls",                   "count",    NA,     "mean",
   "Calls accepted",              "calls_accepted",          "count",    NA,     "mean",
   "Calls abandoned",             "calls_abandoned",         "count",    "down", "mean",
-  "Test calls",                  "test_calls",              "count",    NA,     "mean",
   "Answered within 60 s",        "pct_answered_within_60s", "percent",  "up",   "weighted",
   "Average wait (m:s)",         "avg_delay_seconds",        "duration", "down", "weighted",
   "Average call (m:s)",         "avg_call_length_seconds",  "duration", NA,     "weighted"
