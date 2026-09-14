@@ -19,6 +19,9 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
     labels
   }
 
+  # The Saturday on or before `d`, which is a reported week's last day.
+  last_saturday <- function(d) d - (as.integer(format(d, "%u")) + 1L) %% 7L
+
   # Accumulated so every check runs, rather than stopping at the first problem.
   # An `advisory` check is reported in the checklist and but doesn't fail.
   checks <- list()
@@ -36,18 +39,29 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
 
   # Check 1 - call centre freshness --------------------------------------------
   #
-  # The report is emailed and loaded a few days after its week ends, so the
-  # newest week is allowed to be just under two weeks old. If its Thursday and there's
-  # no new data, it should be flagged.
+  # The expectation steps forward a week on the Thursday, the render day. A
+  # render that cannot see the due week is republishing last week's numbers.
 
-  oldest_acceptable <- today - call_centre_lag_days
+  due_week_end <- last_saturday(today - call_centre_report_due_days)
+  fresh <- is.finite(newest_week_end) && newest_week_end >= due_week_end
+
   record_check(
     "call-centre-freshness",
-    glue("The newest reported call centre week must have ended on or after ",
-         "{format_date(oldest_acceptable)}"),
-    passed = is.finite(newest_week_end) && newest_week_end >= oldest_acceptable,
-    details = glue("weekly_activity_report reports through ",
-                   "{format_date(newest_week_end)}")
+    glue("The newest reported call centre week must be the one ending ",
+         "{format_date(due_week_end)}"),
+    passed = fresh,
+    details = if (!is.finite(newest_week_end)) {
+      "weekly_activity_report has no weeks in it"
+    } else if (fresh) {
+      glue("weekly_activity_report reports through ",
+           "{format_date(newest_week_end)}")
+    } else {
+      behind <- as.integer(due_week_end - newest_week_end) %/% 7L
+      glue("weekly_activity_report reports through ",
+           "{format_date(newest_week_end)}, {behind} week(s) behind; the ",
+           "report for the week ending {format_date(due_week_end)} has not ",
+           "landed yet")
+    }
   )
 
   # Check 2 - call centre continuity --------------------------------------------
