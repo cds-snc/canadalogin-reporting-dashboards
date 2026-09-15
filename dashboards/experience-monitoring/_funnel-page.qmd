@@ -139,7 +139,7 @@ rows <- bind_rows(overall, per_rp) |>
   # The column stays even with nothing to compare against: every row reads as
   # a dash and comparison_note() explains it.
   mutate(
-    delta = ifelse(compare, rate_long - prior_long, NA_real_),
+    delta = if (compare) rate_long - prior_long else NA_real_,
     direction = delta_direction(delta)
   ) |>
   transmute(
@@ -155,7 +155,7 @@ gt(rows) |>
   cols_label(
     rate_7d = "7-day rate",
     rate_long = glue("{long_window_label} rate"),
-    change = glue("vs previous {long_window_days} days"),
+    change = glue("vs. previous {long_window_days} days"),
     entered = html(glue("{starts_column_label(fid)}<br>({long_window_label})")),
     finished = html(glue("Reached {exit_label}<br>({long_window_label})"))
   ) |>
