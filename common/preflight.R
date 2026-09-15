@@ -7,8 +7,6 @@
 #' reference a check outside this file, so it must not change when a check is
 #' added, removed or reordered. Both writers below take that.
 
-preflight_contact_url <- "https://gcdigital.slack.com/archives/C0A6S9F7KV4"
-
 # Banner ----------------------------------------------------------------------
 
 # Writes the failure banner from a preflight result. A file, not chunk output,
@@ -30,8 +28,8 @@ write_preflight_banner <- function(result, path = "page-header.html") {
 
   writeLines(c(
     '<div class="preflight-banner" role="alert">',
-    '  <p class="preflight-banner-title">Preflight safety checks failed.</p>',
-    "  <p>There are issues with the data quality, and the numbers below may be wrong or incomplete.</p>",
+    '  <p class="preflight-banner-title">Data quality checks failed.</p>',
+    "  <p>The numbers below may be wrong or incomplete. Do not quote them until this clears.</p>",
     paste0("  <ul>", paste(items, collapse = ""), "</ul>"),
     "</div>"
   ), path)

@@ -88,12 +88,6 @@
   padding-inline-start: 1.2rem;
 }
 
-/* Underlined, not recoloured: the banner is already red. */
-.preflight-banner a {
-  color: inherit;
-  text-decoration: underline;
-}
-
 /* Always-on context line under the navbar, written at render time beside the
    preflight banner and included the same way, so it shows on every page. The
    dashboard is republished in place with no archive, so nothing else says how

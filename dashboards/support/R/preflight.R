@@ -221,7 +221,7 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
   if (length(failed_checks) > 0) {
     failed_slugs <- purrr::map_chr(failed_checks, "slug")
     warning(
-      glue("Preflight safety check failed: ",
+      glue("Data quality check failed: ",
            "{glue_collapse(failed_slugs, sep = ', ', last = ' and ')} ",
            "did not hold (see the checklist above). The dashboard will still ",
            "render, with a banner across the top; do not publish it."),

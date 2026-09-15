@@ -279,7 +279,7 @@ We are happy to provide you with a bespoke calculation or the underlying data.
 
 **A red banner at the top of the page means a check failed at render time.** Do
 not quote anything until it clears. If you don't see a red banner (it's hard to miss),
-then you can assume that all of the preflight data quality checks passed.
+then you can assume that all of the data quality checks passed.
 
 The numbers come from Google Analytics funnel data, defined in the
 [metrics cookbook](https://cds-snc.github.io/canadalogin-metrics-cookbook/). Google
