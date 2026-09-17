@@ -51,3 +51,18 @@ repo root or the dashboard folder.
 Each dashboard runs its own data-quality checks at render time (see its
 `R/preflight.R`). A failed check does not stop the render, and instead flags the
 dashboard with a big red banner.
+
+## Tests
+
+Every pull request runs lintr, the testthat suite and `quarto inspect` on each
+dashboard (`.github/workflows/checks.yml`). None of these need AWS access: the
+tests use small synthetic tables in place of Athena. To run them locally from the
+repo root:
+
+```sh
+Rscript -e 'lintr::lint_dir()'
+Rscript -e 'testthat::test_dir("tests/testthat")'
+```
+
+If you add a package, run `renv::snapshot()` too, or the check that `renv.lock`
+matches the code will fail.

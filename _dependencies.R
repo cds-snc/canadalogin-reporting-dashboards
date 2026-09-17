@@ -17,3 +17,6 @@ library(bit64)
 # The figures are drawn on ragg's device, selected by the `dev: ragg_png` chunk
 # option in experience-monitoring.qmd rather than by any call renv can see.
 library(ragg)
+
+# The PR checks workflow lints with lintr, which no R file in the repo calls.
+library(lintr)
