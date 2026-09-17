@@ -199,9 +199,8 @@ topic_category <- function(topic) {
   factor(out, levels = topic_category_levels)
 }
 
-# Whether a category's calls are informational or troubleshooting, from the type
-# column of topic-categories.csv. A category with no type, or with rows giving both,
-# is troubleshooting.
+# Informational or troubleshooting, from the type column of topic-categories.csv.
+# A category with no type, or with both, is troubleshooting.
 topic_category_type <- function(category) {
   category <- as.character(category)
   informational <- topic_lookup_rows |>

@@ -250,10 +250,8 @@ brand_figure(p)
 #| fig-alt: |
 #|   Horizontal bar chart of calls over the last four weeks, grouped by what they
 #|   were about and sorted from most to least common, each bar labelled with its
-#|   count of calls and its share of all calls in the window. Troubleshooting
-#|   categories have dark bars: 2-step verification, email verification and sign-in
-#|   problems, and follow-up requests. Informational categories have lighter bars:
-#|   what is CanadaLogin, account setup and how-to, and partner and other services.
+#|   count of calls and its share of all calls in the window. Darker bars are
+#|   troubleshooting topics, lighter bars informational.
 
 window_topics <- topics_in_weeks(topics, current)
 
