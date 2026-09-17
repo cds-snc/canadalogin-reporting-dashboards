@@ -338,8 +338,10 @@ fmt_days <- function(days) {
 # "1:45" for 105 seconds, for a table column, where the compact form fits and
 # the header carries the unit.
 fmt_minutes <- function(seconds) {
+  # Rounded before splitting, so 59.6 seconds carries to 1:00 rather than 0:60.
+  whole <- round(seconds)
   ifelse(
     is.na(seconds), "-",
-    sprintf("%d:%02d", as.integer(seconds %/% 60), as.integer(round(seconds %% 60)))
+    sprintf("%d:%02d", as.integer(whole %/% 60), as.integer(whole %% 60))
   )
 }
