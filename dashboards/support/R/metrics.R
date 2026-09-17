@@ -161,13 +161,13 @@ topic_lookup <- stats::setNames(topic_lookup_rows$category,
 topic_patterns <- c(
   "What is CanadaLogin\\?|What is 2-Step Verification|What Is a Passkey|Password Criteria" =
     "What is CanadaLogin",
-  "^How to |^Changing |^Deleting |Creating a Password" =
+  "^How to |^Changing |^Deleting " =
     "Account setup and how-to",
   "2-Step|Passkey" =
     "2-step verification problems",
   "Verifying the Email Address" =
     "Email verification problems",
-  "Difficulties When Signing [Ii]n|Technical Difficulties" =
+  "Difficulties When Signing [Ii]n|Technical Difficulties|Creating a Password" =
     "Sign-in problems",
   "Follow-Up Procedure" =
     "Follow-up requests",
@@ -197,6 +197,19 @@ topic_category <- function(topic) {
   uncovered <- is.na(out)
   out[uncovered] <- topic_category_fallback(topic[uncovered])
   factor(out, levels = topic_category_levels)
+}
+
+# Whether a category's calls are informational or troubleshooting, from the type
+# column of topic-categories.csv. A category with no type, or with rows giving both,
+# is troubleshooting.
+topic_category_type <- function(category) {
+  category <- as.character(category)
+  informational <- topic_lookup_rows |>
+    dplyr::distinct(category, type) |>
+    dplyr::group_by(category) |>
+    dplyr::filter(dplyr::n() == 1, type == "Informational") |>
+    dplyr::pull(category)
+  ifelse(category %in% informational, "Informational", "Troubleshooting")
 }
 
 # Topic rows for the calls placed inside a set of reported weeks.
