@@ -20,6 +20,8 @@ source("R/preflight.R")
 con <- connect_athena()
 
 accent <- "#115740"
+# Forest mixed 45% with white, for the informational topic bars
+accent_light <- "#7CA396"
 
 # A failed check adds a banner. See R/preflight.R.
 preflight <- run_preflight_safety_check(con, today = Sys.Date())
@@ -277,7 +279,7 @@ p <- ggplot(by_category, aes(calls, category)) +
   scale_x_continuous(breaks = pretty_breaks(4),
                      expand = expansion(mult = c(0, 0.3))) +
   scale_fill_manual(values = c(Troubleshooting = accent,
-                               Informational = colors$brand[["green"]])) +
+                               Informational = accent_light)) +
   theme_cds() +
   theme(panel.grid.major.y = element_blank()) +
   labs(x = "Calls", y = NULL,
