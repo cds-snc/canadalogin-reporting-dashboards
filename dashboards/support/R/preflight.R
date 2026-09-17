@@ -131,21 +131,36 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
 
   # Check 5 - topic duplicates ------------------------------------------------------
   #
-  # Ensure no duplicates in the topic lookup table, which would cause double-counting.
+  # Ensure no duplicates in the topic lookup table, which would cause double-counting,
+  # and no category with rows giving both types, which draws as troubleshooting.
 
   squished <- stringr::str_squish(topic_lookup_rows$topic)
   repeated <- unique(squished[duplicated(squished)])
 
-  record_check(
-    "topic-lookup",
-    glue("No topic may have more than one row in {topic_categories_file}"),
-    passed = length(repeated) == 0,
-    advisory = TRUE,
-    details = if (length(repeated) > 0) {
+  typed <- unique(topic_lookup_rows[c("category", "type")])
+  mixed <- unique(typed$category[duplicated(typed$category)])
+
+  problems <- c(
+    if (length(repeated) > 0) {
       glue("more than one row for: ",
            "{glue_collapse(glue('\"{repeated}\"'), sep = '; ')}")
+    },
+    if (length(mixed) > 0) {
+      glue("more than one type for: ",
+           "{glue_collapse(glue('\"{mixed}\"'), sep = '; ')}")
+    }
+  )
+
+  record_check(
+    "topic-lookup",
+    glue("No topic may have more than one row, and no category more than one type, ",
+         "in {topic_categories_file}"),
+    passed = length(problems) == 0,
+    advisory = TRUE,
+    details = if (length(problems) > 0) {
+      glue_collapse(problems, sep = "; ")
     } else {
-      glue("{length(topic_lookup)} row(s), no topic repeated")
+      glue("{length(topic_lookup)} row(s), no topic repeated, one type per category")
     }
   )
 

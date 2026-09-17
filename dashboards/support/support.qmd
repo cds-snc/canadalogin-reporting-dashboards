@@ -20,6 +20,8 @@ source("R/preflight.R")
 con <- connect_athena()
 
 accent <- "#115740"
+# Forest mixed 45% with white, for the informational topic bars
+accent_light <- "#7CA396"
 
 # A failed check adds a banner. See R/preflight.R.
 preflight <- run_preflight_safety_check(con, today = Sys.Date())
@@ -248,7 +250,8 @@ brand_figure(p)
 #| fig-alt: |
 #|   Horizontal bar chart of calls over the last four weeks, grouped by what they
 #|   were about and sorted from most to least common, each bar labelled with its
-#|   count of calls and its share of all calls in the window.
+#|   count of calls and its share of all calls in the window. Darker bars are
+#|   troubleshooting topics, lighter bars informational.
 
 window_topics <- topics_in_weeks(topics, current)
 
@@ -261,17 +264,20 @@ by_category <- window_topics |>
            fill = list(calls = 0L)) |>
   filter(category != "Other" | calls > 0) |>
   arrange(calls) |>
-  mutate(category = factor(category, levels = category))
+  mutate(category = factor(category, levels = category),
+         type = topic_category_type(category))
 
 # Calls the report counted that the topic dump has no reason
 calls_without_topic <- calls_now - n_distinct(window_topics$call_no)
 
 p <- ggplot(by_category, aes(calls, category)) +
-  geom_col(fill = accent, width = 0.7) +
+  geom_col(aes(fill = type), width = 0.7, show.legend = FALSE) +
   geom_text(aes(label = paste0(calls, " (", round(100 * calls / calls_now), "%)")),
             hjust = -0.2, size = 3.2, colour = "grey30") +
   scale_x_continuous(breaks = pretty_breaks(4),
                      expand = expansion(mult = c(0, 0.3))) +
+  scale_fill_manual(values = c(Troubleshooting = accent,
+                               Informational = accent_light)) +
   theme_cds() +
   theme(panel.grid.major.y = element_blank()) +
   labs(x = "Calls", y = NULL,
@@ -284,6 +290,7 @@ brand_figure(p, height = 0.11)
 ::: {.figure-note}
 Each bar counts **calls**, not topic records. One call may have many topics, one or 
 none. Because of that, the percentages do not necessarily add to 100%.
+Lighter bars indicate an informational topic, darker bars troubleshooting.
 :::
 
 :::
@@ -340,8 +347,8 @@ call_metrics <- tibble::tribble(
   "Calls accepted",              "calls_accepted",          "count",    NA,     "mean",
   "Calls abandoned",             "calls_abandoned",         "count",    "down", "mean",
   "Answered within 60 s",        "pct_answered_within_60s", "percent",  "up",   "weighted",
-  "Average wait (m:s)",         "avg_delay_seconds",        "duration", "down", "weighted",
-  "Average call (m:s)",         "avg_call_length_seconds",  "duration", NA,     "weighted"
+  "Avg. call wait (m:s)",        "avg_delay_seconds",        "duration", "down", "weighted",
+  "Avg. call length (m:s)",      "avg_call_length_seconds",  "duration", NA,     "weighted"
 )
 # nolint end
 

@@ -26,11 +26,6 @@
   line-height: 1.2 !important;
 }
 
-.bslib-value-box .value-box-title {
-  font-size: 0.9rem !important;
-  font-weight: 500;
-}
-
 /* Keep value boxes at their own height beside a taller chart, rather than
    stretching to match it. */
 .bslib-value-box {
