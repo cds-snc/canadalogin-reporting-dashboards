@@ -1,10 +1,7 @@
 linters: linters_with_defaults(
     line_length_linter(88L),
-    # Each preflight's record_check() appends to its enclosing checks list.
+    # Preflight record_check() mutates its enclosing checks list.
     assignment_linter(operator = c("<-", "<<-")),
-    # The R files are sourced into a dashboard qmd, not a package, so this
-    # linter has no scope to resolve names in: it flags everything attached by
-    # setup.R, everything defined in sibling files, and every bare NSE column,
-    # burying any real finding.
+    # Dashboard files are sourced together, making isolated usage checks noisy.
     object_usage_linter = NULL
   )

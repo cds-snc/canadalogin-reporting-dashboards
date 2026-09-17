@@ -54,8 +54,7 @@ test_that("monthly users are the month-to-date count on the month's last day", {
 test_that("estimated sign-ins subtract successful sign-in factors only", {
   f <- monthly_fixture()
   months <- ibm$monthly_auth_totals(f$auth, f$mfa, as.Date("2026-08-02"))
-  # 200 successes less 2 days x 2 sign-in factors x 1 success; email_otp and
-  # failures are not subtracted.
+  # 200 successes minus four successful sign-in factors.
   expect_identical(months$estimated_sign_ins, c(196, 196))
 })
 

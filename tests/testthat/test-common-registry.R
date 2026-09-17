@@ -1,6 +1,5 @@
 # Fixtures --------------------------------------------------------------------
 
-# The lookup as relying_party_lookup() returns it once collected and resolved.
 registry_with_lookup <- function() {
   env <- load_common("registry.R")
   lookup <- tibble::tribble(

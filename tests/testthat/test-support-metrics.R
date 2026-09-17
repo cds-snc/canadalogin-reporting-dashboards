@@ -86,7 +86,7 @@ test_that("a topic missing from the table falls back to the patterns", {
 })
 
 test_that("the first matching pattern wins", {
-  # Matches both the how-to and the 2-step patterns; how-to comes first.
+  # The how-to pattern takes precedence over the 2-step pattern.
   expect_identical(
     support$topic_category_fallback("Changing a 2-Step Verification Phone Number"),
     "Account setup and how-to"

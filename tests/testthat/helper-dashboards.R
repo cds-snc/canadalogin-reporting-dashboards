@@ -1,17 +1,14 @@
-# Loads the shared layer and a dashboard's R/ files the way its setup chunk
-# does, without opening a connection.
+# Load dashboard code without connecting to Athena.
 
 repo_root <- normalizePath(testthat::test_path("..", ".."), mustWork = TRUE)
 
-# setup.R finds the repo root two levels up from a dashboard folder, and
-# sources the common modules into the global environment, as a render does.
+# Mirror a setup chunk, which sources shared code globally.
 withr::with_dir(
   file.path(repo_root, "dashboards", "support"),
   source(file.path(repo_root, "common", "setup.R"))
 )
 
-# A fresh environment per call. Support and Sign-In Activity define the same
-# names with different values, and a test stubs readers by assigning into it.
+# Isolate dashboards because some function names overlap.
 load_dashboard <- function(name) {
   env <- new.env(parent = globalenv())
   withr::with_dir(file.path(repo_root, "dashboards", name), {
@@ -21,15 +18,13 @@ load_dashboard <- function(name) {
   env
 }
 
-# One shared module in its own environment, so its cached lookups can be stubbed
-# without touching the copy setup.R loaded.
+# Isolate shared modules so tests can stub their caches.
 load_common <- function(file) {
   env <- new.env(parent = globalenv())
   sys.source(file.path(repo_root, "common", file), envir = env)
   env
 }
 
-# Replace functions in a loaded environment, e.g. the table readers.
 stub <- function(env, ...) {
   replacements <- list(...)
   for (name in names(replacements)) {
@@ -39,7 +34,7 @@ stub <- function(env, ...) {
   invisible(env)
 }
 
-# The checklist and the failure warning are for a human watching a render.
+# Preflight output belongs in dashboard renders, not tests.
 run_quietly <- function(expr) suppressWarnings(suppressMessages(expr))
 
 check_named <- function(result, slug) {

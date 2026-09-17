@@ -1,9 +1,7 @@
-# Support fixtures, in the shape the readers return after prepare(). Built
-# around a Thursday render: the week ending Saturday Sep 12 is the one due.
+# Model a Thursday render with data due through September 12.
 
 support_today <- as.Date("2026-09-17")
 
-# Sunday-to-Saturday weeks, oldest first, the newest ending `through`.
 support_weeks <- function(n = 8L, through = as.Date("2026-09-12")) {
   week_end <- seq(through - 7L * (n - 1L), through, by = "7 days")
   tibble::tibble(
@@ -20,7 +18,6 @@ support_weeks <- function(n = 8L, through = as.Date("2026-09-12")) {
   )
 }
 
-# One call a day on a topic the lookup table knows, across every week given.
 support_topics <- function(weeks, topic = "CanadaLogin Password Criteria",
                            env = NULL) {
   days <- seq(min(weeks$week), max(weeks$week_end), by = "day")
@@ -34,7 +31,6 @@ support_topics <- function(weeks, topic = "CanadaLogin Password Criteria",
   if (is.null(env)) rows else dplyr::mutate(rows, category = env$topic_category(topic))
 }
 
-# Daily active users on every day the weeks cover.
 support_users <- function(weeks, unique_users = 1000) {
   tibble::tibble(
     date = seq(min(weeks$week), max(weeks$week_end), by = "day"),
@@ -42,7 +38,6 @@ support_users <- function(weeks, unique_users = 1000) {
   )
 }
 
-# One ticket on a board snapshotted on `snapshot`.
 support_psom <- function(snapshot = as.Date("2026-09-14")) {
   tibble::tibble(
     snapshot = snapshot,
@@ -56,7 +51,6 @@ support_psom <- function(snapshot = as.Date("2026-09-14")) {
   )
 }
 
-# A freshly loaded Support dashboard whose readers return the fixtures.
 support_with_data <- function(weeks = support_weeks(),
                               topics = NULL,
                               users = support_users(weeks),

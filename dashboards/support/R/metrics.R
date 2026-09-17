@@ -158,7 +158,7 @@ topic_lookup <- stats::setNames(topic_lookup_rows$category,
                                 stringr::str_squish(topic_lookup_rows$topic))
 
 # Fallback regular expression for topics that haven't made it into topic-categories.csv
-# nolint start: line_length_linter. One alternation per line reads better unwrapped.
+# nolint start: line_length_linter. Keep one regex alternation per line.
 topic_patterns <- c(
   "What is CanadaLogin\\?|What is 2-Step Verification|What Is a Passkey|Password Criteria" =
     "What is CanadaLogin",
@@ -340,7 +340,7 @@ fmt_days <- function(days) {
 # "1:45" for 105 seconds, for a table column, where the compact form fits and
 # the header carries the unit.
 fmt_minutes <- function(seconds) {
-  # Rounded before splitting, so 59.6 seconds carries to 1:00 rather than 0:60.
+  # Round before splitting to avoid values such as 0:60.
   whole <- round(seconds)
   ifelse(
     is.na(seconds), "-",

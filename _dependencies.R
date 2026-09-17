@@ -1,22 +1,15 @@
-#' Packages this project needs at render time that renv's scanner cannot see.
+#' Dependencies renv cannot infer from direct calls.
 #'
-#' renv builds renv.lock by parsing the code for library() and pkg:: calls, so a
-#' package that is only ever loaded by another package goes missing from the lock
-#' and the render then fails on a clean machine. Naming it here puts it back in.
-#'
-#' This file is never sourced. It exists to be read by renv::dependencies().
+#' This file is scanned by renv but never sourced.
 
-# cowplot::draw_image() reads the PNG logo through magick, but never names it in
-# code we control. See add_cds_logo() in common/branding.R.
+# cowplot loads magick indirectly for logo images.
 library(magick)
 
-# Athena BIGINT columns arrive as integer64, which vctrs/dplyr need bit64
-# loaded to handle - never named directly in code we control either.
+# dplyr needs bit64 methods for Athena BIGINT columns.
 library(bit64)
 
-# The figures are drawn on ragg's device, selected by the `dev: ragg_png` chunk
-# option in experience-monitoring.qmd rather than by any call renv can see.
+# Quarto selects ragg through the document's dev option.
 library(ragg)
 
-# The PR checks workflow lints with lintr, which no R file in the repo calls.
+# CI invokes lintr outside R source files.
 library(lintr)

@@ -82,7 +82,7 @@ test_that("the status file writes several details as an array", {
                    c("first problem", "second problem"))
 })
 
-# The publishing workflow's jq flattens details because of this.
+# Publishing expects one detail to be a scalar.
 test_that("the status file writes a single detail as a bare string", {
   path <- withr::local_tempfile(fileext = ".json")
   write_preflight_status(failing_result("only problem"), path)

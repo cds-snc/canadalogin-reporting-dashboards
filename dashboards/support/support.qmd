@@ -333,7 +333,7 @@ who signed in that called for support.
 
 ```{r metrics-table}
 # One row per metric for cols_nanoplot()
-# nolint start: line_length_linter. Aligned columns read better unwrapped.
+# nolint start: line_length_linter. Keep aligned table columns.
 call_metrics <- tibble::tribble(
   ~label,                        ~column,                   ~unit,      ~good,  ~agg,
   "Calls, excluding test calls", "calls",                   "count",    NA,     "mean",

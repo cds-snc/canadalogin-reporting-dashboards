@@ -1,7 +1,6 @@
 name: Checks
 
-# Lint, unit tests and a structural check of each dashboard. No AWS access: the
-# Athena role only trusts the publishing repo's main, so the tests stub the readers.
+# PRs cannot access Athena, so tests stub the data readers.
 
 on:
   pull_request:
@@ -34,7 +33,7 @@ jobs:
           use-public-rspm: true
 
       - name: Install system libraries
-        # The same list as the render workflow in the publishing repo.
+        # Match the publishing render workflow.
         run: |
           sudo apt-get install -y --no-install-recommends \
             libmagick++-dev libfreetype6-dev libfontconfig1-dev \
@@ -67,7 +66,6 @@ jobs:
         run: testthat::test_dir("tests/testthat", stop_on_failure = TRUE)
 
       - name: Inspect each dashboard
-        # Parses the YAML, includes and chunk options without running any code.
         run: |
           for dir in dashboards/*/; do
             name="$(basename "$dir")"

@@ -1,9 +1,8 @@
-# The preflight queries Athena through dbplyr rather than through readers, so
-# there is nothing to stub and it is not tested here.
+# Direct dbplyr queries keep the preflight outside this stubbed test suite.
 
 expmon <- load_dashboard("experience-monitoring")
 
-# A dashboard whose step counts come from `counts`, recording each call.
+# Stub step counts and record each call.
 expmon_with_counts <- function(counts) {
   env <- load_dashboard("experience-monitoring")
   env$calls <- list()
