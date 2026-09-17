@@ -123,9 +123,9 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
     details = if (nrow(uncategorised) == 0) {
       glue("{dplyr::n_distinct(topics$topic)} distinct topic(s), all categorised")
     } else {
+      counts <- glue('"{uncategorised$topic}" ({uncategorised$n})')
       glue("topic(s) matched by neither the table nor the patterns, add them ",
-           "to {topic_categories_file}: ",
-           "{glue_collapse(glue('\"{uncategorised$topic}\" ({uncategorised$n})'), sep = '; ')}")
+           "to {topic_categories_file}: {glue_collapse(counts, sep = '; ')}")
     }
   )
 
@@ -217,7 +217,9 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
     for (detail in check$details) message(glue("       {detail}"))
   }
 
-  failed_checks <- purrr::keep(checks, \(check) !check$passed && !isTRUE(check$advisory))
+  failed_checks <- purrr::keep(
+    checks, \(check) !check$passed && !isTRUE(check$advisory)
+  )
   if (length(failed_checks) > 0) {
     failed_slugs <- purrr::map_chr(failed_checks, "slug")
     warning(

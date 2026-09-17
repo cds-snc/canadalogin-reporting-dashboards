@@ -60,7 +60,7 @@ write_preflight_banner(preflight, page_header)
 cat(
   c(
     '<div class="page-strip">',
-    glue('  <p><strong>Call centre data through {format_long_date(data_through)}, ',
+    glue("  <p><strong>Call centre data through {format_long_date(data_through)}, ",
          "PSOM board as of {format_long_date(psom_through)}.",
          "</strong> Internal to Enterprise Digital Credentials, not for public ",
          "consumption.</p>"),
@@ -83,7 +83,7 @@ week_offset <- 3.5
 week_tick_offset <- 7L
 
 week_axis <- function(weeks, limits = NULL, max_labels = 14L,
-                     expand = waiver()) {
+                      expand = waiver()) {
   weeks <- sort(unique(weeks))
   # Every other week past max_labels, counted back so the newest keeps its.
   step <- if (length(weeks) > max_labels) 2L else 1L
@@ -314,7 +314,7 @@ p <- ggplot(charted_rate, aes(week + week_offset, calls_per_100)) +
   week_axis(charted_rate$week, expand = expansion(add = c(2, 7))) +
   theme_cds() +
   labs(x = week_axis_title, y = "Calls per 100 daily users",
-       subtitle = paste("Call centre demand, measured against the size of the user base"))
+       subtitle = "Call centre demand, measured against the size of the user base")
 
 brand_figure(p)
 ```
@@ -333,6 +333,7 @@ who signed in that called for support.
 
 ```{r metrics-table}
 # One row per metric for cols_nanoplot()
+# nolint start: line_length_linter. Aligned columns read better unwrapped.
 call_metrics <- tibble::tribble(
   ~label,                        ~column,                   ~unit,      ~good,  ~agg,
   "Calls, excluding test calls", "calls",                   "count",    NA,     "mean",
@@ -342,6 +343,7 @@ call_metrics <- tibble::tribble(
   "Average wait (m:s)",         "avg_delay_seconds",        "duration", "down", "weighted",
   "Average call (m:s)",         "avg_call_length_seconds",  "duration", NA,     "weighted"
 )
+# nolint end
 
 # One column holds every unit, so a value is formatted before it gets there and
 # the row label carries the unit.
@@ -395,7 +397,11 @@ averages <- purrr::pmap_chr(
   list(call_metrics$column, call_metrics$unit, call_metrics$agg),
   \(col, unit, agg) {
     fmt_metric(
-      if (agg == "weighted") weighted_weekly(window_weeks, col) else mean(window_weeks[[col]]),
+      if (agg == "weighted") {
+        weighted_weekly(window_weeks, col)
+      } else {
+        mean(window_weeks[[col]])
+      },
       unit
     )
   }

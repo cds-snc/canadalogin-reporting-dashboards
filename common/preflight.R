@@ -29,7 +29,8 @@ write_preflight_banner <- function(result, path = "page-header.html") {
   writeLines(c(
     '<div class="preflight-banner" role="alert">',
     '  <p class="preflight-banner-title">Data quality checks failed.</p>',
-    "  <p>The numbers below may be wrong or incomplete. Do not quote them until this clears.</p>",
+    paste("  <p>The numbers below may be wrong or incomplete.",
+          "Do not quote them until this clears.</p>"),
     paste0("  <ul>", paste(items, collapse = ""), "</ul>"),
     "</div>"
   ), path)

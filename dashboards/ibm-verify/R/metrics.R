@@ -53,7 +53,7 @@ app_logins <- read_once("app_login_counts", \(x) {
   )
 })
 
-# Daily MFA attempts, one row per factor per outcome. 
+# Daily MFA attempts, one row per factor per outcome.
 mfa_activity <- read_once("mfa_activity", \(x) {
   dplyr::select(x, date, mfa_type, result, count)
 })

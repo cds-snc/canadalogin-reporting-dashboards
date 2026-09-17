@@ -82,7 +82,7 @@ write_preflight_banner(preflight, page_header)
 cat(
   c(
     '<div class="page-strip">',
-    glue('  <p><strong>Data through {data_through_label}.</strong> ',
+    glue("  <p><strong>Data through {data_through_label}.</strong> ",
          "Internal to Enterprise Digital Credentials, not for public ",
          "consumption.</p>"),
     "</div>"
@@ -488,7 +488,8 @@ password and the second factor are recorded separately.
 #|   the current month drawn faded because it is still filling up.
 
 # Twelve months where there are twelve
-monthly_users <- monthly_auth_totals(auth_totals(con), mfa_activity(con), data_through) |>
+monthly_users <- auth_totals(con) |>
+  monthly_auth_totals(mfa_activity(con), data_through) |>
   arrange(month) |>
   tail(12) |>
   mutate(in_progress = is_partial_month(month))
@@ -946,7 +947,7 @@ rp_detail <- function(key) {
 
   month_columns <- list(
     sso_events = colDef(name = "SSO events", format = colFormat(separators = TRUE),
-                      na = "-"),
+                        na = "-"),
     users = colDef(name = "Active users",
                    format = colFormat(separators = TRUE), na = "-")
   )

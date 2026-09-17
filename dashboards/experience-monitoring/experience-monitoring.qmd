@@ -77,7 +77,7 @@ write_preflight_banner(preflight, page_header)
 cat(
   c(
     '<div class="page-strip">',
-    glue('  <p><strong>Data through {data_through_label}.</strong> ',
+    glue("  <p><strong>Data through {data_through_label}.</strong> ",
          "Internal to the Data and Research team, not for public ",
          "consumption.</p>"),
     "</div>"

@@ -28,15 +28,14 @@ cds_logo_path <- function(canada_wordmark = FALSE) {
 
 # Overlay the logo flush in a corner. `height` is a fraction of the figure;
 # width is generous so height is what constrains it, keeping it undistorted.
-add_cds_logo <- function(
-    plot,
-    position = c(
-      "top-right", "bottom-left",
-      "top-left", "bottom-right",
-      "all"
-    ),
-    height = 0.13,
-    canada_wordmark = FALSE) {
+add_cds_logo <- function(plot,
+                         position = c(
+                           "top-right", "bottom-left",
+                           "top-left", "bottom-right",
+                           "all"
+                         ),
+                         height = 0.13,
+                         canada_wordmark = FALSE) {
   position <- match.arg(position)
 
   corners <- list(

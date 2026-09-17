@@ -158,6 +158,7 @@ topic_lookup <- stats::setNames(topic_lookup_rows$category,
                                 stringr::str_squish(topic_lookup_rows$topic))
 
 # Fallback regular expression for topics that haven't made it into topic-categories.csv
+# nolint start: line_length_linter. One alternation per line reads better unwrapped.
 topic_patterns <- c(
   "What is CanadaLogin\\?|What is 2-Step Verification|What Is a Passkey|Password Criteria" =
     "What is CanadaLogin",
@@ -174,6 +175,7 @@ topic_patterns <- c(
   "PrairiesCan|GC Digital Talent|VAC Healthshare|CED Client Space|MyCGC|O-Canada|ATIP|Access to Information" =
     "Partner and other services"
 )
+# nolint end
 
 # If the topic isn't in the file and doesn't match any regex, it gets "Other"
 # If "Other" becomes too large, update topic-categories.csv
