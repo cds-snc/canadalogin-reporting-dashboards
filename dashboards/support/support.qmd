@@ -242,66 +242,11 @@ brand_figure(p)
 
 :::
 
-::: {.card title="`r glue('Why users called ({window_label})')`" width="40%"}
-
-```{r topics-chart}
-#| fig-width: 5.4
-#| fig-height: 4.3
-#| fig-alt: |
-#|   Horizontal bar chart of calls over the last four weeks, grouped by what they
-#|   were about and sorted from most to least common, each bar labelled with its
-#|   count of calls and its share of all calls in the window. Darker bars are
-#|   troubleshooting topics, lighter bars informational.
-
-window_topics <- topics_in_weeks(topics, current)
-
-# distinct() so a call recorded against two topics in one category counts once
-by_category <- window_topics |>
-  distinct(call_no, category) |>
-  count(category, name = "calls") |>
-  # Keep every named category on the axis so the chart always has the same rows
-  complete(category = factor(topic_category_levels, levels = topic_category_levels),
-           fill = list(calls = 0L)) |>
-  filter(category != "Other" | calls > 0) |>
-  arrange(calls) |>
-  mutate(category = factor(category, levels = category),
-         type = topic_category_type(category))
-
-# Calls the report counted that the topic dump has no reason
-calls_without_topic <- calls_now - n_distinct(window_topics$call_no)
-
-p <- ggplot(by_category, aes(calls, category)) +
-  geom_col(aes(fill = type), width = 0.7, show.legend = FALSE) +
-  geom_text(aes(label = paste0(calls, " (", round(100 * calls / calls_now), "%)")),
-            hjust = -0.2, size = 3.2, colour = "grey30") +
-  scale_x_continuous(breaks = pretty_breaks(4),
-                     expand = expansion(mult = c(0, 0.3))) +
-  scale_fill_manual(values = c(Troubleshooting = accent,
-                               Informational = accent_light)) +
-  theme_cds() +
-  theme(panel.grid.major.y = element_blank()) +
-  labs(x = "Calls", y = NULL,
-       subtitle = glue("Calls by what they were about, {window_weeks_label},\n",
-                       "from the topics the call centre recorded."))
-
-brand_figure(p, height = 0.11)
-```
-
-::: {.figure-note}
-Each bar counts **calls**, not topic records. One call may have many topics, one or 
-none. Because of that, the percentages do not necessarily add to 100%.
-Lighter bars indicate an informational topic, darker bars troubleshooting.
-:::
-
-:::
-
-## Row {height="420px"}
-
-::: {.card title="`r glue('Support demand ({chart_span_label})')`"}
+::: {.card title="`r glue('Support demand ({chart_span_label})')`" width="40%"}
 
 ```{r call-rate-chart}
-#| fig-width: 12
-#| fig-height: 3.5
+#| fig-width: 5.4
+#| fig-height: 4.3
 #| fig-alt: |
 #|   Scatter plot of calls per 100 daily active users for each reported week, one
 #|   dot per week, with a LOESS smoothing line through them and the newest week
@@ -318,18 +263,105 @@ p <- ggplot(charted_rate, aes(week + week_offset, calls_per_100)) +
   # Not a scale limit, which would silently drop the line falling below it.
   expand_limits(y = 0) +
   # An extra week of slack so we don't accidentally truncate labels
-  week_axis(charted_rate$week, expand = expansion(add = c(2, 7))) +
+  week_axis(charted_rate$week, max_labels = 7L, expand = expansion(add = c(2, 7))) +
   theme_cds() +
   labs(x = week_axis_title, y = "Calls per 100 daily users",
-       subtitle = "Call centre demand, measured against the size of the user base")
+       subtitle = "Call centre demand, measured against\nthe size of the user base")
 
-brand_figure(p)
+brand_figure(p, height = 0.11)
 ```
 
 ::: {.figure-note}
 Each week's calls, excluding test calls, divided by the sign-in user-days in
 that same week. Read as a percentage: 0.5 calls per 100 users means 0.5% of the people
 who signed in that called for support.
+:::
+
+:::
+
+## Row {height="420px"}
+
+::: {.card title="`r glue('Why users called ({window_label})')`"}
+
+```{r topics-chart}
+#| fig-width: 12
+#| fig-height: 3.5
+#| fig-alt: |
+#|   Two horizontal bar charts side by side, sharing a calls axis: informational
+#|   topics on the left, troubleshooting topics on the right. Each shows up to five
+#|   groups of calls over the last four weeks by what they were about, sorted from
+#|   most to least common, each bar labelled with its count of calls and its share
+#|   of all calls in the window.
+
+window_topics <- topics_in_weeks(topics, current)
+
+topic_types <- c("Informational", "Troubleshooting")
+panel_slots <- 5L
+
+# distinct() so a call recorded against two topics in one category counts once
+by_category <- window_topics |>
+  distinct(call_no, category) |>
+  count(category, name = "calls") |>
+  # Keep every named category on the axis so the chart always has the same rows
+  complete(category = factor(topic_category_levels, levels = topic_category_levels),
+           fill = list(calls = 0L)) |>
+  filter(category != "Other" | calls > 0) |>
+  mutate(category = as.character(category),
+         type = factor(topic_category_type(category), levels = topic_types)) |>
+  group_by(type) |>
+  # A tie at fifth place is broken alphabetically, so a panel never shows six
+  arrange(desc(calls), category, .by_group = TRUE) |>
+  slice_head(n = panel_slots) |>
+  ungroup()
+
+# Each panel has five slots, so a bar is the same thickness in both however many
+# categories a type has. A slot with no category is a blank row, named with a
+# distinct run of spaces so the rows stay apart on the axis.
+empty_slots <- by_category |>
+  count(type, name = "used", .drop = FALSE) |>
+  mutate(missing = panel_slots - used) |>
+  filter(missing > 0) |>
+  tidyr::uncount(missing, .id = "slot") |>
+  mutate(category = strrep(" ", as.integer(type) * panel_slots + slot),
+         calls = NA_integer_) |>
+  select(type, category, calls)
+
+by_category <- bind_rows(by_category, empty_slots) |>
+  # Blank rows first, so they sit at the foot of the panel
+  arrange(!is.na(calls), calls, desc(category)) |>
+  mutate(category = factor(category, levels = category))
+
+bars <- filter(by_category, !is.na(calls))
+
+# Calls the report counted that the topic dump has no reason
+calls_without_topic <- calls_now - n_distinct(window_topics$call_no)
+
+p <- ggplot(by_category, aes(calls, category)) +
+  geom_blank() +
+  geom_col(data = bars, aes(fill = type), width = 0.7, show.legend = FALSE) +
+  geom_text(data = bars,
+            aes(label = paste0(calls, " (", round(100 * calls / calls_now), "%)")),
+            hjust = -0.2, size = 3.2, colour = "grey30") +
+  # Fixed x so the two panels compare directly
+  facet_wrap(~type, nrow = 1, scales = "free_y", drop = FALSE) +
+  scale_x_continuous(breaks = pretty_breaks(4),
+                     expand = expansion(mult = c(0, 0.3))) +
+  scale_fill_manual(values = c(Troubleshooting = accent,
+                               Informational = accent_light)) +
+  theme_cds() +
+  # Every bar is labelled, and a tick on a blank slot would point at nothing
+  theme(panel.grid.major.y = element_blank(),
+        axis.ticks.y = element_blank()) +
+  labs(x = "Calls", y = NULL,
+       subtitle = glue("Calls by what they were about, {window_weeks_label}, ",
+                       "from the topics the call centre recorded."))
+
+brand_figure(p)
+```
+
+::: {.figure-note}
+Each bar counts **calls**, not topic records. One call may have many topics, one or 
+none. Because of that, the percentages do not necessarily add to 100%.
 :::
 
 :::
