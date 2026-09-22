@@ -1043,14 +1043,15 @@ External services
 
 ```{r rp-table}
 reactable(
-  select(rp_rows, service, launched, trend, sso_events, change, mtd,
+  select(rp_rows, service, launched, trend, sso_events, change_value, mtd,
          rolling, operator, direction, applications, prior_sso_events),
   searchable = TRUE,
   language = reactableLang(
     searchPlaceholder = "Service or department",
     searchLabel = "Search by service or department"
   ),
-  defaultSorted = list(sso_events = "desc"),
+  defaultSorted = "service",
+  showSortable = TRUE,
   defaultPageSize = 12,
   showPageSizeOptions = TRUE,
   pageSizeOptions = c(12, 25, 50),
@@ -1089,10 +1090,14 @@ reactable(
     sso_events = colDef(
       name = glue("SSO events ({window_label})"),
       header = stacked_header("SSO events", window_label),
-      format = colFormat(separators = TRUE), maxWidth = 140
+      format = colFormat(separators = TRUE), maxWidth = 140,
+      defaultSortOrder = "desc"
     ),
-    change = colDef(
+    # Sorts on the number: as text, "+12%" sorts before "+5%".
+    change_value = colDef(
       name = prior_window_label, maxWidth = 140,
+      defaultSortOrder = "desc", sortNALast = TRUE,
+      cell = function(value, index) rp_rows$change[index],
       style = function(value, index) {
         list(color = delta_colours[[rp_rows$direction[index]]])
       }
@@ -1100,10 +1105,12 @@ reactable(
     mtd = colDef(name = glue("Active users ({month_label}{to_date_suffix})"),
                  header = stacked_header("Active users",
                                          glue("{month_label}{to_date_suffix}")),
-                 format = colFormat(separators = TRUE), maxWidth = 130),
+                 format = colFormat(separators = TRUE), maxWidth = 130,
+                 defaultSortOrder = "desc"),
     rolling = colDef(name = "Active users (365 days)",
                      header = stacked_header("Active users", "365 days"),
-                     format = colFormat(separators = TRUE), maxWidth = 130),
+                     format = colFormat(separators = TRUE), maxWidth = 130,
+                     defaultSortOrder = "desc"),
     # Hidden, but searched: the operator is printed under the service name, so
     # searching "TBS" should find GC Digital Talent. reactable leaves hidden
     # columns out of the search box unless a column opts back in.
