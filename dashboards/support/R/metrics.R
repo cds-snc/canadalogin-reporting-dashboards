@@ -44,6 +44,7 @@ call_weeks <- read_once("call_centre", "weekly_activity_report", \(x) {
       calls = calls_accepted - test_calls,
       calls_answered,
       calls_abandoned,
+      callbacks = callback,
       pct_answered_within_60s,
       avg_delay_seconds,
       avg_call_length_seconds
