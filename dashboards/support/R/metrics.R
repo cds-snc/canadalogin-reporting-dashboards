@@ -171,6 +171,8 @@ topic_patterns <- c(
     "Email verification problems",
   "Difficulties When Signing [Ii]n|Technical Difficulties|Creating a Password" =
     "Sign-in problems",
+  "Outage" =
+    "Service outages",
   "Follow-Up Procedure" =
     "Follow-up requests",
   "PrairiesCan|GC Digital Talent|VAC Healthshare|CED Client Space|MyCGC|O-Canada|ATIP|Access to Information" =
