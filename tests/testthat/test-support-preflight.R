@@ -14,7 +14,7 @@ test_that("every check keeps its slug", {
     purrr::map_chr(result$checks, "slug"),
     c("call-centre-freshness", "call-centre-continuity", "topic-coverage",
       "topic-categories", "topic-lookup", "call-rate-coverage", "psom-freshness",
-      "plausibility")
+      "psom-sla", "plausibility")
   )
 })
 
@@ -134,15 +134,42 @@ test_that("call rate coverage ignores a gap older than the summary window", {
 
 test_that("PSOM freshness fails on a snapshot older than the lag", {
   result <- run_support_preflight(
-    support_with_data(psom = support_psom(support_today - 9L))
+    support_with_data(psom = support_psom(support_today - 9L),
+                      psom_sla = support_psom_sla(support_today - 9L))
   )
   expect_identical(failed_slugs(result), "psom-freshness")
 })
 
 test_that("PSOM freshness passes a snapshot exactly at the lag", {
   result <- run_support_preflight(
-    support_with_data(psom = support_psom(support_today - 8L))
+    support_with_data(psom = support_psom(support_today - 8L),
+                      psom_sla = support_psom_sla(support_today - 8L))
   )
+  expect_true(result$passed)
+})
+
+# psom-sla --------------------------------------------------------------------
+
+test_that("PSOM SLA fails when its newest snapshot is behind the board's", {
+  result <- run_support_preflight(
+    support_with_data(psom_sla = support_psom_sla(as.Date("2026-09-13")))
+  )
+  expect_identical(failed_slugs(result), "psom-sla")
+})
+
+test_that("PSOM SLA fails when a started clock has no elapsed time", {
+  sla <- support_psom_sla()
+  sla$elapsed_hours[2] <- NA
+  result <- run_support_preflight(support_with_data(psom_sla = sla))
+  expect_identical(failed_slugs(result), "psom-sla")
+  expect_match(check_named(result, "psom-sla")$details[2], "PSOM-1")
+})
+
+test_that("PSOM SLA ignores a clock that never started", {
+  sla <- support_psom_sla()
+  sla$breached[2] <- NA
+  sla$elapsed_hours[2] <- NA
+  result <- run_support_preflight(support_with_data(psom_sla = sla))
   expect_true(result$passed)
 })
 

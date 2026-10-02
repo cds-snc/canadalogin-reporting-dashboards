@@ -199,7 +199,34 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
                    "{nrow(psom_latest(con))} ticket(s)")
   )
 
-  # Check 8 - plausibility ------------------------------------------------------
+  # Check 8 - PSOM SLA clocks ---------------------------------------------------
+  #
+  # The scorecard reads goal and elapsed time off each started clock, and the
+  # same Lambda writes both tables, so they should share a newest day.
+
+  sla_rows <- psom_sla_snapshots(con)
+  sla_snapshot <- suppressWarnings(max(sla_rows$snapshot))
+  incomplete <- sla_rows |>
+    dplyr::filter(snapshot == sla_snapshot, !is.na(breached),
+                  is.na(goal_hours) | is.na(elapsed_hours))
+
+  record_check(
+    "psom-sla",
+    glue("The newest SLA snapshot must match the board's, with goal and ",
+         "elapsed time on every started clock"),
+    passed = is.finite(sla_snapshot) && sla_snapshot == snapshot &&
+      nrow(incomplete) == 0,
+    details = c(
+      glue("jira.psom_sla newest snapshot is {format_date(sla_snapshot)}, ",
+           "jira.psom is {format_date(snapshot)}"),
+      if (nrow(incomplete) > 0) {
+        glue("{nrow(incomplete)} started clock(s) missing goal or elapsed time: ",
+             "{glue_collapse(unique(incomplete$key), sep = ', ')}")
+      }
+    )
+  )
+
+  # Check 9 - plausibility ------------------------------------------------------
   #
   # The report is typed into a spreadsheet, so the columns are checked against
   # each other: a week that answered more calls than it accepted was mistyped.

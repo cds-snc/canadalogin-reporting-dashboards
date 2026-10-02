@@ -51,10 +51,25 @@ support_psom <- function(snapshot = as.Date("2026-09-14")) {
   )
 }
 
+# One started clock per SLA on PSOM-1, from the same day as support_psom()
+support_psom_sla <- function(snapshot = as.Date("2026-09-14")) {
+  tibble::tibble(
+    snapshot = snapshot,
+    key = "PSOM-1",
+    sla = c("first_response", "time_to_done", "pso_time_to_done", "escalated_to_pt"),
+    breached = FALSE,
+    paused = FALSE,
+    due_on = snapshot + 3L,
+    goal_hours = c(4, 40, 40, 16),
+    elapsed_hours = 2
+  )
+}
+
 support_with_data <- function(weeks = support_weeks(),
                               topics = NULL,
                               users = support_users(weeks),
-                              psom = support_psom()) {
+                              psom = support_psom(),
+                              psom_sla = support_psom_sla()) {
   env <- load_dashboard("support")
   if (is.null(topics)) topics <- support_topics(weeks, env = env)
   stub(
@@ -62,7 +77,8 @@ support_with_data <- function(weeks = support_weeks(),
     call_weeks = function(con) weeks,
     call_topics = function(con) topics,
     daily_active_users = function(con) users,
-    psom_snapshots = function(con) psom
+    psom_snapshots = function(con) psom,
+    psom_sla_snapshots = function(con) psom_sla
   )
 }
 

@@ -213,6 +213,108 @@ test_that("psom_weekly's open count is the running total of opened less closed",
   expect_identical(weekly$open, cumsum(weekly$opened - weekly$closed))
 })
 
+# PSOM SLAs -------------------------------------------------------------------
+
+# One clock row per ticket; `snapshot` defaults to the first daily snapshot.
+sla_clock <- function(key, sla = "pso_time_to_done", breached = FALSE,
+                      paused = NA, due_on = "2026-09-30", elapsed_hours = 1,
+                      goal_hours = 40, snapshot = "2026-10-01") {
+  tibble::tibble(
+    snapshot = as.Date(snapshot), key, sla, breached, paused,
+    due_on = as.Date(due_on), goal_hours, elapsed_hours
+  )
+}
+
+test_that("psom_sla_last keeps an archived ticket's last snapshot", {
+  rows <- dplyr::bind_rows(
+    sla_clock("kept", paused = TRUE, snapshot = "2026-09-30"),
+    sla_clock("kept", snapshot = "2026-10-01"),
+    sla_clock("archived", snapshot = "2026-09-30")
+  )
+  last <- support$psom_sla_last(rows)
+  expect_identical(sort(last$key), c("archived", "kept"))
+  expect_true(is.na(last$paused[last$key == "kept"]))
+})
+
+test_that("psom_sla_last ignores the weekly backfill before the first daily snapshot", {
+  rows <- sla_clock("old", snapshot = "2026-09-28")
+  expect_identical(nrow(support$psom_sla_last(rows)), 0L)
+})
+
+test_that("sla_outcomes reads met, missed and running off breached and paused", {
+  rows <- dplyr::bind_rows(
+    sla_clock("met"),
+    sla_clock("missed-stopped", breached = TRUE),
+    sla_clock("missed-running", breached = TRUE, paused = FALSE),
+    sla_clock("running", paused = FALSE, due_on = "2026-10-09"),
+    sla_clock("never-started", breached = NA)
+  )
+  outcomes <- support$sla_outcomes(rows, as.Date("2026-10-01"))
+  expect_identical(outcomes$outcome, c("met", "missed", "missed", "running"))
+  expect_identical(is.na(outcomes$settled_on), c(FALSE, FALSE, FALSE, TRUE))
+})
+
+test_that("sla_outcomes drops a clock that settled before the first daily week", {
+  rows <- dplyr::bind_rows(
+    sla_clock("before", due_on = "2026-09-27"),
+    sla_clock("first-day", due_on = "2026-09-28")
+  )
+  outcomes <- support$sla_outcomes(rows, as.Date("2026-10-01"))
+  expect_identical(outcomes$key, "first-day")
+})
+
+test_that("sla_weekly counts settled clocks and leaves an empty week NA", {
+  rows <- dplyr::bind_rows(
+    sla_clock("a"),
+    sla_clock("b", breached = TRUE),
+    sla_clock("c", paused = FALSE, due_on = "2026-10-09")
+  )
+  weeks <- as.Date(c("2026-09-28", "2026-10-05"))
+  weekly <- support$sla_weekly(support$sla_outcomes(rows, as.Date("2026-10-11")), weeks)
+  pso <- weekly[weekly$sla == "pso_time_to_done", ]
+  expect_identical(pso$met, c(1L, 0L))
+  expect_identical(pso$settled, c(2L, 0L))
+  expect_identical(pso$share, c(0.5, NA))
+  expect_identical(nrow(weekly), 8L)
+})
+
+test_that("sla_weekly takes the median over stopped clocks only", {
+  rows <- dplyr::bind_rows(
+    sla_clock("a", elapsed_hours = 1),
+    sla_clock("b", elapsed_hours = 2),
+    sla_clock("c", elapsed_hours = 30),
+    sla_clock("running-late", breached = TRUE, paused = FALSE, elapsed_hours = 90)
+  )
+  weekly <- support$sla_weekly(support$sla_outcomes(rows, as.Date("2026-10-01")),
+                               as.Date("2026-09-28"))
+  pso <- weekly[weekly$sla == "pso_time_to_done", ]
+  expect_identical(pso$settled, 4L)
+  expect_identical(pso$stopped, 3L)
+  expect_identical(pso$median_hours, 2)
+  expect_true(is.na(weekly$median_hours[weekly$sla == "first_response"]))
+})
+
+test_that("sla_target_label names one target or says each ticket has its own", {
+  rows <- dplyr::bind_rows(
+    sla_clock("a"),
+    sla_clock("b", sla = "time_to_done", goal_hours = 24),
+    sla_clock("c", sla = "time_to_done", goal_hours = 72)
+  )
+  expect_equal(as.character(support$sla_target_label(rows, "pso_time_to_done")),
+               "Target: 40 working hours")
+  expect_identical(support$sla_target_label(rows, "time_to_done"),
+                   "Target set per ticket")
+})
+
+test_that("fmt_work_time shows anything under an hour as under one", {
+  expect_identical(support$fmt_work_time(c(1 / 60, 0.99)), c("<1 hr", "<1 hr"))
+})
+
+test_that("fmt_work_time shows one decimal of hours under ten, whole hours above", {
+  expect_identical(support$fmt_work_time(c(1, 5.1, 38.2, NA)),
+                   c("1.0 hrs", "5.1 hrs", "38 hrs", "-"))
+})
+
 # Change ----------------------------------------------------------------------
 
 test_that("a change within half a percent is flat", {
