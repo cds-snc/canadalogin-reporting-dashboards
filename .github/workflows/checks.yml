@@ -27,7 +27,7 @@ jobs:
         run: echo "version=$(jq -r '.R.Version' renv.lock)" >> "$GITHUB_OUTPUT"
 
       - name: Set up R
-        uses: r-lib/actions/setup-r@465b7d8e732ca3921382b1674c59bada9cbf3399 # v2.13.0
+        uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2.14.0
         with:
           r-version: ${{ steps.r-version.outputs.version }}
           use-public-rspm: true
@@ -41,7 +41,7 @@ jobs:
             libjpeg-dev libwebp-dev libcurl4-openssl-dev libssl-dev libxml2-dev
 
       - name: Restore renv
-        uses: r-lib/actions/setup-renv@465b7d8e732ca3921382b1674c59bada9cbf3399 # v2.13.0
+        uses: r-lib/actions/setup-renv@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2.14.0
 
       - name: Set up Quarto
         uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
