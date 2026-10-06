@@ -201,14 +201,14 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
 
   # Check 8 - PSOM SLA clocks ---------------------------------------------------
   #
-  # The scorecard reads goal and elapsed time off each started clock, and the
-  # same Lambda writes both tables, so they should share a newest day.
+  # The scorecard reads goal and elapsed time off each started clock it reports,
+  # and the same Lambda writes both tables, so they should share a newest day.
 
   sla_rows <- psom_sla_snapshots(con)
   sla_snapshot <- suppressWarnings(max(sla_rows$snapshot))
   incomplete <- sla_rows |>
-    dplyr::filter(snapshot == sla_snapshot, !is.na(breached),
-                  is.na(goal_hours) | is.na(elapsed_hours))
+    dplyr::filter(snapshot == sla_snapshot, sla %in% names(sla_clocks),
+                  !is.na(breached), is.na(goal_hours) | is.na(elapsed_hours))
 
   record_check(
     "psom-sla",
