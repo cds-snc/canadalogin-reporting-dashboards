@@ -520,7 +520,6 @@ closed_delta <- fmt_delta(relative_change(closed_now, closed_prior))
 # Median, not mean: the tail is long enough that a few slow tickets would set it.
 ages <- psom_ages(board, psom_through)
 median_age <- fmt_days(median(ages$age))
-open_now <- sum(is.na(board$closed_on))
 
 weekly <- psom_weekly(board, chart_from, psom_through)
 
@@ -538,7 +537,7 @@ whole_breaks <- function(x) {
   breaks[breaks == floor(breaks)]
 }
 
-# SLA clocks, each counted in the week it stopped or ran past target
+# SLA clocks, each counted in the week it stopped
 outcomes <- sla_outcomes(psom_sla_last(psom_sla_snapshots(con)), psom_through)
 sla_week_starts <- sla_weeks(psom_through)
 sla_by_week <- sla_weekly(outcomes, sla_week_starts)
@@ -549,11 +548,6 @@ sla_week_label <- function(week) {
   label <- format_short_date(week + 6L)
   if_else(week + 6L > psom_through, paste(label, "(so far)"), label)
 }
-
-still_running <- outcomes |>
-  filter(outcome == "running") |>
-  count(sla)
-running_count <- function(clock) sum(still_running$n[still_running$sla == clock])
 ```
 
 ## Row {height="150px"}
@@ -575,11 +569,11 @@ Tickets closed (`r window_label`)
 :::
 
 ::: {.valuebox color="secondary"}
-Median time a ticket was open (`r window_label`)
+Median time open (`r window_label`)
 
 `r median_age`
 
-over `r fmt_count(nrow(ages), 'ticket')`, `r open_now` still open
+over `r fmt_count(nrow(ages), 'ticket')`
 :::
 
 ## Row
@@ -596,15 +590,24 @@ band_of <- function(share) {
             !is.na(share) ~ bands[3])
 }
 
-# Share, count and median in one cell, or a dash when nothing settled
-sla_cell <- function(share, met, settled, median_hours) {
-  if_else(
-    settled == 0, "<div style='color:#767676'>-</div>",
-    glue("<div style='font-size:20px;font-weight:700;line-height:1.1'>",
-         "{fmt_pct(share)}</div>",
-         "<div style='font-size:12px'>{met} of {settled} within target</div>",
-         "<div style='font-size:12px'>Median time: ",
-         "{fmt_work_time(median_hours)}</div>")
+cell_headline <- function(x) {
+  glue("<div style='font-size:20px;font-weight:700;line-height:1.1'>{x}</div>")
+}
+cell_line <- function(x) glue("<div style='font-size:12px'>{x}</div>")
+empty_cell <- "<div style='color:#767676'>-</div>"
+
+# An adherence clock leads with its share within target; any other with its
+# median time
+sla_cell <- function(sla, share, met, stopped, median_hours) {
+  case_when(
+    sla %in% sla_adherence_clocks & stopped > 0 ~
+      paste0(cell_headline(fmt_pct(share)),
+             cell_line(glue("{met} of {stopped} within target"))),
+    stopped > 0 ~
+      paste0(cell_headline(fmt_work_time(median_hours)),
+             cell_line(glue("median of {stopped} ",
+                            "{if_else(stopped == 1, 'ticket', 'tickets')}"))),
+    .default = empty_cell
   )
 }
 
@@ -613,15 +616,18 @@ sla_overall <- outcomes |>
   group_by(sla) |>
   sla_tally() |>
   right_join(tibble(sla = names(sla_clocks)), by = "sla") |>
-  mutate(across(c(met, settled, stopped), \(x) coalesce(x, 0L)),
-         share = if_else(settled > 0, met / settled, NA_real_))
+  mutate(across(c(met, stopped), \(x) coalesce(x, 0L)))
 
 sla_cells <- bind_rows(mutate(sla_by_week, week = as.character(week)),
                        mutate(sla_overall, week = "all")) |>
   mutate(
-    cell = sla_cell(share, met, settled, median_hours),
-    band = band_of(share),
-    target = purrr::map_chr(sla, \(s) sla_target_label(outcomes, s)),
+    cell = sla_cell(sla, share, met, stopped, median_hours),
+    band = if_else(sla %in% sla_adherence_clocks, band_of(share), NA_character_),
+    target = if_else(
+      sla %in% sla_adherence_clocks,
+      purrr::map_chr(sla, \(s) sla_target_label(outcomes, s)),
+      "Median"
+    ),
     name = glue("<b>{sla_clocks[sla]}</b><br>",
                 "<span style='font-size:12px;color:#555'>{target}</span>")
   )
@@ -665,12 +671,13 @@ scorecard_table |>
 ```
 
 ::: {.figure-note}
-A clock counts in the week it stopped or ran past its target, so the
-`r running_count("pso_time_to_done")` PSO clocks still running inside their target are not
-here yet. The median covers only clocks that have stopped, so a ticket still open past its
-target counts in the share but not the median. Times count only working hours on a 9-to-5
-weekday calendar. Reporting starts with the week of
-`r format_long_date(min(sla_week_starts))`, the first with daily snapshots.
+- **Time to first response:** how long a partner waits for PSO's first reply.
+- **PSO handling:** the share of tickets PSO finishes within its target. The clock pauses
+  while a ticket is with the authentication team.
+- **Time to done:** how long the whole ticket takes, from opened to done.
+
+Each ticket counts in the week its clock stopped, as in Jira's SLA reports. Times count
+working hours only, 9 to 5 on weekdays.
 :::
 
 :::
@@ -683,50 +690,60 @@ weekday calendar. Reporting starts with the week of
 #| fig-width: 12
 #| fig-height: 3.6
 #| fig-alt: |
-#|   Four dot charts side by side, one per service level: time to first response,
-#|   PSO handling, the authentication team and time to done for the whole ticket.
-#|   Each dot is one ticket whose clock stopped, placed by the day it stopped and
-#|   its working hours on the clock. Filled dots met their target and open dots
-#|   went over it. A dashed line marks the target in each panel whose tickets all
-#|   share one, and a grey LOESS line shows the trend once a panel has tickets on
-#|   enough different days.
+#|   Three dot charts side by side, one per service level: time to first response,
+#|   PSO handling and time to done for the whole ticket. Each dot is one ticket
+#|   whose clock stopped, placed by the day it stopped and its working time on the
+#|   clock, in minutes or hours. Filled dots met their target and open dots went
+#|   over it. A dashed line marks the target in a panel whose tickets reach it,
+#|   and a grey LOESS line shows the trend once a panel has tickets on enough
+#|   different days.
 
 stopped_clocks <- outcomes |>
-  filter(sla %in% names(sla_clocks), stopped) |>
   mutate(
     panel = factor(sla_clocks[sla], levels = sla_clocks),
     result = factor(if_else(outcome == "met", "Within target", "Over target"),
                     levels = c("Within target", "Over target"))
   )
 
-# A dashed line only where every ticket shares one target
-targets <- outcomes |>
-  filter(sla %in% names(sla_clocks)) |>
-  group_by(sla) |>
+# A dashed target line where a panel's tickets share one target, drawn only
+# within the panel's own dots. A line above them would stretch the axis: a
+# 4-hour line would flatten first responses of a few minutes onto the floor.
+targets <- stopped_clocks |>
+  group_by(panel) |>
   filter(n_distinct(goal_hours) == 1L) |>
-  summarise(goal_hours = first(goal_hours), .groups = "drop") |>
-  mutate(panel = factor(sla_clocks[sla], levels = sla_clocks))
+  summarise(goal_hours = first(goal_hours), top = max(elapsed_hours),
+            .groups = "drop") |>
+  filter(goal_hours <= top)
 
 # LOESS needs a spread of days to fit, so a panel gets a line once its tickets
-# settled on this many different days.
+# stopped on this many different days. A wide, locally linear span keeps a few
+# dozen dots from bending it around each one.
 smooth_min_days <- 5L
 smoothed <- stopped_clocks |>
   group_by(panel) |>
-  filter(n_distinct(settled_on) >= smooth_min_days) |>
+  filter(n_distinct(stopped_on) >= smooth_min_days) |>
   ungroup()
 
-# Placed on the day the clock settled, mid-day so a dot sits inside its week's span
-p <- ggplot(stopped_clocks, aes(settled_on + 0.5, elapsed_hours)) +
+# "0", "20 min" or "2 hrs": an axis needs no "2.0 hrs" decimal
+work_time_label <- function(x) {
+  if_else(x == 0, "0", sub(".0 ", " ", fmt_work_time(x), fixed = TRUE))
+}
+
+# Placed on the day the clock stopped, mid-day so a dot sits inside its week's span
+p <- ggplot(stopped_clocks, aes(stopped_on + 0.5, elapsed_hours)) +
   geom_hline(data = targets, aes(yintercept = goal_hours), linetype = "dashed",
              colour = "grey45") +
   geom_smooth(data = smoothed, method = "loess", formula = y ~ x, se = FALSE,
+              span = 1.5, method.args = list(degree = 1),
               colour = "grey40", linewidth = 0.9) +
   geom_point(aes(shape = result), colour = accent, fill = accent, size = 2.4,
              stroke = 0.8) +
   facet_wrap(~panel, nrow = 1, scales = "free_y", drop = FALSE) +
   scale_shape_manual(values = c("Within target" = 21, "Over target" = 1),
                      drop = FALSE, name = NULL) +
-  scale_y_continuous(expand = expansion(mult = c(0.02, 0.1))) +
+  scale_y_continuous(breaks = work_time_breaks,
+                     labels = work_time_label,
+                     expand = expansion(mult = c(0.02, 0.1))) +
   # Not a scale limit, which would silently drop a line dipping below zero.
   expand_limits(y = 0) +
   week_axis(sla_week_starts,
@@ -734,17 +751,14 @@ p <- ggplot(stopped_clocks, aes(settled_on + 0.5, elapsed_hours)) +
   theme_cds() +
   theme(panel.grid.major.x = element_blank(), legend.position = "bottom",
         legend.justification = "left") +
-  labs(x = week_axis_title, y = "Working hours")
+  labs(x = week_axis_title, y = "Working time")
 
 brand_figure(p, height = 0.1, date = psom_through)
 ```
 
 ::: {.figure-note}
-One dot per ticket whose clock has stopped, on the day it stopped, filled if it met its
-own target. The grey line is a smoothed trend, drawn once a panel has tickets on
-`r smooth_min_days` or more different days. The dashed
-line is the target where every ticket in view shares one. Time to done can have a
-different target on each ticket, and then has no line.
+Each dot is one ticket, on the day its clock stopped. Tickets still in progress are not
+shown until they stop.
 :::
 
 :::
@@ -787,6 +801,57 @@ brand_figure(p, date = psom_through)
 Counted off the current board, test tickets included, so a ticket opened and closed in
 one week never reaches the queue. Closed means first seen at *Done*, *Canceled* or
 *Ready to archive*.
+:::
+
+:::
+
+## Row {height="auto"}
+
+::: {.card title="Past target and still open"}
+
+```{r sla-overdue}
+overdue <- sla_overdue(psom_sla_snapshots(con))
+
+if (nrow(overdue) == 0) {
+  cat("No open ticket is past a target.")
+} else {
+  # "79 hrs (target 40)"; a clock within target or stopped is a dash
+  overdue_table <- overdue |>
+    mutate(
+      cell = glue("{fmt_work_time(elapsed_hours)} <span style='color:#767676'>",
+                  "(target {format(goal_hours)})</span>"),
+      sla = factor(sla, levels = names(sla_clocks))
+    ) |>
+    select(key, sla, cell) |>
+    pivot_wider(names_from = sla, values_from = cell, names_expand = TRUE,
+                values_fill = "-") |>
+    left_join(select(psom_latest(con), key, status, created), by = "key") |>
+    arrange(created) |>
+    mutate(
+      ticket = glue("<a href='{psom_ticket_url(key)}'>{key}</a>"),
+      opened = format_short_date(created)
+    )
+
+  overdue_table |>
+    select(ticket, status, opened, all_of(names(sla_clocks))) |>
+    gt() |>
+    fmt_passthrough(columns = c(ticket, all_of(names(sla_clocks))), escape = FALSE) |>
+    cols_label(.list = c(list(ticket = "Ticket", status = "Status", opened = "Opened"),
+                         as.list(sla_clocks))) |>
+    tab_spanner("Working time so far", columns = all_of(names(sla_clocks))) |>
+    cols_align("left") |>
+    table_options() |>
+    # Smaller and tighter than the other tables: a reference list, not a headline
+    tab_options(table.font.size = px(12), column_labels.font.size = px(12),
+                data_row.padding = px(2), column_labels.padding = px(2),
+                table.font.color = "#555555")
+}
+```
+
+::: {.figure-note}
+Open tickets that have gone past at least one target. They are not yet in the service
+levels or the handling time chart above, because a ticket only shows up there once its
+clock stops. A dash is a clock within its target or already stopped.
 :::
 
 :::

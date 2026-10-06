@@ -165,6 +165,13 @@ test_that("PSOM SLA fails when a started clock has no elapsed time", {
   expect_match(check_named(result, "psom-sla")$details[2], "PSOM-1")
 })
 
+test_that("PSOM SLA ignores a clock the page does not report", {
+  sla <- support_psom_sla()
+  sla$elapsed_hours[sla$sla == "escalated_to_pt"] <- NA
+  result <- run_support_preflight(support_with_data(psom_sla = sla))
+  expect_true(result$passed)
+})
+
 test_that("PSOM SLA ignores a clock that never started", {
   sla <- support_psom_sla()
   sla$breached[2] <- NA

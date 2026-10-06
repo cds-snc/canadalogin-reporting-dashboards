@@ -303,17 +303,17 @@ psom_weekly <- function(life, from, through) {
 # PSOM SLAs ------------------------------------------------------------------
 
 # The first daily snapshot. Earlier ones are weekly backfills with no elapsed
-# time and no PSO or authentication team clocks, so nothing settled before
-# its week is reported.
+# time and no PSO clock, so nothing that stopped before its week is reported.
 psom_sla_from <- as.Date("2026-09-29")
 
-# The clocks on the scorecard, in the order a ticket meets them
+# The clocks on the scorecard, in the order a ticket meets them. Only PSO's is
+# reported as adherence; the others as the time itself.
 sla_clocks <- c(
   first_response   = "Time to first response",
   pso_time_to_done = "PSO handling",
-  escalated_to_pt  = "Authentication team",
   time_to_done     = "Time to done, whole ticket"
 )
+sla_adherence_clocks <- "pso_time_to_done"
 
 # Each ticket's clocks as last seen. An archived ticket leaves the snapshots,
 # so its last one stands rather than the newest.
@@ -325,64 +325,61 @@ psom_sla_last <- function(rows) {
     dplyr::ungroup()
 }
 
-# One row per started clock: met, missed or running, and the day it settled.
-# `due` is the deadline on a running clock and the stop time on a stopped one,
-# so a clock settles when it stops or runs past target. A missed clock that is
-# still running moves from its breach day to its stop day once it stops.
+# One row per stopped clock on the scorecard, met or missed, on the day it
+# stopped. As in Jira's SLA success rate report, a running clock counts nowhere
+# until it stops, even past target. `due` is the stop time on a stopped clock.
 sla_outcomes <- function(last, through) {
   last |>
-    dplyr::filter(!is.na(breached)) |>
+    dplyr::filter(sla %in% names(sla_clocks), !is.na(breached), is.na(paused)) |>
     dplyr::mutate(
-      stopped = is.na(paused),
-      outcome = dplyr::case_when(
-        breached ~ "missed",
-        stopped ~ "met",
-        .default = "running"
-      ),
-      settled_on = dplyr::if_else(outcome == "running", as.Date(NA), due_on),
-      settled_week = week_of(settled_on)
+      outcome = dplyr::if_else(breached, "missed", "met"),
+      stopped_on = due_on,
+      stopped_week = week_of(stopped_on)
     ) |>
-    dplyr::filter(
-      is.na(settled_on) |
-        (settled_on >= week_of(psom_sla_from) & settled_on <= as.Date(through))
-    )
+    dplyr::filter(stopped_on >= week_of(psom_sla_from),
+                  stopped_on <= as.Date(through))
 }
+
+# Clocks on the scorecard past target and still running or paused on the newest
+# snapshot, one row per ticket per clock: what sla_outcomes() leaves out.
+sla_overdue <- function(rows) {
+  rows |>
+    dplyr::filter(snapshot == max(snapshot), sla %in% names(sla_clocks),
+                  breached %in% TRUE, !is.na(paused))
+}
+
+# Jira's page for a ticket
+psom_ticket_url <- function(key) paste0("https://jtickets.atlassian.net/browse/", key)
 
 # Monday of every reported week, from the first daily snapshot's week
 sla_weeks <- function(through) {
   seq(week_of(psom_sla_from), week_of(through), by = "7 days")
 }
 
-# Per clock: met and settled, the share met, and the median working hours over
-# stopped clocks only, since a running clock's time is still growing. A missed
-# clock still running counts as settled but not stopped. Pass grouped rows.
+# Met and stopped clocks, the share met and the median working hours, per
+# group. Pass grouped rows.
 sla_tally <- function(outcomes) {
   outcomes |>
-    dplyr::filter(outcome != "running") |>
     dplyr::summarise(
       met = sum(outcome == "met"),
-      settled = dplyr::n(),
-      # Before `stopped` is overwritten by its count
-      median_hours = stats::median(elapsed_hours[stopped]),
-      stopped = sum(stopped),
+      stopped = dplyr::n(),
+      share = met / stopped,
+      median_hours = stats::median(elapsed_hours),
       .groups = "drop"
     )
 }
 
 # sla_tally() per clock per week, every week present even when empty. `share`
-# and `median_hours` are NA where nothing settled or stopped.
+# and `median_hours` are NA where nothing stopped.
 sla_weekly <- function(outcomes, weeks) {
   tidyr::expand_grid(sla = names(sla_clocks), week = weeks) |>
     dplyr::left_join(
       outcomes |>
-        dplyr::group_by(sla, week = settled_week) |>
+        dplyr::group_by(sla, week = stopped_week) |>
         sla_tally(),
       by = c("sla", "week")
     ) |>
-    dplyr::mutate(
-      dplyr::across(c(met, settled, stopped), \(x) dplyr::coalesce(x, 0L)),
-      share = dplyr::if_else(settled > 0, met / settled, NA_real_)
-    )
+    dplyr::mutate(dplyr::across(c(met, stopped), \(x) dplyr::coalesce(x, 0L)))
 }
 
 # "Target: 40 working hours", or a note that each ticket has its own
@@ -465,14 +462,25 @@ fmt_pct <- function(share) {
   dplyr::if_else(is.na(share), NA_character_, sprintf("%.0f%%", share * 100))
 }
 
-# "<1 hr", "5.1 hrs" or "38 hrs", for a table cell
+# "<1 min", "54 min", "5.1 hrs" or "38 hrs", for a table cell or axis label
 fmt_work_time <- function(hours) {
+  minutes <- round(hours * 60)
   dplyr::case_when(
     is.na(hours) ~ "-",
-    hours < 1 ~ "<1 hr",
+    minutes < 1 ~ "<1 min",
+    minutes < 60 ~ paste(minutes, "min"),
     hours < 10 ~ paste(sprintf("%.1f", hours), "hrs"),
     .default = paste(sprintf("%.0f", hours), "hrs")
   )
+}
+
+# Axis breaks in whole minutes for a panel under an hour, else whole hours
+work_time_breaks <- function(limits) {
+  if (limits[2] < 1) {
+    scales::breaks_pretty(4)(limits * 60) / 60
+  } else {
+    scales::breaks_pretty(4)(limits)
+  }
 }
 
 # "1:45" for 105 seconds, for a table column, where the compact form fits and
