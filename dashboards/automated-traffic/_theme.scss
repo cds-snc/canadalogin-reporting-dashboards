@@ -1,0 +1,42 @@
+// This dashboard's accent. Every dashboard shares the CDS palette in
+// ../../_brand.yml and overrides only what makes it distinct.
+//
+// "Signal": a slate chassis with one amber indicator light. Amber is kept
+// for what fired, so it always means "look here". White text is 11:1 on the
+// primary.
+
+/*-- scss:defaults --*/
+
+$primary: #36414D;
+
+$info: #DCE1E6;
+
+$led: #F2A900;
+
+$navbar-hl: #FFFFFF;
+
+/*-- scss:rules --*/
+
+.quarto-dashboard .navbar {
+  background-image: linear-gradient(180deg, #3E4A57, #2B343D);
+}
+
+// Robot head before the navbar title: slate plate, amber eyes that glow.
+.navbar-brand-container .navbar-title::before {
+  content: "";
+  display: inline-block;
+  width: 0.95em;
+  height: 0.8em;
+  margin-right: 0.5em;
+  vertical-align: -0.05em;
+  border-radius: 0.15em;
+  background:
+    radial-gradient(circle at 30% 50%, $led 0 0.08em, transparent 0.09em),
+    radial-gradient(circle at 70% 50%, $led 0 0.08em, transparent 0.09em),
+    #1B2229;
+  box-shadow: 0 0 0 1px #6B7885, 0 0 6px rgba($led, 0.35);
+}
+
+.navbar .nav-link.active {
+  box-shadow: inset 0 -3px 0 $led;
+}
