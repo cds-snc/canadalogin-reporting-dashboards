@@ -49,6 +49,17 @@ known_bot_days <- tibble::tribble(
   as.Date("2026-09-30"), TRUE, TRUE,  FALSE
 )
 
+# What one SMS costs, in dollars, by how many were sent in a month: the
+# price drops as volume rises. `up_to` is the top of each tier. A flagged
+# day's extra codes are priced at the tier its trailing 30 days fall in.
+sms_price_tiers <- tibble::tribble(
+  ~up_to,    ~price,
+  50000,     0.0456,
+  250000,    0.0453,
+  1000000,   0.0428,
+  Inf,       0.0402
+)
+
 # Setup -----------------------------------------------------------------------
 
 # The working directory is this folder; the shared layer is two levels up.
@@ -142,23 +153,6 @@ brand_figure <- function(p, height = 0.09) {
 }
 
 method_label <- function(m) methods$label[match(m, methods$method)]
-
-# Days in a method page's charts that it fired on, newest first.
-fired_days <- function(m) {
-  scores |>
-    dplyr::filter(method == m, fired, day >= chart_from) |>
-    dplyr::arrange(dplyr::desc(day)) |>
-    dplyr::pull(day)
-}
-
-days_flagged_line <- function(m) {
-  days <- fired_days(m)
-  if (length(days) == 0) "None in the last 13 weeks" else
-    glue("Most recent {format_short_date(days[1])}")
-}
-
-# "a typical weekday", for a value box comparing a day with its baseline.
-typical_day <- function(day) glue("a typical {day_type(day)}")
 
 # Relative luminance, to pick a label colour that shows on its cell.
 luminance <- function(hex) {
@@ -410,7 +404,8 @@ The dashboard looks for automated traffic **three ways**, each on its own page:
 [SMS codes](#sms-codes), [Idle accounts](#idle-accounts) and
 [Error patterns](#error-patterns). Each page explains how its method works and
 when it fires. The calendar below shades every day by its strongest method and
-labels the days a method flagged.
+labels the days a method flagged. As we find more methods, we will add them to the
+dashboard.
 
 **A flag is a suspicion, not a finding.** It says the day looked different from typical 
 usage. Further investigation is needed to determine if the flagged activity is truly
@@ -430,7 +425,7 @@ brand_figure(calendar_plot(calendar), height = 0.12)
 ```
 
 ::: {.figure-note}
-A flagged day shows its *Strongest* method from the table below, rounded. `r calendar_note`
+A flagged day shows its *strongest* method from the table below, rounded. `r calendar_note`
 :::
 
 :::
@@ -476,49 +471,52 @@ that method's typical day.
 ```{r sms-summary}
 #| include: false
 sms_rows <- scored$sms
-sms_latest <- sms_rows[sms_rows$day == reported_through$sms, ]
-sms_extra <- extra_sms(sms_rows, chart_from)
+sms_week <- method_window(sms_rows, reported_through$sms, "sms_sent",
+                          "sms_success", "sms_sent",
+                          baseline_days = thresholds$baseline_days)
+sms_extra <- extra_on_flagged(sms_rows, chart_from, "sms_sent")
+sms_extra_cost <- extra_sms_cost(sms_rows, chart_from, sms_price_tiers)
 ```
 
 ## Row {height="auto"}
 
 ::: {.card title="How this method works"}
-CanadaLogin texts a code to a phone, and the user types it back. Real users
-enter about 96% of their codes. A bot flooding the sign-up page sends codes that
-nobody enters. This method fires when **codes sent are at least
-`r thresholds$sms$volume` times a typical day** and **fewer than
-`r percent(thresholds$sms$entry_rate_below)` are entered**.
+When a user needs to prove they control a phone number, CanadaLogin texts a 
+one-time-password to that number, and the user types it back. Real users enter about 96%
+ of their codes correctly. A bot flooding the sign-up page sends codes that nobody 
+ enters. This method fires when **codes sent are at least `r thresholds$sms$volume`x a typical day** and **fewer than `r percent(thresholds$sms$entry_rate_below)` are
+ entered**.
 :::
 
 ## Row {height="150px"}
 
 ::: {.valuebox color="primary"}
-SMS codes sent, `r format_short_date(sms_latest$day)`
+SMS codes sent, last 7 days
 
-`r comma(sms_latest$sms_sent)`
+`r comma(sms_week$volume)`
 
-`r fmt_multiple(sms_latest$multiple)` `r typical_day(sms_latest$day)`
+`r fmt_multiple(sms_week$multiple)` a typical week
 :::
 
 ::: {.valuebox color="info"}
-Days flagged, last 13 weeks
+Codes entered, last 7 days
 
-`r length(fired_days("sms"))`
+`r percent(sms_week$ratio, accuracy = 1)`
 
-`r days_flagged_line("sms")`
+`r percent(sms_week$typical_ratio, accuracy = 1)` on a typical day
 :::
 
 ::: {.valuebox color="secondary"}
-Extra SMS codes on flagged days, last 13 weeks
+Extra SMS codes, last three months
 
 `r if (sms_extra == 0) "None" else nbsp(paste("About", comma(round(sms_extra, -3))))`
 
-Sent above a typical day
+Costing about `r dollar(round(sms_extra_cost, -2))`
 :::
 
 ## Row {height="560px"}
 
-::: {.card title="SMS codes sent and entered each day (last 13 weeks)"}
+::: {.card title="SMS codes sent and entered each day (last three months)"}
 
 ```{r sms-chart}
 #| fig-width: 13
@@ -531,7 +529,7 @@ Sent above a typical day
 p <- method_figure(
   sms_rows,
   volume = "sms_sent", volume_label = "SMS codes sent",
-  volume_note = glue("Fires at {thresholds$sms$volume} times a typical day or ",
+  volume_note = glue("Fires at {thresholds$sms$volume}x a typical day or ",
                      "more. Lighter bars are weekends, compared only with ",
                      "weekends."),
   ratio_label = "Entered correctly", ratio_cut = thresholds$sms$entry_rate_below,
@@ -544,7 +542,7 @@ brand_figure(p)
 
 ## Row
 
-::: {.card title="Each day (last 13 weeks)"}
+::: {.card title="Each day (last three months)"}
 
 ```{r sms-table}
 sms_rows |>
@@ -562,7 +560,11 @@ sms_rows |>
 ```{r idle-summary}
 #| include: false
 idle_rows <- scored$idle
-idle_latest <- idle_rows[idle_rows$day == reported_through$idle, ]
+idle_week <- method_window(idle_rows, reported_through$idle, "new_accounts",
+                           "idle_same_day", "new_accounts",
+                           baseline_days = thresholds$baseline_days)
+idle_extra <- extra_on_flagged(idle_rows, chart_from, "new_accounts")
+idle_flagged_n <- sum(idle_rows$fired[idle_rows$day >= chart_from] %in% TRUE)
 launch_latest <- since_launch[since_launch$date == through, ]
 
 idle_flag_days <- dplyr::filter(idle_rows, fired %in% TRUE)$day
@@ -570,52 +572,52 @@ idle_flag_days <- dplyr::filter(idle_rows, fired %in% TRUE)$day
 by_week <- accounts_by_week(since_launch)
 ```
 
+## Row {height="auto"}
+
+::: {.card title="How this method works"}
+When real users sign up for a CanadaLogin account, they are doing so to reach a public 
+service. Most go straight to it. On a typical day, only about 18% of new accounts don't.
+A bot making accounts in bulk leaves them idle. This method fires when **new accounts 
+are at least `r thresholds$idle$volume`x a typical day** and **at least
+`r percent(thresholds$idle$idle_share_at_least)` of them are idle on the day they were 
+made**.
+:::
+
 ## Row
 
 ### Column {.tabset}
 
 #### Detection
 
-##### Row {height="auto"}
-
-::: {.card title="How this method works"}
-Real users sign up to reach a service, so most go straight to it. On a typical
-day, only about 18% of new accounts don't. A bot making accounts in bulk leaves
-them idle. This method fires when **new accounts are at least
-`r thresholds$idle$volume` times a typical day** and **at least
-`r percent(thresholds$idle$idle_share_at_least)` of them are idle on the day
-they were made**.
-:::
-
 ##### Row {height="150px"}
 
 ::: {.valuebox color="primary"}
-New accounts, `r format_short_date(idle_latest$day)`
+New accounts, last 7 days
 
-`r comma(idle_latest$new_accounts)`
+`r comma(idle_week$volume)`
 
-`r fmt_multiple(idle_latest$multiple)` `r typical_day(idle_latest$day)`
+`r fmt_multiple(idle_week$multiple)` a typical week
 :::
 
 ::: {.valuebox color="info"}
-Idle on the day made, `r format_short_date(idle_latest$day)`
+Idle on the day made, last 7 days
 
-`r percent(idle_latest$ratio, accuracy = 1)`
+`r percent(idle_week$ratio, accuracy = 1)`
 
-Fires at `r percent(thresholds$idle$idle_share_at_least)` or more
+`r percent(idle_week$typical_ratio, accuracy = 1)` on a typical day
 :::
 
 ::: {.valuebox color="secondary"}
-Days flagged, last 13 weeks
+Extra accounts, last three months
 
-`r length(fired_days("idle"))`
+`r if (idle_extra == 0) "None" else nbsp(paste("About", comma(round(idle_extra, -3))))`
 
-`r days_flagged_line("idle")`
+More than usual, on `r idle_flagged_n` flagged `r if (idle_flagged_n == 1) "day" else "days"`
 :::
 
 ##### Row {height="560px"}
 
-::: {.card title="New accounts each day, and the share idle on the day made (last 13 weeks)"}
+::: {.card title="New accounts each day, and the share idle on the day made (last three months)"}
 
 ```{r idle-chart}
 #| fig-width: 13
@@ -628,7 +630,7 @@ Days flagged, last 13 weeks
 p <- method_figure(
   idle_rows,
   volume = "new_accounts", volume_label = "New accounts",
-  volume_note = glue("Fires at {thresholds$idle$volume} times a typical day or ",
+  volume_note = glue("Fires at {thresholds$idle$volume}x a typical day or ",
                      "more. Lighter bars are weekends, compared only with ",
                      "weekends."),
   ratio_label = "Idle on the day made",
@@ -643,7 +645,7 @@ brand_figure(p)
 
 ##### Row
 
-::: {.card title="Each day (last 13 weeks)"}
+::: {.card title="Each day (last three months)"}
 
 ```{r idle-table}
 idle_rows |>
@@ -778,7 +780,13 @@ account and never use it.
 ```{r errors-summary}
 #| include: false
 error_rows <- scored$errors
-errors_latest <- error_rows[error_rows$day == reported_through$errors, ]
+errors_week <- method_window(error_rows, reported_through$errors, "signature",
+                             "signature", "all_errors",
+                             baseline_days = thresholds$baseline_days,
+                             baseline = "typical")
+errors_extra <- extra_on_flagged(error_rows, chart_from, "signature",
+                                 baseline = "typical")
+errors_flagged_n <- sum(error_rows$fired[error_rows$day >= chart_from] %in% TRUE)
 ```
 
 ## Row {height="auto"}
@@ -787,8 +795,8 @@ errors_latest <- error_rows[error_rows$day == reported_through$errors, ]
 Four errors are rare on a normal day: invalid phone numbers, SMS limits, wrong
 codes and interrupted sign-ins. When a bot works through sign-up, they rise
 together. This method fires when **at least
-`r thresholds$errors$groups_at_least` of the four are each
-`r thresholds$errors$group_volume` times their typical day** and **together
+`r thresholds$errors$groups_at_least` of the 4 are each
+`r thresholds$errors$group_volume`x their typical day** and **together
 they are at least `r percent(thresholds$errors$share_at_least)` of all
 errors**. A bot that doesn't use a normal browser leaves no trace here.
 :::
@@ -796,32 +804,32 @@ errors**. A bot that doesn't use a normal browser leaves no trace here.
 ## Row {height="150px"}
 
 ::: {.valuebox color="primary"}
-Signature errors up, `r format_short_date(errors_latest$day)`
+Signature errors, last 7 days
 
-`r nbsp(glue("{errors_latest$groups_up} of 4"))`
+`r comma(errors_week$volume)`
 
-Fires at `r thresholds$errors$groups_at_least` or more
+`r fmt_multiple(errors_week$multiple)` a typical week
 :::
 
 ::: {.valuebox color="info"}
-Share of all errors, `r format_short_date(errors_latest$day)`
+Share of all errors, last 7 days
 
-`r percent(errors_latest$ratio, accuracy = 1)`
+`r percent(errors_week$ratio, accuracy = 1)`
 
-Fires at `r percent(thresholds$errors$share_at_least)` or more
+`r percent(errors_week$typical_ratio, accuracy = 1)` on a typical day
 :::
 
 ::: {.valuebox color="secondary"}
-Days flagged, last 13 weeks
+Extra signature errors, last three months
 
-`r length(fired_days("errors"))`
+`r if (errors_extra == 0) "None" else nbsp(paste("About", comma(round(errors_extra, -3))))`
 
-`r days_flagged_line("errors")`
+More than usual, on `r errors_flagged_n` flagged `r if (errors_flagged_n == 1) "day" else "days"`
 :::
 
 ## Row {height="560px"}
 
-::: {.card title="Error events each day, and the signature errors' share (last 13 weeks)"}
+::: {.card title="Error events each day, and the signature errors' share (last three months)"}
 
 ```{r errors-chart}
 #| fig-width: 13
@@ -879,11 +887,7 @@ error_top <- ggplot(error_stack, aes(day, events)) +
         legend.justification = "left", legend.key.size = unit(0.35, "cm"),
         legend.text = element_text(margin = margin(r = 14)),
         legend.margin = margin(0, 0, 0, 0)) +
-  labs(x = NULL, y = "Error events per day",
-       subtitle = glue("Markers: days the method fired, when at least ",
-                       "{thresholds$errors$groups_at_least} of the 4 coloured ",
-                       "errors were {thresholds$errors$group_volume} times ",
-                       "their typical day."))
+  labs(x = NULL, y = "Error events per day")
 
 p <- method_figure(
   error_rows,
@@ -900,7 +904,7 @@ brand_figure(p)
 
 ## Row
 
-::: {.card title="Each day (last 13 weeks)"}
+::: {.card title="Each day (last three months)"}
 
 ```{r errors-table}
 error_rows |>

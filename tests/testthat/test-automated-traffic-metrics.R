@@ -200,6 +200,35 @@ test_that("a day before a method could score is partial but not waiting", {
 test_that("extra SMS counts sends above a typical day on fired days only", {
   scored <- traffic$score_sms(traffic_sms(), traffic_thresholds)
   # The bot day sent 40,000 against a typical weekday of 2,000.
-  expect_equal(traffic$extra_sms(scored, as.Date("2026-09-01")), 38000)
-  expect_equal(traffic$extra_sms(scored, as.Date("2026-09-18")), 0)
+  expect_equal(traffic$extra_on_flagged(scored, as.Date("2026-09-01"), "sms_sent"),
+               38000)
+  expect_equal(traffic$extra_on_flagged(scored, as.Date("2026-09-18"), "sms_sent"),
+               0)
+})
+
+test_that("the SMS week compares with a typical week and a typical entry rate", {
+  scored <- traffic$score_sms(traffic_sms(), traffic_thresholds)
+  # Mon Sep 14 to Sun Sep 20 holds the bot day: 4 weekdays at 2,000, the bot
+  # day at 40,000, and a weekend at 700 a day.
+  week <- traffic$method_window(scored, as.Date("2026-09-20"), "sms_sent",
+                                "sms_success", "sms_sent")
+  expect_equal(week$volume, 4 * 2000 + 40000 + 2 * 700)
+  expect_equal(week$multiple, week$volume / (5 * 2000 + 2 * 700))
+  expect_equal(week$typical_ratio, 0.96, tolerance = 0.001)
+})
+
+test_that("an SMS is priced by the tier its month's volume falls in", {
+  tiers <- tibble::tibble(up_to = c(50000, 250000, 1000000, Inf),
+                          price = c(0.0456, 0.0453, 0.0428, 0.0402))
+  expect_equal(traffic$sms_price(c(1, 50000, 50001, 250000, 1e6, 1e6 + 1), tiers),
+               c(0.0456, 0.0456, 0.0453, 0.0453, 0.0428, 0.0402))
+})
+
+test_that("extra SMS on a flagged day are priced at that day's 30-day volume", {
+  tiers <- tibble::tibble(up_to = c(50000, 250000, 1000000, Inf),
+                          price = c(0.0456, 0.0453, 0.0428, 0.0402))
+  scored <- traffic$score_sms(traffic_sms(), traffic_thresholds)
+  # The 30 days to the bot day hold about 85,000 codes, so the second tier.
+  expect_equal(traffic$extra_sms_cost(scored, as.Date("2026-09-01"), tiers),
+               38000 * 0.0453)
 })

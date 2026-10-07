@@ -11,8 +11,9 @@ on CanadaLogin. Each page is one detection method:
 - **Error patterns**, from `google_analytics.error_events`: four rare errors
   rising together.
 
-The Overview has a calendar of the last 13 weeks, each day shaded by how many
-methods fired. A method fires only when volume is well above a typical day and
+The Overview has a calendar of the last six months, each day shaded by its
+strongest method against a typical day. Each method page covers the last three
+months. A method fires only when volume is well above a typical day and
 a ratio is unlike real use. The thresholds sit at the top of the qmd's setup
 chunk.
 

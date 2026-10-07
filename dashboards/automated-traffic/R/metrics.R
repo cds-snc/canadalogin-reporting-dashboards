@@ -294,14 +294,15 @@ score_errors <- function(errors, thresholds) {
   t <- thresholds$errors
   groups <- names(signature_labels)
   scored <- score_days(errors$day, \(i, history) {
-    baselines <- purrr::map_dbl(groups, \(g) {
-      max(stats::median(errors[[g]][history]), t$group_floor)
-    })
+    medians <- purrr::map_dbl(groups, \(g) stats::median(errors[[g]][history]))
+    baselines <- pmax(medians, t$group_floor)
     today <- purrr::map_dbl(groups, \(g) errors[[g]][i])
     groups_up <- sum(today / baselines >= t$group_volume)
     ratio <- sum(today) / errors$all_errors[i]
     tibble::tibble(
       baseline = sum(baselines), multiple = sum(today) / sum(baselines),
+      # Unfloored, for the value boxes' typical week; the floor is for firing.
+      typical = sum(medians),
       ratio = ratio, groups_up = groups_up,
       fired = groups_up >= t$groups_at_least & ratio >= t$share_at_least
     )
@@ -367,11 +368,51 @@ calendar_days <- function(scores, from, through) {
     dplyr::mutate(partial = reported < n_methods, waiting = day > caught_up)
 }
 
-# SMS codes sent above a typical day on the days the SMS method fired, from
-# `from` on. An estimate: the typical day is a median.
-extra_sms <- function(sms_scored, from) {
-  rows <- dplyr::filter(sms_scored, day >= from, fired %in% TRUE)
-  sum(pmax(rows$sms_sent - rows$baseline, 0))
+# A method's last `days` days ending `end`, against what is typical, for a
+# page's value boxes: `volume` summed, against the sum of each day's own
+# baseline (so a weekend counts as a weekend); and the ratio `numerator` over
+# `denominator`, against the median day's ratio over the baseline window
+# before, flagged days left out. A median, so a day of spillover from an
+# attack that did not fire itself does not drag the typical ratio down.
+method_window <- function(scored, end, volume, numerator, denominator,
+                          days = 7L, baseline_days = 28L,
+                          baseline = "baseline") {
+  now <- dplyr::filter(scored, day > end - days, day <= end)
+  before <- dplyr::filter(scored, day > end - days - baseline_days,
+                          day <= end - days, !(fired %in% TRUE))
+  list(
+    volume = sum(now[[volume]]),
+    multiple = sum(now[[volume]]) / sum(now[[baseline]]),
+    ratio = sum(now[[numerator]]) / sum(now[[denominator]]),
+    typical_ratio = stats::median(before[[numerator]] / before[[denominator]],
+                                  na.rm = TRUE)
+  )
+}
+
+# A method's `volume` above a typical day on the days it fired, from `from`
+# on: extra SMS codes, or extra accounts. An estimate: the typical day is a
+# median.
+extra_on_flagged <- function(scored, from, volume, baseline = "baseline") {
+  rows <- dplyr::filter(scored, day >= from, fired %in% TRUE)
+  sum(pmax(rows[[volume]] - rows[[baseline]], 0))
+}
+
+# The price of one SMS at a month's volume, from tiers of `up_to` and `price`.
+sms_price <- function(volume, tiers) {
+  tiers$price[findInterval(volume, tiers$up_to, left.open = TRUE) + 1L]
+}
+
+# What the extra SMS on flagged days cost. Each day's extra codes are priced
+# at the tier set by the codes sent in the 30 days ending that day.
+extra_sms_cost <- function(sms_scored, from, tiers) {
+  sms_scored |>
+    dplyr::mutate(month_volume = purrr::map_dbl(day, \(d) {
+      sum(sms_sent[day > d - 30L & day <= d])
+    })) |>
+    dplyr::filter(day >= from, fired %in% TRUE) |>
+    dplyr::summarise(cost = sum(pmax(sms_sent - baseline, 0) *
+                                  sms_price(month_volume, tiers))) |>
+    dplyr::pull(cost)
 }
 
 # Days flagged in the last seven, for the publishing workflow's Slack post.

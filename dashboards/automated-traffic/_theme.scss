@@ -21,20 +21,11 @@ $navbar-hl: #FFFFFF;
   background-image: linear-gradient(180deg, #3E4A57, #2B343D);
 }
 
-// Robot head before the navbar title: slate plate, amber eyes that glow.
+// The robot face emoji before the navbar title. An escape, so the file stays
+// plain ASCII; each platform draws it in its own emoji font.
 .navbar-brand-container .navbar-title::before {
-  content: "";
-  display: inline-block;
-  width: 0.95em;
-  height: 0.8em;
-  margin-right: 0.5em;
-  vertical-align: -0.05em;
-  border-radius: 0.15em;
-  background:
-    radial-gradient(circle at 30% 50%, $led 0 0.08em, transparent 0.09em),
-    radial-gradient(circle at 70% 50%, $led 0 0.08em, transparent 0.09em),
-    #1B2229;
-  box-shadow: 0 0 0 1px #6B7885, 0 0 6px rgba($led, 0.35);
+  content: "\1F916";
+  margin-right: 0.4em;
 }
 
 .navbar .nav-link.active {
