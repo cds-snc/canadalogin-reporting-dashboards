@@ -1,14 +1,8 @@
-#' Preflight data-source validation.
+#' Preflight data-source validation: prints a checklist and returns the
+#' result. A failed check raises a banner instead of stopping the render.
 #'
-#' Runs in the dashboard's setup chunk. Prints a checklist and returns the
-#' result. A failed check raises a banner instead of stopping the render. The
-#' banner and status writers are shared, in common/preflight.R.
-#'
-#' The worst failure here is a quiet one: a source goes empty, no method fires,
-#' and the calendar shows a calm quarter. Every check guards against that.
-#'
-#' Source common/setup.R and R/metrics.R first. Expects an open `con`, the
-#' `thresholds` list and the `known_bot_days` table from the setup chunk.
+#' The checks guard against a quiet failure: a source goes empty and the
+#' calendar shows a calm quarter. Needs R/metrics.R and an open `con`.
 
 # How far behind today each source may be. mfa_activity and the event stream
 # land yesterday's day by about 06:00 ET; GA is exported on a two-day lag.
@@ -109,9 +103,8 @@ run_preflight_safety_check <- function(con, thresholds, known_bot_days,
 
   # Check 3 - enough baseline ---------------------------------------------------
   #
-  # A day goes unscored when too many recent days fired, or a source is too new.
-  # Too new is expected, and the calendar marks it; a shortage on a day with a
-  # full window of history behind it is not.
+  # A source too new to score is expected; an unscored day with a full window
+  # of history behind it means too many recent days fired.
 
   thin <- purrr::imap(scored, \(rows, m) {
     rows |>
@@ -139,8 +132,7 @@ run_preflight_safety_check <- function(con, thresholds, known_bot_days,
   # Check 4 - known days still fire ----------------------------------------------
   #
   # Scored over full history, so a confirmed incident stays a regression test
-  # after it leaves the calendar. A threshold edit that stops one firing on an
-  # expected method fails here.
+  # after it leaves the calendar.
 
   expected <- known_bot_days |>
     tidyr::pivot_longer(-day, names_to = "method", values_to = "expected") |>

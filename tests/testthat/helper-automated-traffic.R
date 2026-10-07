@@ -1,6 +1,5 @@
-# Model a Friday render with one bot day, Sep 17, that every method catches.
-# The thresholds mirror the setup chunk's, so the fixture tests the rules as
-# calibrated; a test that needs other numbers changes its own copy.
+# A Friday render with one bot day, Sep 17, that every method catches. The
+# thresholds mirror the setup chunk's; a test needing others copies them.
 
 traffic_today <- as.Date("2026-10-09")
 traffic_bot_day <- as.Date("2026-09-17")

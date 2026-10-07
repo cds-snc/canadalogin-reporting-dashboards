@@ -98,9 +98,8 @@ public_applications <- function(con) {
   apps[!is.na(apps) & !is_internal_rp(con, apps)]
 }
 
-# Accounts by the day each was first seen and the day it first signed in to a
-# public partner service (NA if never), counted per pair of days. Everything
-# about accounts comes from this one read.
+# Accounts counted per pair of days: first seen, and first signed in to a
+# public partner service (NA if never). Everything about accounts reads this.
 account_pairs <- read_once(\(con) {
   public_apps <- public_applications(con)
 
@@ -156,9 +155,8 @@ account_days <- function(pairs, through) {
     dplyr::arrange(day)
 }
 
-# Accounts since launch as of each day, point in time: an account leaves the
-# idle count on the day it first signs in to a service, and no earlier day is
-# restated. One row per day.
+# Accounts since launch as of each day. Point in time: an account leaves the
+# idle count the day it first signs in to a service; no earlier day changes.
 accounts_since_launch <- function(pairs, through) {
   pairs <- dplyr::filter(pairs, !is.na(first_day), first_day <= through)
   days <- tibble::tibble(date = seq(min(pairs$first_day), through, by = "day"))
@@ -188,10 +186,8 @@ accounts_since_launch <- function(pairs, through) {
                   idle_share, new_accounts)
 }
 
-# Accounts since launch at the end of each Monday-to-Sunday week, the weeks
-# Sign-In Activity reports in. The newest week may be in progress: `date` is
-# then the last day it covers, earlier than `week_end`. The running totals
-# are as of that day; `new_accounts` is the week's sum.
+# Accounts since launch per Monday-to-Sunday week, as Sign-In Activity. Totals
+# are as of `date`, the week's last day so far; `new_accounts` is the week's sum.
 accounts_by_week <- function(since_launch) {
   since_launch |>
     dplyr::mutate(week_end = date - (as.integer(format(date, "%u")) - 1L) + 6L) |>
@@ -228,11 +224,10 @@ day_type <- function(day) {
   ifelse(as.integer(format(day, "%u")) >= 6L, "weekend", "weekday")
 }
 
-# Scores a method day by day, oldest first, because a day's baseline leaves
-# out the earlier days the method fired on. `score_one(i, history)` scores day
-# i against the row indices of its baseline days. A day without enough
-# baseline days is not scored: `fired` is NA, and the calendar treats the
-# method as not reporting that day.
+# Scores a method day by day, oldest first, since a day's baseline leaves out
+# earlier days that fired. `score_one(i, history)` scores day i against the
+# row indices of its baseline days. A day with too few baseline days is not
+# scored: `fired` is NA.
 score_days <- function(day, score_one, thresholds) {
   type <- day_type(day)
   need <- thresholds$baseline_min_days[type]
@@ -287,9 +282,7 @@ score_idle <- function(accounts, thresholds) {
 }
 
 # Error patterns: several signature errors up together, each against its own
-# baseline, and making up much of the day's errors. A group's baseline has a
-# floor, so a jump from 2 to 9 is not "4.5 times". `multiple` is all the
-# signature errors against the sum of the group baselines.
+# baseline, floored so a jump from 2 to 9 is not 4.5x.
 score_errors <- function(errors, thresholds) {
   t <- thresholds$errors
   groups <- names(signature_labels)
@@ -316,15 +309,14 @@ score_errors <- function(errors, thresholds) {
 # Every method's score on every day it reported, one row per method per day.
 method_scores <- function(scored) {
   purrr::imap(scored, \(rows, method) {
-    dplyr::transmute(rows, method = method, day, multiple, ratio, fired)
+    dplyr::transmute(rows, method = method, day, multiple, fired)
   }) |>
     dplyr::bind_rows()
 }
 
 # Calendar --------------------------------------------------------------------
 
-# The Overview calendar covers six months; each method page's charts and
-# tables a rolling quarter, since six months of daily bars is too dense.
+# The Overview calendar covers six months; each method page three months.
 calendar_weeks <- 26L
 chart_weeks <- 13L
 
@@ -334,23 +326,18 @@ calendar_start <- function(through, weeks = calendar_weeks) {
   through - (as.integer(format(through, "%u")) - 1L) - 7L * (weeks - 1L)
 }
 
-# One row per day from `from` to `through`: how many methods fired, whether
-# every method reported, and the strongest volume among the methods that
-# fired (NA when none did). `peak` is the strongest volume among every method
-# that reported, fired or not, for shading ordinary days too. `waiting` is
-# narrower than `partial`: a method has not caught up to the day yet. A day
-# before a method could score at all is partial but not waiting.
+# One row per calendar day: methods fired, `strongest` (methods that fired)
+# and `peak` (every method that scored), and `waiting` when a method has not
+# caught up to the day yet.
 calendar_days <- function(scores, from, through) {
-  n_methods <- nrow(methods)
   caught_up <- min(purrr::map_dbl(methods$method, \(m) {
     max(scores$day[scores$method == m & !is.na(scores$fired)], -Inf)
   }))
   tibble::tibble(day = seq(from, through, by = "day")) |>
     dplyr::left_join(scores, by = "day") |>
     dplyr::group_by(day) |>
-    # n_fired, not fired, which the later lines still read per method.
+    # Named n_fired, so `fired` stays per method for the lines below it.
     dplyr::summarise(
-      reported = sum(!is.na(fired)),
       strongest = if (any(fired %in% TRUE)) {
         max(multiple[fired %in% TRUE])
       } else {
@@ -365,15 +352,13 @@ calendar_days <- function(scores, from, through) {
       n_fired = sum(fired, na.rm = TRUE),
       .groups = "drop"
     ) |>
-    dplyr::mutate(partial = reported < n_methods, waiting = day > caught_up)
+    dplyr::mutate(waiting = day > caught_up)
 }
 
-# A method's last `days` days ending `end`, against what is typical, for a
-# page's value boxes: `volume` summed, against the sum of each day's own
-# baseline (so a weekend counts as a weekend); and the ratio `numerator` over
-# `denominator`, against the median day's ratio over the baseline window
-# before, flagged days left out. A median, so a day of spillover from an
-# attack that did not fire itself does not drag the typical ratio down.
+# A method's last `days` days ending `end`, for its value boxes: `volume`
+# against the sum of each day's own baseline, and `numerator` over
+# `denominator` against the median day over the window before, flagged days
+# left out. The median keeps unflagged attack spillover from moving it.
 method_window <- function(scored, end, volume, numerator, denominator,
                           days = 7L, baseline_days = 28L,
                           baseline = "baseline") {
@@ -389,9 +374,7 @@ method_window <- function(scored, end, volume, numerator, denominator,
   )
 }
 
-# A method's `volume` above a typical day on the days it fired, from `from`
-# on: extra SMS codes, or extra accounts. An estimate: the typical day is a
-# median.
+# A method's `volume` above a typical day on the days it fired, from `from` on.
 extra_on_flagged <- function(scored, from, volume, baseline = "baseline") {
   rows <- dplyr::filter(scored, day >= from, fired %in% TRUE)
   sum(pmax(rows[[volume]] - rows[[baseline]], 0))
@@ -416,7 +399,6 @@ extra_sms_cost <- function(sms_scored, from, tiers) {
 }
 
 # Days flagged in the last seven, for the publishing workflow's Slack post.
-# Written beside preflight-status.json; it reads this rather than the page.
 write_traffic_summary <- function(calendar, through,
                                   path = "traffic-summary.json") {
   recent <- dplyr::filter(calendar, day > through - 7L, n_fired > 0)
@@ -461,4 +443,14 @@ fmt_multiple <- function(x) {
 }
 
 # Spaces to non-breaking, so a value box value stays one Str and keeps its class.
-nbsp <- function(x) gsub(" ", " ", x, fixed = TRUE)
+nbsp <- function(x) gsub(" ", "\u00a0", x, fixed = TRUE)
+
+# "About 15,000", rounded to the thousand, for a value box; "None" for zero.
+fmt_about <- function(x) {
+  if (x == 0) "None" else nbsp(paste("About", scales::comma(round(x, -3))))
+}
+
+# "More than usual, on 3 flagged days", under an extra-volume value box.
+extra_line <- function(n) {
+  glue::glue("More than usual, on {n} flagged {if (n == 1) 'day' else 'days'}")
+}

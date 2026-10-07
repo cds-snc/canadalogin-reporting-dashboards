@@ -14,10 +14,8 @@ params:
 ```{r setup}
 # Thresholds ------------------------------------------------------------------
 #
-# Every number that decides whether a method fires. Calibrated on 2026-10-07
-# against the confirmed bot days below. A change here changes what the
-# dashboard flags, so it goes through a PR; the known-days-fire preflight
-# check fails if an edit stops a confirmed day firing.
+# Every number that decides whether a method fires. The known-days-fire
+# preflight check fails if an edit stops a confirmed day firing.
 thresholds <- list(
   # A day is compared with the median of the same kind of day (weekday or
   # weekend) over this many days before it, leaving out days that fired.
@@ -49,9 +47,8 @@ known_bot_days <- tibble::tribble(
   as.Date("2026-09-30"), TRUE, TRUE,  FALSE
 )
 
-# What one SMS costs, in dollars, by how many were sent in a month: the
-# price drops as volume rises. `up_to` is the top of each tier. A flagged
-# day's extra codes are priced at the tier its trailing 30 days fall in.
+# What one SMS costs, in dollars, by codes sent in the trailing 30 days.
+# `up_to` is the top of each tier.
 sms_price_tiers <- tibble::tribble(
   ~up_to,    ~price,
   50000,     0.0456,
@@ -67,8 +64,6 @@ source("../../common/setup.R")
 
 source("R/metrics.R")
 source("R/preflight.R")
-
-library(htmltools)
 
 con <- connect_athena()
 
@@ -100,8 +95,6 @@ write_traffic_summary(calendar, through)
 # The newest day each method reported, which differs: GA runs a day behind.
 reported_through <- purrr::map(scored, \(rows) max(rows$day[!is.na(rows$fired)]))
 
-through_label <- format_long_date(through)
-
 page_header <- "page-header.html"
 
 write_preflight_banner(preflight, page_header)
@@ -110,7 +103,7 @@ cat(
   c(
     '<div class="page-strip">',
     # "Most": GA runs a day behind the rest; the calendar's outline shows it.
-    glue("  <p><strong>Most data through {through_label}.</strong> ",
+    glue("  <p><strong>Most data through {format_long_date(through)}.</strong> ",
          "Internal to Enterprise Digital Credentials, not for public ",
          "consumption.</p>"),
     "</div>"
@@ -124,11 +117,8 @@ cat(
 # what fired; slate grey for the rest.
 robot <- list(accent = "#C77700", quiet = "#BFC6CD")
 
-# The calendar shades every day by its strongest method's volume against a
-# typical day, so ordinary variation shows. A log scale with fixed limits, so
-# a colour means the same every week: greys up to 2x, amber from 2.5x, brown
-# at the top. It darkens as it climbs, so it reads in greyscale. A day no
-# method could score yet is blank.
+# Calendar shading: a fixed log scale, so a colour means the same every week,
+# darkening as it climbs so it reads in greyscale.
 strength_limits <- c(0.5, 50)
 strength_breaks <- c(0.5, 1, 2, 5, 10, 20, 50)
 strength_stops <- c(0.5, 1, 2, 2.5, 10, 50)
@@ -161,13 +151,10 @@ luminance <- function(hex) {
   as.vector(c(0.2126, 0.7152, 0.0722) %*% rgb)
 }
 
-weekday_names <- c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-
-# GitHub-style grid: a column per week, Monday at the top, shaded by the
-# strongest method on the day. A flagged day carries its Strongest figure,
-# the same as in the table below. Days before launch are left blank.
+# GitHub-style grid, a column per week with Monday on top. A flagged day is
+# labelled with its Strongest figure; days before launch are blank.
 calendar_plot <- function(cal) {
-  # The fill each flagged day gets, to pick a label colour that shows on it.
+  # The fill a day gets, to pick a label colour that shows on it.
   fill_of <- scales::gradient_n_pal(strength_ramp, strength_values)
   log_position <- function(x) {
     clamped <- pmin(pmax(x, strength_limits[1]), strength_limits[2])
@@ -257,11 +244,9 @@ calendar_plot <- function(cal) {
 }
 
 # Two panels on one date axis: volume, with days that fired highlighted, and
-# the ratio against its threshold. The threshold line is drawn only below,
-# where it is a single line rather than a mark per day.
+# the ratio against its threshold.
 method_figure <- function(rows, volume, volume_label, volume_note,
-                          ratio_label, ratio_cut, ratio_cut_label,
-                          ratio_labels = label_percent(), top = NULL) {
+                          ratio_label, ratio_cut, ratio_cut_label, top = NULL) {
   rows <- rows |>
     dplyr::filter(day >= chart_from) |>
     dplyr::mutate(
@@ -304,7 +289,7 @@ method_figure <- function(rows, volume, volume_label, volume_note,
     scale_colour_manual(values = c(`TRUE` = robot$accent, `FALSE` = "grey55"),
                         guide = "none") +
     scale_size_manual(values = c(`TRUE` = 2.2, `FALSE` = 0.8), guide = "none") +
-    scale_y_continuous(labels = ratio_labels, limits = c(0, 1)) +
+    scale_y_continuous(labels = label_percent(), limits = c(0, 1)) +
     scale_x_date(limits = limits, expand = c(0, 0),
                  breaks = rev(seq(through, chart_from, by = "-2 weeks")),
                  date_labels = "%b %d") +
@@ -317,7 +302,7 @@ method_figure <- function(rows, volume, volume_label, volume_note,
 }
 
 # The quarter's daily numbers, newest first.
-daily_table <- function(rows, columns, labels, decimals) {
+daily_table <- function(rows, columns, labels) {
   rows |>
     dplyr::filter(day >= chart_from) |>
     dplyr::arrange(dplyr::desc(day)) |>
@@ -330,7 +315,7 @@ daily_table <- function(rows, columns, labels, decimals) {
     gt() |>
     cols_align("right", multiple) |>
     fmt_number(dplyr::all_of(columns), decimals = 0) |>
-    fmt_percent(ratio, decimals = decimals) |>
+    fmt_percent(ratio, decimals = 0) |>
     sub_missing(missing_text = "-") |>
     cols_label(.list = c(list(day = "Day"), labels,
                          list(multiple = "vs typical day"))) |>
@@ -343,8 +328,7 @@ daily_table <- function(rows, columns, labels, decimals) {
                 data_row.padding = px(3), table.border.top.style = "none")
 }
 
-# Methods with no score at the start of the calendar: a source too new to
-# have a baseline. Named in the note under the calendar.
+# Methods with no score at the start of the calendar, for the note under it.
 late_starts <- purrr::imap(scored, \(rows, m) {
   first <- min(rows$day[!is.na(rows$fired)])
   if (first > calendar_from) first else NULL
@@ -357,9 +341,8 @@ late_starts <- purrr::imap(scored, \(rows, m) {
 #| include: false
 flagged <- dplyr::filter(calendar, n_fired > 0) |> dplyr::arrange(dplyr::desc(day))
 
-# Why some squares have a dotted outline: a source too new to compare with,
-# or one that has not caught up with the newest days.
-# Methods that start on the same day share a sentence.
+# The note under the calendar. Methods that start on the same day share a
+# sentence.
 starts <- tibble::tibble(method = names(late_starts),
                          day = do.call(c, unname(late_starts)))
 calendar_note <- c(
@@ -400,12 +383,11 @@ rather than people. It is internal to Enterprise Digital Credentials and the
 link is unlisted. For anything that leaves EDCP, please reach out to the
 [Data and Research team](https://gcdigital.slack.com/archives/C0A6S9F7KV4).
 
-The dashboard looks for automated traffic **three ways**, each on its own page:
-[SMS codes](#sms-codes), [Idle accounts](#idle-accounts) and
-[Error patterns](#error-patterns). Each page explains how its method works and
-when it fires. The calendar below shades every day by its strongest method and
-labels the days a method flagged. As we find more methods, we will add them to the
-dashboard.
+It uses **three methods**, each on its own page: [SMS codes](#sms-codes),
+[Idle accounts](#idle-accounts) and [Error patterns](#error-patterns). Each
+page explains how its method works and when it fires. The calendar below
+shades every day by its strongest method and labels the days a method flagged.
+As we find more methods, we will add them here.
 
 **A flag is a suspicion, not a finding.** It says the day looked different from typical 
 usage. Further investigation is needed to determine if the flagged activity is truly
@@ -438,7 +420,6 @@ A flagged day shows its *strongest* method from the table below, rounded. `r cal
 if (nrow(flagged) == 0) {
   cat("No method fired in the last six months.")
 } else {
-  # The same strongest the calendar is shaded by.
   flagged |>
     dplyr::mutate(
       day_label = paste(format(day, "%a"), format_short_date(day)),
@@ -509,7 +490,7 @@ Codes entered, last 7 days
 ::: {.valuebox color="secondary"}
 Extra SMS codes, last three months
 
-`r if (sms_extra == 0) "None" else nbsp(paste("About", comma(round(sms_extra, -3))))`
+`r fmt_about(sms_extra)`
 
 Costing about `r dollar(round(sms_extra_cost, -2))`
 :::
@@ -522,10 +503,9 @@ Costing about `r dollar(round(sms_extra_cost, -2))`
 #| fig-width: 13
 #| fig-height: 4.8
 #| fig-alt: |
-#|   Two charts on a shared date axis. Above, SMS codes sent each day; bars
-#|   that fired are drawn in the accent colour. Below, the share of codes
-#|   entered correctly each day,
-#|   near 96 percent on most days, with a dashed line at 50 percent.
+#|   Two charts on a shared date axis. Above, SMS codes sent each day, with
+#|   flagged days in amber. Below, the share of codes entered each day, near
+#|   96 percent on most days, with a dashed line at 50 percent.
 p <- method_figure(
   sms_rows,
   volume = "sms_sent", volume_label = "SMS codes sent",
@@ -548,8 +528,7 @@ brand_figure(p)
 sms_rows |>
   dplyr::select(day, sms_sent, sms_success, multiple, ratio, fired) |>
   daily_table(c("sms_sent", "sms_success"),
-              list(sms_sent = "SMS sent", sms_success = "SMS entered"),
-              decimals = 0) |>
+              list(sms_sent = "SMS sent", sms_success = "SMS entered")) |>
   cols_label(ratio = "Entered")
 ```
 
@@ -564,7 +543,6 @@ idle_week <- method_window(idle_rows, reported_through$idle, "new_accounts",
                            "idle_same_day", "new_accounts",
                            baseline_days = thresholds$baseline_days)
 idle_extra <- extra_on_flagged(idle_rows, chart_from, "new_accounts")
-idle_flagged_n <- sum(idle_rows$fired[idle_rows$day >= chart_from] %in% TRUE)
 launch_latest <- since_launch[since_launch$date == through, ]
 
 idle_flag_days <- dplyr::filter(idle_rows, fired %in% TRUE)$day
@@ -577,7 +555,7 @@ by_week <- accounts_by_week(since_launch)
 ::: {.card title="How this method works"}
 When real users sign up for a CanadaLogin account, they are doing so to reach a public 
 service. Most go straight to it. On a typical day, only about 18% of new accounts don't.
-A bot making accounts in bulk leaves them idle. This method fires when **new accounts 
+Often, a bot making accounts in bulk leaves them idle. This method fires when **new accounts 
 are at least `r thresholds$idle$volume`x a typical day** and **at least
 `r percent(thresholds$idle$idle_share_at_least)` of them are idle on the day they were 
 made**.
@@ -610,9 +588,9 @@ Idle on the day made, last 7 days
 ::: {.valuebox color="secondary"}
 Extra accounts, last three months
 
-`r if (idle_extra == 0) "None" else nbsp(paste("About", comma(round(idle_extra, -3))))`
+`r fmt_about(idle_extra)`
 
-More than usual, on `r idle_flagged_n` flagged `r if (idle_flagged_n == 1) "day" else "days"`
+`r extra_line(sum(idle_flag_days >= chart_from))`
 :::
 
 ##### Row {height="560px"}
@@ -623,10 +601,9 @@ More than usual, on `r idle_flagged_n` flagged `r if (idle_flagged_n == 1) "day"
 #| fig-width: 13
 #| fig-height: 4.8
 #| fig-alt: |
-#|   Two charts on a shared date axis. Above, new accounts each day; bars that
-#|   fired are drawn in the accent colour. Below, the share of new accounts
-#|   idle on the day they
-#|   were made, with a dashed line at 50 percent.
+#|   Two charts on a shared date axis. Above, new accounts each day, with
+#|   flagged days in amber. Below, the share of new accounts idle on the day
+#|   they were made, with a dashed line at 50 percent.
 p <- method_figure(
   idle_rows,
   volume = "new_accounts", volume_label = "New accounts",
@@ -652,7 +629,7 @@ idle_rows |>
   dplyr::select(day, new_accounts, idle_same_day, multiple, ratio, fired) |>
   daily_table(c("new_accounts", "idle_same_day"),
               list(new_accounts = "New accounts",
-                   idle_same_day = "Idle on the day made"), decimals = 0) |>
+                   idle_same_day = "Idle on the day made")) |>
   cols_label(ratio = "Share idle")
 ```
 
@@ -695,14 +672,12 @@ At least one partner service
 #| fig-height: 4.6
 #| fig-alt: |
 #|   Line chart of CanadaLogin accounts since the April 2026 launch, one point
-#|   per week, for all accounts and for accounts that have signed in to a
-#|   partner service. The lines rise together until mid-September, then all
-#|   accounts pull away. Ticks along the bottom mark the days flagged on the
-#|   Detection tab.
-# Each week's point sits on its last day so far, so an unfinished week does
-# not plot ahead of the data.
+#|   per week: all accounts, and accounts that have signed in to a partner
+#|   service. The gap between the lines is idle accounts. Ticks along the
+#|   bottom mark days flagged on the Detection tab.
+# Each week's point sits on its last day so far (`date`, not `week_end`), so
+# an unfinished week does not plot ahead of the data.
 weekly <- by_week |>
-  dplyr::mutate(week_end = date) |>
   tidyr::pivot_longer(c(all_accounts, signed_in_to_service),
                       names_to = "measure", values_to = "accounts")
 
@@ -710,9 +685,9 @@ line_labels <- c(all_accounts = "All accounts",
                  signed_in_to_service = "Signed in to a service")
 line_colours <- c(all_accounts = robot$accent, signed_in_to_service = ink)
 
-ends <- dplyr::filter(weekly, week_end == max(week_end))
+ends <- dplyr::filter(weekly, date == max(date))
 
-p <- ggplot(weekly, aes(week_end, accounts, colour = measure)) +
+p <- ggplot(weekly, aes(date, accounts, colour = measure)) +
   geom_segment(data = tibble::tibble(day = idle_flag_days),
                aes(x = day, xend = day, y = 0, yend = max(weekly$accounts) * 0.04),
                inherit.aes = FALSE, colour = "grey35", linewidth = 0.6) +
@@ -728,7 +703,7 @@ p <- ggplot(weekly, aes(week_end, accounts, colour = measure)) +
   scale_y_continuous(labels = label_comma(), limits = c(0, NA),
                      expand = expansion(mult = c(0, 0.06))) +
   # Breaks stop at the data; the right padding is room for the end labels.
-  scale_x_date(breaks = rev(seq(through, min(weekly$week_end), by = "-4 weeks")),
+  scale_x_date(breaks = rev(seq(through, min(weekly$date), by = "-4 weeks")),
                date_labels = "%b %d", expand = expansion(mult = c(0.02, 0.32))) +
   theme_cds() +
   theme(panel.grid.minor = element_blank()) +
@@ -786,7 +761,6 @@ errors_week <- method_window(error_rows, reported_through$errors, "signature",
                              baseline = "typical")
 errors_extra <- extra_on_flagged(error_rows, chart_from, "signature",
                                  baseline = "typical")
-errors_flagged_n <- sum(error_rows$fired[error_rows$day >= chart_from] %in% TRUE)
 ```
 
 ## Row {height="auto"}
@@ -822,9 +796,9 @@ Share of all errors, last 7 days
 ::: {.valuebox color="secondary"}
 Extra signature errors, last three months
 
-`r if (errors_extra == 0) "None" else nbsp(paste("About", comma(round(errors_extra, -3))))`
+`r fmt_about(errors_extra)`
 
-More than usual, on `r errors_flagged_n` flagged `r if (errors_flagged_n == 1) "day" else "days"`
+`r extra_line(sum(error_rows$fired[error_rows$day >= chart_from] %in% TRUE))`
 :::
 
 ## Row {height="560px"}
@@ -836,15 +810,11 @@ More than usual, on `r errors_flagged_n` flagged `r if (errors_flagged_n == 1) "
 #| fig-height: 4.8
 #| fig-alt: |
 #|   Two charts on a shared date axis. Above, stacked bars of error events
-#|   each day, the four signature errors in colour and all other errors in
-#|   grey; most days are mostly grey, and on September 17 and 24 the
-#|   signature errors make up most of a large spike. A small marker sits above
-#|   each day the method fired. Below, the signature errors' share of all
-#|   error events each day, with a dashed line at 30 percent.
-# Every error each day, signature errors in colour, as in Signal Check
-# edition 8. Brand red, blue, forest and green, not orange: amber here means
-# "fired".
-# Each signature label over its error codes, on a second line.
+#|   each day, the four signature errors in colour and all others in grey,
+#|   with a marker above each flagged day. Below, the signature errors' share
+#|   of all errors each day, with a dashed line at 30 percent.
+# Signature errors in brand colours other than orange, since amber means
+# "fired". Each legend label has its error codes on a second line.
 group_codes <- purrr::map_chr(names(signature_labels), \(g) {
   paste(names(signature_groups)[signature_groups == g], collapse = ", ")
 })
@@ -911,8 +881,7 @@ error_rows |>
   dplyr::select(day, dplyr::all_of(names(signature_labels)), all_errors,
                 multiple, ratio, fired) |>
   daily_table(c(names(signature_labels), "all_errors"),
-              c(as.list(signature_labels), list(all_errors = "All errors")),
-              decimals = 0) |>
+              c(as.list(signature_labels), list(all_errors = "All errors"))) |>
   cols_label(ratio = "Signature share")
 ```
 

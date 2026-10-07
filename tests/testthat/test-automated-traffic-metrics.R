@@ -31,10 +31,8 @@ test_that("weekends are compared only with weekends", {
 })
 
 test_that("a day that fired is left out of later baselines", {
-  # Every Monday, Wednesday and Friday for four weeks at 3.5x: if each joined
-  # the baseline, they would soon be most of it, the median would climb, and
-  # the later ones would stop firing. The lower minimum keeps the remaining
-  # weekdays enough to score against.
+  # Three days a week at 3.5x for four weeks: if fired days joined the
+  # baseline, its median would climb and the later ones would stop firing.
   span <- seq(as.Date("2026-08-17"), as.Date("2026-09-11"), by = "day")
   bot_days <- span[format(span, "%u") %in% c("1", "3", "5")]
   sms <- traffic_sms(bot_days = as.Date(NA)) |>
@@ -159,7 +157,7 @@ test_that("the method charts start on a Monday, 13 weeks back", {
   expect_identical(start, as.Date("2026-07-13"))
 })
 
-test_that("the calendar counts methods, marks partial days, and takes the strongest", {
+test_that("the calendar counts methods, marks waiting days, takes the strongest", {
   scores <- tibble::tribble(
     ~method,  ~day,                  ~multiple, ~ratio, ~fired,
     "sms",    as.Date("2026-09-17"), 20,        0.1,    TRUE,
@@ -172,16 +170,15 @@ test_that("the calendar counts methods, marks partial days, and takes the strong
   cal <- traffic$calendar_days(scores, as.Date("2026-09-17"),
                                as.Date("2026-09-18"))
   expect_equal(cal$n_fired, c(3, 0))
-  expect_identical(cal$partial, c(FALSE, TRUE))
   # Error patterns last reported on the 17th, so the 18th waits on it.
   expect_identical(cal$waiting, c(FALSE, TRUE))
   # Only methods that fired count: 50x idle accounts on the 18th did not.
   expect_equal(cal$strongest, c(20, NA))
-  # The calendar shades by every method that reported, fired or not.
+  # Peak counts every method that scored, fired or not.
   expect_equal(cal$peak, c(20, 50))
 })
 
-test_that("a day before a method could score is partial but not waiting", {
+test_that("a day before a method could score is not waiting", {
   scores <- tibble::tribble(
     ~method,  ~day,                  ~multiple, ~ratio, ~fired,
     "sms",    as.Date("2026-07-01"), 1,         0.95,   FALSE,
@@ -193,7 +190,6 @@ test_that("a day before a method could score is partial but not waiting", {
   )
   cal <- traffic$calendar_days(scores, as.Date("2026-07-01"),
                                as.Date("2026-07-02"))
-  expect_identical(cal$partial, c(TRUE, FALSE))
   expect_identical(cal$waiting, c(FALSE, FALSE))
 })
 
@@ -228,7 +224,7 @@ test_that("extra SMS on a flagged day are priced at that day's 30-day volume", {
   tiers <- tibble::tibble(up_to = c(50000, 250000, 1000000, Inf),
                           price = c(0.0456, 0.0453, 0.0428, 0.0402))
   scored <- traffic$score_sms(traffic_sms(), traffic_thresholds)
-  # The 30 days to the bot day hold about 85,000 codes, so the second tier.
+  # The 30 days to the bot day hold over 50,000 codes: the second tier.
   expect_equal(traffic$extra_sms_cost(scored, as.Date("2026-09-01"), tiers),
                38000 * 0.0453)
 })
