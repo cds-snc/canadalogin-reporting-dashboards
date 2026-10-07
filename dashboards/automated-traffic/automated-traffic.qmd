@@ -362,28 +362,6 @@ late_starts <- purrr::imap(scored, \(rows, m) {
 ```{r overview-summary}
 #| include: false
 flagged <- dplyr::filter(calendar, n_fired > 0) |> dplyr::arrange(dplyr::desc(day))
-all_three <- sum(calendar$n_fired == nrow(methods))
-latest_flag <- flagged[1, ]
-
-latest_value <- if (nrow(flagged) == 0) {
-  "None"
-} else {
-  nbsp(format_short_date(latest_flag$day))
-}
-latest_line <- if (nrow(flagged) == 0) {
-  "No method fired in the last six months"
-} else {
-  glue("{latest_flag$n_fired} of {nrow(methods)}: ",
-       "{glue_collapse(method_label(latest_flag$methods_fired[[1]]), sep = ', ')}")
-}
-
-quiet_days <- if (nrow(flagged) == 0) NA else as.integer(through - latest_flag$day)
-quiet_value <- if (is.na(quiet_days)) "None" else comma(quiet_days)
-quiet_line <- if (is.na(quiet_days)) {
-  "No method fired in the last six months"
-} else {
-  glue("Through {format_short_date(through)}")
-}
 
 # Why some squares have a dotted outline: a source too new to compare with,
 # or one that has not caught up with the newest days.
@@ -428,73 +406,21 @@ rather than people. It is internal to Enterprise Digital Credentials and the
 link is unlisted. For anything that leaves EDCP, please reach out to the
 [Data and Research team](https://gcdigital.slack.com/archives/C0A6S9F7KV4).
 
-**A red banner at the top of the page means a check failed at render time.**
-Do not quote anything until it clears. One check makes sure the confirmed bot
-days of September 17, 24 and 30 are still found, so a change to the rules
-cannot quietly blind the dashboard.
+The dashboard looks for automated traffic **three ways**, each on its own page:
+[SMS codes](#sms-codes), [Idle accounts](#idle-accounts) and
+[Error patterns](#error-patterns). Each page explains how its method works and
+when it fires. The calendar below shades every day by its strongest method and
+labels the days a method flagged.
 
-### Three methods, three kinds of trail
+**A flag is a suspicion, not a finding.** It says the day looked different from typical 
+usage. Further investigation is needed to determine if the flagged activity is truly
+automated.
 
-Each method watches one source and compares every day with a typical day:
-the median of the same kind of day (weekday or weekend) over the 28 days
-before it, leaving out days that were already flagged. **A method fires only
-when two things happen together**: volume well above a typical day, *and* a
-ratio that real people do not produce. Volume alone is not enough. A new
-service launching brings a surge of real users, and they enter their codes and
-reach their service.
-
-- **SMS codes** fires when far more codes are sent than usual and few are
-  entered. Real users enter about 96% of the codes they are sent.
-- **Idle accounts** fires when far more accounts are made than usual and most
-  never reach a partner service that day. Real users go straight to the service
-  they came for.
-- **Error patterns** fires when several rare errors spike together: invalid
-  phone numbers, SMS limits, wrong codes and interrupted sign-ins.
-
-The methods catch different bots. A bot that never loads a normal browser
-leaves no trace in Google Analytics, so Error patterns misses it, as on
-September 30. So the calendar shades every day by its strongest method,
-which shows ordinary day-to-day variation too, and labels the flagged days;
-the table under it says how many methods agreed.
-
-### What a flag means
-
-**A flag is a suspicion, not a finding.** It says the day looked unlike real
-use on that method's measures. More methods agreeing makes it more likely.
-Days are in Toronto time. The numbers that decide when a method fires are
-listed at the top of each method page.
-
-:::
-
-## Row {height="150px"}
-
-::: {.valuebox color="primary"}
-Days flagged, last six months
-
-`r nrow(flagged)`
-
-`r all_three` with all three methods
-:::
-
-::: {.valuebox color="info"}
-Most recent flagged day
-
-`r latest_value`
-
-`r latest_line`
-:::
-
-::: {.valuebox color="secondary"}
-Days since suspected automated traffic
-
-`r quiet_value`
-
-`r quiet_line`
 :::
 
 ## Row {height="auto"}
 
-::: {.card title="Days flagged, by the strongest method"}
+::: {.card title="Days flagged"}
 
 ```{r calendar}
 #| fig-width: 11
@@ -504,10 +430,7 @@ brand_figure(calendar_plot(calendar), height = 0.12)
 ```
 
 ::: {.figure-note}
-Each square is a day in Toronto time, shaded by its strongest method against a
-typical day. Days no method flagged stay grey, however high their volume, so
-amber and brown always mean a method fired. A flagged day shows its *Strongest*
-figure from the table below, rounded. `r calendar_note`
+A flagged day shows its *Strongest* method from the table below, rounded. `r calendar_note`
 :::
 
 :::
@@ -560,14 +483,11 @@ sms_extra <- extra_sms(sms_rows, chart_from)
 ## Row {height="auto"}
 
 ::: {.card title="How this method works"}
-CanadaLogin texts a one-time code to a phone number, and the user types it back.
-A script that floods the sign-up flow with phone numbers sends codes nobody
-enters, which costs money for every message. This method fires when **codes
-sent are at least `r thresholds$sms$volume` times a typical day** and **fewer
-than `r percent(thresholds$sms$entry_rate_below)` are entered correctly**. Real
-users enter about 96%, even during a launch. Source: `ibm_verify.mfa_activity`.
-Voice codes are shown for context, since a script blocked from SMS may switch
-to voice; they do not count towards the flag.
+CanadaLogin texts a code to a phone, and the user types it back. Real users
+enter about 96% of their codes. A bot flooding the sign-up page sends codes that
+nobody enters. This method fires when **codes sent are at least
+`r thresholds$sms$volume` times a typical day** and **fewer than
+`r percent(thresholds$sms$entry_rate_below)` are entered**.
 :::
 
 ## Row {height="150px"}
@@ -581,14 +501,6 @@ SMS codes sent, `r format_short_date(sms_latest$day)`
 :::
 
 ::: {.valuebox color="info"}
-Codes entered, `r format_short_date(sms_latest$day)`
-
-`r percent(sms_latest$ratio, accuracy = 1)`
-
-Fires below `r percent(thresholds$sms$entry_rate_below)`
-:::
-
-::: {.valuebox color="secondary"}
 Days flagged, last 13 weeks
 
 `r length(fired_days("sms"))`
@@ -596,7 +508,7 @@ Days flagged, last 13 weeks
 `r days_flagged_line("sms")`
 :::
 
-::: {.valuebox color="info"}
+::: {.valuebox color="secondary"}
 Extra SMS codes on flagged days, last 13 weeks
 
 `r if (sms_extra == 0) "None" else nbsp(paste("About", comma(round(sms_extra, -3))))`
@@ -636,10 +548,10 @@ brand_figure(p)
 
 ```{r sms-table}
 sms_rows |>
-  dplyr::select(day, sms_sent, sms_success, voice_sent, multiple, ratio, fired) |>
-  daily_table(c("sms_sent", "sms_success", "voice_sent"),
-              list(sms_sent = "SMS sent", sms_success = "SMS entered",
-                   voice_sent = "Voice sent"), decimals = 0) |>
+  dplyr::select(day, sms_sent, sms_success, multiple, ratio, fired) |>
+  daily_table(c("sms_sent", "sms_success"),
+              list(sms_sent = "SMS sent", sms_success = "SMS entered"),
+              decimals = 0) |>
   cols_label(ratio = "Entered")
 ```
 
@@ -667,14 +579,12 @@ by_week <- accounts_by_week(since_launch)
 ##### Row {height="auto"}
 
 ::: {.card title="How this method works"}
-An account is **idle on the day it was made** if it did not sign in to any
-partner service that day. Real users sign up because they want a service, so
-they go straight to it; on a typical day about 18% of new accounts are idle.
-Scripts that make accounts in bulk leave them idle. This method fires when
-**new accounts are at least `r thresholds$idle$volume` times a typical day**
-and **at least `r percent(thresholds$idle$idle_share_at_least)` of them are
-idle on the day they were made**. Source: the IBM Verify event stream
-(`ibm_verify_events_raw`), which is preliminary.
+Real users sign up to reach a service, so most go straight to it. On a typical
+day, only about 18% of new accounts don't. A bot making accounts in bulk leaves
+them idle. This method fires when **new accounts are at least
+`r thresholds$idle$volume` times a typical day** and **at least
+`r percent(thresholds$idle$idle_share_at_least)` of them are idle on the day
+they were made**.
 :::
 
 ##### Row {height="150px"}
@@ -874,17 +784,13 @@ errors_latest <- error_rows[error_rows$day == reported_through$errors, ]
 ## Row {height="auto"}
 
 ::: {.card title="How this method works"}
-Four errors are rare on a normal day: **invalid phone numbers, SMS limits
-reached, wrong one-time codes and interrupted sign-ins**.
-When a script walks the SMS sign-up flow, they rise together. A single error
-spiking usually means a bug or an outage instead. This method fires when **at
-least `r thresholds$errors$groups_at_least` of the four are each
-`r thresholds$errors$group_volume` times their typical day** (counting a
-typical day as at least `r thresholds$errors$group_floor` events, so small
-numbers do not jump) and **together they make up at least
-`r percent(thresholds$errors$share_at_least)` of all errors**. Source:
-`google_analytics.error_events`, which runs a day or two behind. A bot that
-never loads a normal browser leaves no trace here.
+Four errors are rare on a normal day: invalid phone numbers, SMS limits, wrong
+codes and interrupted sign-ins. When a bot works through sign-up, they rise
+together. This method fires when **at least
+`r thresholds$errors$groups_at_least` of the four are each
+`r thresholds$errors$group_volume` times their typical day** and **together
+they are at least `r percent(thresholds$errors$share_at_least)` of all
+errors**. A bot that doesn't use a normal browser leaves no trace here.
 :::
 
 ## Row {height="150px"}

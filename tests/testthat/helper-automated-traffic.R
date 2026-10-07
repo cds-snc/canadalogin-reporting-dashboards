@@ -33,9 +33,7 @@ traffic_sms <- function(days = traffic_days(), bot_days = traffic_bot_day) {
   tibble::tibble(
     day = days,
     sms_sent = sent,
-    sms_success = ifelse(bot, 3000, round(sent * 0.96)),
-    voice_sent = 100,
-    voice_success = 90
+    sms_success = ifelse(bot, 3000, round(sent * 0.96))
   )
 }
 

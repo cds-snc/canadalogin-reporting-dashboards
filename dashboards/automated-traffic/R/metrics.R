@@ -57,29 +57,24 @@ as_plain_numbers <- function(df) {
   dplyr::mutate(df, dplyr::across(dplyr::where(bit64::is.integer64), as.numeric))
 }
 
-# Adds any of `columns` missing from `df` as zeros, so a factor or error group
+# Adds any of `columns` missing from `df` as zeros, so a result or error group
 # with no rows on any day still gets its column.
 with_columns <- function(df, columns) {
   for (column in setdiff(columns, names(df))) df[[column]] <- 0
   df
 }
 
-# SMS and voice codes sent and entered correctly, one row per day.
+# SMS codes sent and entered correctly, one row per day.
 sms_days <- read_once(\(con) {
   dplyr::tbl(con, dbplyr::in_schema("ibm_verify", "mfa_activity")) |>
-    dplyr::filter(mfa_type %in% c("sms_otp", "voice_otp"),
-                  result %in% c("sent", "success")) |>
-    dplyr::group_by(date, mfa_type, result) |>
+    dplyr::filter(mfa_type == "sms_otp", result %in% c("sent", "success")) |>
+    dplyr::group_by(date, result) |>
     dplyr::summarise(n = sum(count, na.rm = TRUE), .groups = "drop") |>
     dplyr::collect() |>
     as_plain_numbers() |>
-    dplyr::mutate(
-      day = as.Date(date),
-      column = paste0(sub("_otp", "", mfa_type), "_", result)
-    ) |>
-    dplyr::select(day, column, n) |>
+    dplyr::transmute(day = as.Date(date), column = paste0("sms_", result), n) |>
     tidyr::pivot_wider(names_from = column, values_from = n, values_fill = 0) |>
-    with_columns(c("sms_sent", "sms_success", "voice_sent", "voice_success")) |>
+    with_columns(c("sms_sent", "sms_success")) |>
     dplyr::arrange(day)
 })
 
