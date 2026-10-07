@@ -119,6 +119,19 @@
   max-width: var(--card-content-width);
 }
 
+/* A figure note that points elsewhere and should not draw the eye. The grey is
+   below 4.5:1 contrast on white on purpose; the underline alone marks the
+   link. */
+.quiet-note {
+  font-style: italic;
+  color: #959da5;
+}
+
+.quiet-note a {
+  color: inherit;
+  text-decoration: underline;
+}
+
 /* Headings inside an expanded relying-party row, which is plain HTML built in
    R rather than markdown, so it has no heading styles of its own. */
 .rp-detail-heading {

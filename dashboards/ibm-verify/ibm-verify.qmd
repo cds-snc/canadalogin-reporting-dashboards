@@ -442,6 +442,20 @@ p <- cowplot::plot_grid(
 brand_figure(p)
 ```
 
+```{r bot-traffic-note, message=NA}
+#| results: asis
+# The URL carries a publish token, so it is looked up at render time and the
+# note is left out when it cannot be. Markdown, not an htmltools div, which
+# Quarto lays out as a flex row and breaks the sentence around the link.
+# message=NA sends the reason for a missing link to the render log; Quarto's
+# YAML options reject NA, so it sits in the chunk header.
+bot_traffic_url <- published_url("automated-traffic.html")
+if (!is.null(bot_traffic_url)) {
+  cat(glue("::: {{.figure-note .quiet-note}}\nConcerned about bot traffic? See the ",
+           "[Automated Traffic dashboard]({bot_traffic_url}).\n:::\n"))
+}
+```
+
 :::
 
 ## Row
