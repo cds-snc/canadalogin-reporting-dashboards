@@ -1,0 +1,32 @@
+// This dashboard's accent. Every dashboard shares the CDS palette in
+// ../../_brand.yml and overrides only what makes it distinct.
+//
+// "Signal": slate, with amber kept for what fired. White text is 11:1 on the
+// primary.
+
+/*-- scss:defaults --*/
+
+$primary: #36414D;
+
+$info: #DCE1E6;
+
+$led: #F2A900;
+
+$navbar-hl: #FFFFFF;
+
+/*-- scss:rules --*/
+
+.quarto-dashboard .navbar {
+  background-image: linear-gradient(180deg, #3E4A57, #2B343D);
+}
+
+// The robot face emoji before the navbar title. An escape, so the file stays
+// plain ASCII; each platform draws it in its own emoji font.
+.navbar-brand-container .navbar-title::before {
+  content: "\1F916";
+  margin-right: 0.4em;
+}
+
+.navbar .nav-link.active {
+  box-shadow: inset 0 -3px 0 $led;
+}

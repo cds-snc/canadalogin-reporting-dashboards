@@ -46,3 +46,6 @@ page-header.html
 
 # Written beside the banner at render time; read by CI, never committed.
 preflight-status.json
+
+# Automated Traffic's flagged days for the Slack post; written beside it.
+traffic-summary.json
