@@ -128,15 +128,38 @@ test_that("an account is never signed in before it exists", {
   expect_equal(launch$idle_accounts, 0)
 })
 
+test_that("weeks run Monday to Sunday and the newest may be in progress", {
+  pairs <- tibble::tibble(first_day = as.Date("2026-09-28"),
+                          service_day = as.Date(NA), accounts = 2)
+  launch <- traffic$accounts_since_launch(pairs, as.Date("2026-10-06"))
+  weeks <- traffic$accounts_by_week(launch)
+  expect_identical(weeks$week_end, as.Date(c("2026-10-04", "2026-10-11")))
+  expect_identical(weeks$date, as.Date(c("2026-10-04", "2026-10-06")))
+  expect_equal(weeks$idle_accounts, c(2, 2))
+  # Running totals as of the week's last day; new accounts summed over it.
+  pairs <- tibble::tibble(first_day = as.Date(c("2026-09-28", "2026-09-30")),
+                          service_day = as.Date(NA), accounts = c(2, 3))
+  weeks <- traffic$accounts_by_week(
+    traffic$accounts_since_launch(pairs, as.Date("2026-10-04"))
+  )
+  expect_equal(weeks$all_accounts, 5)
+  expect_equal(weeks$new_accounts, 5)
+})
+
 # Calendar --------------------------------------------------------------------
 
-test_that("the calendar starts on a Monday, 13 weeks back", {
+test_that("the calendar starts on a Monday, six months back", {
   start <- traffic$calendar_start(as.Date("2026-10-08"))
   expect_identical(format(start, "%u"), "1")
+  expect_identical(start, as.Date("2026-04-13"))
+})
+
+test_that("the method charts start on a Monday, 13 weeks back", {
+  start <- traffic$calendar_start(as.Date("2026-10-08"), traffic$chart_weeks)
   expect_identical(start, as.Date("2026-07-13"))
 })
 
-test_that("the calendar counts methods, marks partial days and spikes", {
+test_that("the calendar counts methods, marks partial days, and takes the strongest", {
   scores <- tibble::tribble(
     ~method,  ~day,                  ~multiple, ~ratio, ~fired,
     "sms",    as.Date("2026-09-17"), 20,        0.1,    TRUE,
@@ -147,17 +170,36 @@ test_that("the calendar counts methods, marks partial days and spikes", {
     "errors", as.Date("2026-09-18"), NA,        NA,     NA
   )
   cal <- traffic$calendar_days(scores, as.Date("2026-09-17"),
-                               as.Date("2026-09-18"), traffic_thresholds)
+                               as.Date("2026-09-18"))
   expect_equal(cal$n_fired, c(3, 0))
   expect_identical(cal$partial, c(FALSE, TRUE))
-  # A spike that did not fire gets no dot.
-  expect_identical(cal$spike, c(TRUE, FALSE))
+  # Error patterns last reported on the 17th, so the 18th waits on it.
+  expect_identical(cal$waiting, c(FALSE, TRUE))
+  # Only methods that fired count: 50x idle accounts on the 18th did not.
+  expect_equal(cal$strongest, c(20, NA))
+  # The calendar shades by every method that reported, fired or not.
+  expect_equal(cal$peak, c(20, 50))
 })
 
-test_that("the CSV link carries the whole table", {
-  df <- tibble::tibble(date = as.Date("2026-05-01"), all_accounts = 3)
-  link <- as.character(traffic$csv_download_link(df, "x.csv", "Download"))
-  encoded <- sub('.*base64,([^"]+)".*', "\\1", link)
-  csv <- rawToChar(jsonlite::base64_dec(encoded))
-  expect_identical(csv, "\"date\",\"all_accounts\"\n2026-05-01,3\n")
+test_that("a day before a method could score is partial but not waiting", {
+  scores <- tibble::tribble(
+    ~method,  ~day,                  ~multiple, ~ratio, ~fired,
+    "sms",    as.Date("2026-07-01"), 1,         0.95,   FALSE,
+    "idle",   as.Date("2026-07-01"), 1,         0.2,    FALSE,
+    "errors", as.Date("2026-07-01"), NA,        NA,     NA,
+    "sms",    as.Date("2026-07-02"), 1,         0.95,   FALSE,
+    "idle",   as.Date("2026-07-02"), 1,         0.2,    FALSE,
+    "errors", as.Date("2026-07-02"), 1,         0.1,    FALSE
+  )
+  cal <- traffic$calendar_days(scores, as.Date("2026-07-01"),
+                               as.Date("2026-07-02"))
+  expect_identical(cal$partial, c(TRUE, FALSE))
+  expect_identical(cal$waiting, c(FALSE, FALSE))
+})
+
+test_that("extra SMS counts sends above a typical day on fired days only", {
+  scored <- traffic$score_sms(traffic_sms(), traffic_thresholds)
+  # The bot day sent 40,000 against a typical weekday of 2,000.
+  expect_equal(traffic$extra_sms(scored, as.Date("2026-09-01")), 38000)
+  expect_equal(traffic$extra_sms(scored, as.Date("2026-09-18")), 0)
 })

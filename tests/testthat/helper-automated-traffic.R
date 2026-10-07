@@ -11,8 +11,7 @@ traffic_thresholds <- list(
   sms = list(volume = 3, entry_rate_below = 0.5),
   idle = list(volume = 2, idle_share_at_least = 0.5),
   errors = list(group_volume = 3, groups_at_least = 3L, group_floor = 20,
-                share_at_least = 0.3),
-  spike_multiple = 10
+                share_at_least = 0.3)
 )
 
 traffic_known_days <- tibble::tibble(

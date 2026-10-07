@@ -7,7 +7,7 @@ on CanadaLogin. Each page is one detection method:
   usual, and few of them entered.
 - **Idle accounts**, from the IBM Verify event stream: far more new accounts
   than usual, and most never signing in to a partner service that day. A second
-  tab has accounts since launch, with a daily CSV download.
+  tab has accounts since launch, with idle accounts by week.
 - **Error patterns**, from `google_analytics.error_events`: four rare errors
   rising together.
 

@@ -163,7 +163,7 @@ account_days <- function(pairs, through) {
 
 # Accounts since launch as of each day, point in time: an account leaves the
 # idle count on the day it first signs in to a service, and no earlier day is
-# restated. One row per day, the CSV's columns.
+# restated. One row per day.
 accounts_since_launch <- function(pairs, through) {
   pairs <- dplyr::filter(pairs, !is.na(first_day), first_day <= through)
   days <- tibble::tibble(date = seq(min(pairs$first_day), through, by = "day"))
@@ -191,6 +191,19 @@ accounts_since_launch <- function(pairs, through) {
     ) |>
     dplyr::select(date, all_accounts, idle_accounts, signed_in_to_service,
                   idle_share, new_accounts)
+}
+
+# Accounts since launch at the end of each Monday-to-Sunday week, the weeks
+# Sign-In Activity reports in. The newest week may be in progress: `date` is
+# then the last day it covers, earlier than `week_end`. The running totals
+# are as of that day; `new_accounts` is the week's sum.
+accounts_by_week <- function(since_launch) {
+  since_launch |>
+    dplyr::mutate(week_end = date - (as.integer(format(date, "%u")) - 1L) + 6L) |>
+    dplyr::group_by(week_end) |>
+    dplyr::mutate(new_accounts = sum(new_accounts)) |>
+    dplyr::slice_max(date, n = 1) |>
+    dplyr::ungroup()
 }
 
 # Signature error groups and all errors, one row per day GA reported.
@@ -314,39 +327,56 @@ method_scores <- function(scored) {
 
 # Calendar --------------------------------------------------------------------
 
-# The calendar, and every method page's charts, cover a rolling quarter.
-calendar_weeks <- 13L
+# The Overview calendar covers six months; each method page's charts and
+# tables a rolling quarter, since six months of daily bars is too dense.
+calendar_weeks <- 26L
+chart_weeks <- 13L
 
-# The Monday that starts the calendar: calendar_weeks whole weeks, the last of
-# them holding `through`.
-calendar_start <- function(through) {
-  through - (as.integer(format(through, "%u")) - 1L) - 7L * (calendar_weeks - 1L)
+# The Monday that starts a span of `weeks` whole weeks, the last of them
+# holding `through`.
+calendar_start <- function(through, weeks = calendar_weeks) {
+  through - (as.integer(format(through, "%u")) - 1L) - 7L * (weeks - 1L)
 }
 
 # One row per day from `from` to `through`: how many methods fired, whether
-# every method reported, and whether a method that fired was at least
-# spike_multiple times its baseline.
-calendar_days <- function(scores, from, through, thresholds) {
+# every method reported, and the strongest volume among the methods that
+# fired (NA when none did). `peak` is the strongest volume among every method
+# that reported, fired or not, for shading ordinary days too. `waiting` is
+# narrower than `partial`: a method has not caught up to the day yet. A day
+# before a method could score at all is partial but not waiting.
+calendar_days <- function(scores, from, through) {
   n_methods <- nrow(methods)
+  caught_up <- min(purrr::map_dbl(methods$method, \(m) {
+    max(scores$day[scores$method == m & !is.na(scores$fired)], -Inf)
+  }))
   tibble::tibble(day = seq(from, through, by = "day")) |>
     dplyr::left_join(scores, by = "day") |>
     dplyr::group_by(day) |>
     # n_fired, not fired, which the later lines still read per method.
     dplyr::summarise(
       reported = sum(!is.na(fired)),
-      spike = any(fired & multiple >= thresholds$spike_multiple, na.rm = TRUE),
+      strongest = if (any(fired %in% TRUE)) {
+        max(multiple[fired %in% TRUE])
+      } else {
+        NA_real_
+      },
+      peak = if (any(!is.na(fired))) {
+        max(multiple[!is.na(fired)])
+      } else {
+        NA_real_
+      },
       methods_fired = list(method[!is.na(fired) & fired]),
       n_fired = sum(fired, na.rm = TRUE),
       .groups = "drop"
     ) |>
-    dplyr::mutate(partial = reported < n_methods)
+    dplyr::mutate(partial = reported < n_methods, waiting = day > caught_up)
 }
 
-# Methods that were scored on a day but did not report it, named, for the
-# note under the calendar.
-waiting_on <- function(scores, day) {
-  reported <- scores$method[scores$day == day & !is.na(scores$fired)]
-  methods$label[!methods$method %in% reported]
+# SMS codes sent above a typical day on the days the SMS method fired, from
+# `from` on. An estimate: the typical day is a median.
+extra_sms <- function(sms_scored, from) {
+  rows <- dplyr::filter(sms_scored, day >= from, fired %in% TRUE)
+  sum(pmax(rows$sms_sent - rows$baseline, 0))
 }
 
 # Days flagged in the last seven, for the publishing workflow's Slack post.
@@ -396,16 +426,3 @@ fmt_multiple <- function(x) {
 
 # Spaces to non-breaking, so a value box value stays one Str and keeps its class.
 nbsp <- function(x) gsub(" ", " ", x, fixed = TRUE)
-
-# A data URI download link, so the self-contained page carries its own file.
-csv_download_link <- function(df, filename, text) {
-  csv <- paste(utils::capture.output(
-    utils::write.csv(df, stdout(), row.names = FALSE, na = "")
-  ), collapse = "\n")
-  encoded <- jsonlite::base64_enc(charToRaw(paste0(csv, "\n")))
-  htmltools::tags$a(
-    href = paste0("data:text/csv;base64,", gsub("\n", "", encoded)),
-    download = filename, class = "btn btn-outline-primary btn-sm",
-    text
-  )
-}

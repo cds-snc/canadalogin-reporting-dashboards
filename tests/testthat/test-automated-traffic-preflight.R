@@ -60,7 +60,8 @@ test_that("a first sign-in time that did not parse fails", {
 })
 
 test_that("a gap before the baseline window does not count", {
-  sms <- traffic_sms() |> dplyr::filter(day != as.Date("2026-05-10"))
+  sms <- traffic_sms(traffic_days(from = as.Date("2026-01-01"))) |>
+    dplyr::filter(day != as.Date("2026-02-10"))
   result <- run_traffic_preflight(traffic_with_data(sms = sms))
   expect_true(result$passed)
 })
