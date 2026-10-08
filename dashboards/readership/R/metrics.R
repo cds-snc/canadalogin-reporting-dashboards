@@ -49,27 +49,6 @@ source_group <- function(source) {
   )
 }
 
-# What each raw source is, for the table of every source.
-source_descriptions <- c(
-  "slack" = "Link in a Slack post",
-  "teams" = "Link in a Teams post",
-  "email" = "Link in the email",
-  "latest-link" = "The link to the latest Signal Check",
-  "report_link" = "Link in a Signal Check",
-  "dashboard_link" = "Link in a dashboard",
-  "(direct)" = "No link recorded",
-  "(not set)" = "No link recorded",
-  "github.com" = "GitHub",
-  "google" = "Google"
-)
-
-describe_source <- function(source) {
-  known <- source_descriptions[source]
-  ifelse(is.na(known),
-         ifelse(startsWith(source, "teams."), "Teams", source),
-         known)
-}
-
 # Today in Toronto. The runner's clock is UTC, which is a day ahead late in
 # the Toronto evening.
 toronto_today <- function(now = Sys.time()) {

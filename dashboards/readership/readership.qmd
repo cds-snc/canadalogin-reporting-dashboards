@@ -96,16 +96,17 @@ source_colours <- c(
 
 brand_figure <- function(p, height = 0.09) {
   add_cds_logo(
-    add_watermark(p, report_name = "CanadaLogin Readership", date = through),
+    add_watermark(p, report_name = "CanadaLogin Analytics Readership dashboard",
+                  date = through),
     height = height
   )
 }
 
 dwell_breaks <- dwell_marks
 
-# One panel per page: its curve in the accent over every other page's, a
-# dashed line at half, and its views and median read in the corner.
-dwell_panels <- function(curve, panel, ncol) {
+# One panel per page: its curve over the others', a dashed line at half, and
+# its views and median read in the corner. `colours`, by panel, overrides accent.
+dwell_panels <- function(curve, panel, ncol, colours = NULL) {
   curve <- dplyr::mutate(curve, panel = .data[[panel]])
   others <- curve |>
     dplyr::rename(other = panel) |>
@@ -124,11 +125,16 @@ dwell_panels <- function(curve, panel, ncol) {
                linewidth = 0.35) +
     geom_line(data = others, aes(group = other), colour = palette$quiet,
               linewidth = 0.5) +
-    geom_line(colour = palette$accent, linewidth = 1) +
-    geom_point(colour = palette$accent, size = 1.4) +
+    geom_line(aes(colour = panel), linewidth = 1) +
+    geom_point(aes(colour = panel), size = 1.4) +
     geom_text(data = counts, aes(x = 600, y = 1, label = label),
               inherit.aes = FALSE, hjust = 1, vjust = 1, size = 3,
               lineheight = 0.9, colour = "grey35") +
+    scale_colour_manual(
+      values = colours %||% setNames(rep(palette$accent, length(unique(curve$panel))),
+                                     unique(as.character(curve$panel))),
+      guide = "none"
+    ) +
     scale_x_log10(breaks = dwell_breaks, labels = fmt_mark_short(dwell_breaks)) +
     scale_y_continuous(labels = label_percent(), limits = c(0, 1),
                        breaks = c(0, 0.5, 1)) +
@@ -177,6 +183,52 @@ table_options <- function(gt_table) {
               data_row.padding = px(3), table.border.top.style = "none")
 }
 ```
+
+# Overview
+
+## Row {height="auto"}
+
+::: {.card title="About this dashboard"}
+
+This dashboard reports **how much attention our own reporting gets**: who
+opens each Signal Check and dashboard, how long they keep it open, and which
+link brought them. It reads the analytics tag on our published pages, the same
+kind of tag that measures CanadaLogin itself. It is internal to Enterprise
+Digital Credentials and the link is unlisted. For anything that leaves EDCP,
+please reach out to the
+[Data and Research team](https://gcdigital.slack.com/archives/C0A6S9F7KV4).
+
+**A red banner at the top of the page means a check failed at render time.**
+Do not quote anything until it clears.
+
+How long a page stays open is defined in the
+[metrics cookbook](https://cds-snc.github.io/canadalogin-metrics-cookbook/cookbook/google_analytics/dwell-time.html).
+This page is republished in place every week.
+
+:::
+
+## Row {height="auto"}
+
+::: {.card title="About the pages"}
+
+The **Signal Check** page follows each Signal Check over **its first 14
+days**, the two weeks before the next one arrives, so every Signal Check is
+measured over the same span. Views before a Signal Check is sent come from our
+own review link and are left out. The page shows views each day, how long
+readers keep each Signal Check open, and which link started each session.
+
+The **Dashboards** page covers each published dashboard over the last three
+months, and compares the last four weeks with the four before them.
+
+The **Metrics Cookbook** page counts views of the Cookbook. The Cookbook does
+not record how long a page stays open.
+
+Volumes are small, a few dozen views per Signal Check, so one reader can move
+a percentage a long way. Check the view counts before the percentages. A view
+is one opening of a page, not one person: a reader who opens a Signal Check
+twice counts twice.
+
+:::
 
 # Signal Check
 
@@ -231,23 +283,10 @@ window_sessions <- traffic |>
                     by = "pagepath_redacted") |>
   dplyr::filter(day >= published, day < published + edition_window_days)
 
-source_table <- window_sessions |>
-  dplyr::group_by(sessionsource) |>
-  dplyr::summarise(sessions = sum(sessions), .groups = "drop") |>
-  dplyr::mutate(
-    what = describe_source(sessionsource),
-    group = source_groups$label[match(source_group(sessionsource),
-                                      source_groups$group)],
-    share = sessions / sum(sessions)
-  ) |>
-  dplyr::group_by(what, group) |>
-  dplyr::summarise(sources = paste(sort(unique(sessionsource)), collapse = ", "),
-                   sessions = sum(sessions), share = sum(share),
-                   .groups = "drop") |>
-  dplyr::arrange(dplyr::desc(sessions))
-
-posts <- sum(source_table$share[source_table$group %in%
-                                  c("Slack", "Teams", "Email")])
+# The share of first-14-day sessions started from the three announcement posts.
+posts <- sum(window_sessions$sessions[
+  source_group(window_sessions$sessionsource) %in% c("slack", "teams", "email")
+]) / sum(window_sessions$sessions)
 
 daily_alt <- glue(
   "Stacked bar chart of Signal Check views each day over the last three ",
@@ -256,22 +295,6 @@ daily_alt <- glue(
   "{latest$label} has {comma(latest_views)} views in its {so_far}."
 )
 ```
-
-## Row {height="auto"}
-
-::: {.card title="Reading this dashboard"}
-
-This dashboard shows how much attention our own reporting gets: who opens
-each Signal Check and dashboard, how long they keep it open, and which
-link brought them. It reads the analytics tag on our pages, the same kind of
-tag that measures CanadaLogin itself. It is internal to Enterprise Digital
-Credentials and the link is unlisted.
-
-Signal Checks are compared over **their first 14 days**, the two weeks before
-the next one arrives, so every Signal Check is measured over the same span.
-Views before a Signal Check is sent are our own review, and are left out.
-
-:::
 
 ## Row {height="150px"}
 
@@ -407,23 +430,6 @@ it opened.
 
 ## Row {height="auto"}
 
-::: {.card title="Every source, `r comparable$label[1]` to `r latest$label`, first 14 days"}
-
-```{r source-table}
-source_table |>
-  dplyr::select(what, sources, group, sessions, share) |>
-  gt() |>
-  fmt_number(sessions, decimals = 0) |>
-  fmt_percent(share, decimals = 0) |>
-  cols_label(what = "Where", sources = "Recorded as", group = "Grouped as",
-             sessions = "Sessions", share = "Share") |>
-  table_options()
-```
-
-:::
-
-## Row {height="auto"}
-
 ::: {.card title="Every Signal Check"}
 
 ```{r edition-table}
@@ -495,6 +501,10 @@ dashboard_rows <- traffic |>
   dplyr::inner_join(dashboards, by = "file")
 
 dashboard_sessions <- dplyr::filter(dashboard_rows, day >= chart_from)
+
+# Each dashboard in its own accent; one with no theme found falls back to ink.
+accents <- dashboard_accent(dashboards$file)
+accents <- setNames(dplyr::coalesce(accents, palette$ink), dashboards$name)
 
 all_window <- window_totals(dashboard_rows, "views", through)
 all_change <- relative_change(all_window[["current"]], all_window[["prior"]])
@@ -570,10 +580,6 @@ All dashboards together
 #|   Small multiples of weekly bar charts, one panel per dashboard, showing
 #|   page views each Monday-to-Sunday week over the last three months, each in
 #|   its dashboard's own colour. The newest week, not yet over, is lighter.
-# Each dashboard in its own accent; one with no theme found falls back to ink.
-accents <- dashboard_accent(dashboards$file)
-accents <- setNames(dplyr::coalesce(accents, palette$ink), dashboards$name)
-
 p <- ggplot(weeks, aes(week + 3, views)) +
   geom_col(aes(fill = name, alpha = partial), width = 5.5) +
   scale_fill_manual(values = accents, guide = "none") +
@@ -603,9 +609,11 @@ brand_figure(p)
 #| fig-height: 3.1
 #| fig-alt: |
 #|   Small multiples, one panel per dashboard, each showing the share of its
-#|   page views still open after 1 second up to 10 minutes, with the other
-#|   dashboards' curves in the background and a dashed line at 50 percent.
-brand_figure(dwell_panels(dashboard_curve, "name", ncol = nrow(dashboards)))
+#|   page views still open after 1 second up to 10 minutes in the dashboard's
+#|   own colour, with the other dashboards' curves in the background and a
+#|   dashed line at 50 percent.
+brand_figure(dwell_panels(dashboard_curve, "name", ncol = nrow(dashboards),
+                          colours = accents))
 ```
 
 :::
@@ -674,7 +682,6 @@ counts its own readers too.
 ```{r cookbook-summary}
 #| include: false
 cookbook <- dplyr::filter(traffic, page_kind == "cookbook")
-previews <- sum(traffic$views[traffic$page_kind == "preview"])
 
 cookbook_weeks <- cookbook |>
   dplyr::mutate(week = monday_of(day)) |>
@@ -707,13 +714,13 @@ cookbook_pages <- cookbook |>
   dplyr::slice_max(views, n = 12, with_ties = FALSE)
 ```
 
-## Row {height="380px"}
+## Row {height="520px"}
 
 ::: {.card title="Cookbook views each week, since tracking began"}
 
 ```{r cookbook-weeks-chart}
-#| fig-width: 10
-#| fig-height: 2.6
+#| fig-width: 6.5
+#| fig-height: 4.4
 #| fig-alt: |
 #|   Bar chart of Metrics Cookbook page views each Monday-to-Sunday week since
 #|   tracking began in July 2026. The newest week, not yet over, is lighter.
@@ -727,23 +734,16 @@ p <- ggplot(cookbook_weeks, aes(week + 3, views)) +
   theme_cds() +
   theme(panel.grid.minor = element_blank()) +
   labs(x = NULL, y = "Views")
-brand_figure(p, height = 0.12)
+brand_figure(p)
 ```
 
-::: {.figure-note}
-Previews of changes under review are left out: `r comma(previews)` views, all
-ours. The Cookbook does not track how long a page stays open.
 :::
-
-:::
-
-## Row {height="480px"}
 
 ::: {.card title="Most viewed pages, since tracking began"}
 
 ```{r cookbook-pages-chart}
-#| fig-width: 10
-#| fig-height: 3.5
+#| fig-width: 6.5
+#| fig-height: 4.4
 #| fig-alt: |
 #|   Horizontal bar chart of the twelve most viewed Metrics Cookbook pages
 #|   since tracking began, most viewed at the top, each bar labelled with its
@@ -752,7 +752,8 @@ p <- ggplot(cookbook_pages, aes(views, stats::reorder(page, views))) +
   geom_col(fill = palette$ink, width = 0.7) +
   geom_text(aes(label = comma(views)), hjust = -0.3, size = 3.2,
             colour = "grey30") +
-  scale_x_continuous(expand = expansion(mult = c(0, 0.08))) +
+  # Room on the right, so the longest bar and its label clear the logo.
+  scale_x_continuous(expand = expansion(mult = c(0, 0.2))) +
   theme_cds() +
   theme(panel.grid.minor = element_blank(),
         panel.grid.major.y = element_blank()) +
