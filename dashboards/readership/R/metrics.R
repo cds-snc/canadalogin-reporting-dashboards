@@ -324,6 +324,20 @@ dashboard_list <- function(traffic) {
     dplyr::select(file, name, first_seen)
 }
 
+# A dashboard's accent, the `$primary` in its folder's _theme.scss, so its bars
+# here match its own navbar. A published file shares its folder's name. NA
+# when there is no such folder or line.
+dashboard_accent <- function(file, dashboards_dir = "..") {
+  vapply(file, \(f) {
+    path <- file.path(dashboards_dir, f, "_theme.scss")
+    if (!file.exists(path)) return(NA_character_)
+    found <- grep("^\\$primary:\\s*#[0-9A-Fa-f]{6}", readLines(path, warn = FALSE),
+                  value = TRUE)
+    if (length(found) == 0L) return(NA_character_)
+    sub("^.*(#[0-9A-Fa-f]{6}).*$", "\\1", found[1])
+  }, character(1), USE.NAMES = FALSE)
+}
+
 # Weeks ------------------------------------------------------------------------
 
 # The Monday a day's week starts on. Weeks run Monday to Sunday, as on
@@ -369,19 +383,6 @@ delta_colours <- c(up = "#115740", down = "#AB2328", flat = "#5C6670")
 relative_change <- function(after, before) {
   dplyr::if_else(before == 0 | is.na(before), NA_real_,
                  (after - before) / before)
-}
-
-# Label positions ---------------------------------------------------------------
-
-# Nudges line-end label heights apart so none sit closer than `gap`, pushing
-# the higher of two upward. Returns heights in the order given.
-spread_labels <- function(y, gap) {
-  ordered <- order(y)
-  placed <- y[ordered]
-  for (i in seq_along(placed)[-1]) {
-    placed[i] <- max(placed[i], placed[i - 1] + gap)
-  }
-  placed[order(ordered)]
 }
 
 # Formatting ------------------------------------------------------------------

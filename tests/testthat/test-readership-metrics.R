@@ -130,6 +130,16 @@ test_that("dwell is pooled across days by page view, not by user", {
 
 # Dashboards and sources ----------------------------------------------------------
 
+test_that("a dashboard's accent is the primary in its theme", {
+  dir <- withr::local_tempdir()
+  dir.create(file.path(dir, "support"))
+  writeLines(c("// Forest", "/*-- scss:defaults --*/", "$primary: #115740;",
+               "$info: #D9E5D3;"),
+             file.path(dir, "support", "_theme.scss"))
+  expect_identical(readership$dashboard_accent(c("support", "gone"), dir),
+                   c("#115740", NA))
+})
+
 test_that("a renamed dashboard is counted under its new name", {
   traffic <- dplyr::bind_rows(
     readership_traffic(),
@@ -169,9 +179,4 @@ test_that("a median read reads as the band it falls in", {
   expect_identical(readership$fmt_dwell(c(0, 30, 60, 600, NA)),
                    c("Under 1 s", "30 s to 1 min", "1 to 2 min",
                      "10 min or more", "-"))
-})
-
-test_that("labels too close together are pushed apart, in order", {
-  expect_equal(readership$spread_labels(c(35, 33, 25), 3), c(36, 33, 25))
-  expect_equal(readership$spread_labels(c(10, 30), 3), c(10, 30))
 })

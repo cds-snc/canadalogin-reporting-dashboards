@@ -55,6 +55,10 @@ complete <- dplyr::filter(coverage, complete, number != latest$number)
 
 dashboards <- dashboard_list(traffic)
 
+# Three months, as whole Monday-to-Sunday weeks, for every daily or weekly
+# chart.
+chart_from <- monday_of(through) - 12L * 7L
+
 page_header <- "page-header.html"
 
 write_preflight_banner(preflight, page_header)
@@ -76,6 +80,10 @@ cat(
 # the newest edition and our own links, sepia ink the rest of a series, and
 # paper the context behind it.
 palette <- list(accent = "#A63A26", ink = "#3B2A20", quiet = "#D6CBB9")
+
+# One ink per Signal Check in the daily chart, cycled oldest first so
+# neighbours differ; the newest takes the margin red.
+inks <- c("#3B2A20", "#2F4E7A", "#B98A2E", "#4E6E3A", "#6E4A7E", "#7C8791")
 
 # Where a session started, in legend order. Our own links take the accent.
 source_colours <- c(
@@ -212,12 +220,14 @@ window_curve <- edition_window_events(
   ))
 window_dwell <- edition_dwell(events, editions)
 
-cumulative_alt <- glue(
-  "Line chart of each edition's views, added up day by day over its first ",
-  "14 days, for editions {comparable$label[1]} to {latest$label}. Most of ",
-  "each edition's views come on the day it is sent and the day after, then ",
-  "the lines flatten. {latest$label} has {comma(latest_views)} views in its ",
-  "{so_far}."
+daily <- days |>
+  dplyr::filter(age >= 0, day >= chart_from, day <= through)
+
+daily_alt <- glue(
+  "Stacked bar chart of Signal Check views each day over the last three ",
+  "months, one colour per Signal Check. Each Signal Check's views spike on ",
+  "the day it is sent and trail off over the following weeks. ",
+  "{latest$label} has {comma(latest_views)} views in its {so_far}."
 )
 ```
 
@@ -265,44 +275,51 @@ Time spent reading `r latest$label`, at least
 
 ## Row {height="520px"}
 
-::: {.card title="Views in each edition's first 14 days, added up day by day"}
+::: {.card title="Signal Check views each day, last three months"}
 
-```{r cumulative-chart}
+```{r daily-chart}
 #| fig-width: 10
 #| fig-height: 3.7
-#| fig-alt: !expr cumulative_alt
-lines <- dplyr::mutate(cumulative, newest = number == latest$number)
-ends <- lines |>
-  dplyr::group_by(number) |>
-  dplyr::filter(age == max(age)) |>
-  dplyr::ungroup()
-# Labels of editions that ended on the same day can collide.
-ends <- ends |>
-  dplyr::group_by(age) |>
-  dplyr::mutate(label_y = spread_labels(cumulative,
-                                        0.045 * max(lines$cumulative))) |>
-  dplyr::ungroup()
+#| fig-alt: !expr daily_alt
+shown <- sort(unique(daily$number))
+check_colours <- setNames(rep_len(inks, length(shown)), shown)
+check_colours[as.character(latest$number)] <- palette$accent
 
-p <- ggplot(lines, aes(age, cumulative, group = number)) +
-  geom_step(data = dplyr::filter(lines, !newest), colour = palette$ink,
-            linewidth = 0.6, alpha = 0.55, direction = "hv") +
-  geom_step(data = dplyr::filter(lines, newest), colour = palette$accent,
-            linewidth = 1.3, direction = "hv") +
-  geom_point(data = ends, aes(colour = newest), size = 2) +
-  geom_text(data = ends, aes(y = label_y, label = label, colour = newest),
-            hjust = -0.35, fontface = "bold", size = 3.4) +
-  scale_colour_manual(values = c(`TRUE` = palette$accent, `FALSE` = palette$ink),
-                      guide = "none") +
-  scale_x_continuous(breaks = c(0, 2, 4, 6, 8, 10, 13),
-                     labels = \(x) ifelse(x == 0, "Day sent", paste("Day", x + 1)),
-                     limits = c(0, 13.6), expand = expansion(mult = c(0.01, 0))) +
+# Each Signal Check is named over its busiest day, the day it was sent unless
+# that was before the chart; at the edges the label leans inward. One with
+# only a few views here is left unnamed.
+totals <- daily |>
+  dplyr::group_by(day) |>
+  dplyr::summarise(total = sum(views), .groups = "drop")
+names_at <- daily |>
+  dplyr::group_by(number, label) |>
+  dplyr::filter(sum(views) >= 5) |>
+  dplyr::slice_max(views, n = 1, with_ties = FALSE) |>
+  dplyr::ungroup() |>
+  dplyr::select(number, label, day) |>
+  dplyr::left_join(totals, by = "day") |>
+  dplyr::mutate(hjust = dplyr::case_when(day - chart_from < 6 ~ 0,
+                                         through - day < 6 ~ 1,
+                                         .default = 0.5))
+
+p <- ggplot(daily, aes(day, views, fill = factor(number))) +
+  geom_col(width = 0.85) +
+  geom_text(data = names_at,
+            aes(day, total, label = label, colour = factor(number),
+                hjust = hjust),
+            inherit.aes = FALSE, vjust = -0.6, size = 3, fontface = "bold") +
+  scale_fill_manual(values = check_colours, guide = "none") +
+  scale_colour_manual(values = check_colours, guide = "none") +
+  scale_x_date(limits = c(chart_from - 1L, through + 1L), expand = c(0, 0),
+               breaks = rev(seq(through, chart_from, by = "-2 weeks")),
+               date_labels = "%b %d") +
   scale_y_continuous(labels = label_comma(), limits = c(0, NA),
-                     expand = expansion(mult = c(0, 0.08))) +
+                     expand = expansion(mult = c(0, 0.15))) +
   theme_cds() +
   theme(panel.grid.minor = element_blank()) +
-  labs(x = NULL, y = "Views so far",
-       subtitle = glue("{latest$label} in colour. Editions {comparable$label[1]} ",
-                       "onward: earlier ones were sent before tracking began."))
+  labs(x = NULL, y = "Views",
+       subtitle = glue("Each Signal Check in its own colour, {latest$label} ",
+                       "in red. Views before sending are left out."))
 brand_figure(p)
 ```
 
@@ -578,12 +595,16 @@ All dashboards together
 #| fig-height: 3.1
 #| fig-alt: |
 #|   Small multiples of weekly bar charts, one panel per dashboard, showing
-#|   page views each Monday-to-Sunday week over the last three months. The newest
-#|   week, not yet over, is lighter.
+#|   page views each Monday-to-Sunday week over the last three months, each in
+#|   its dashboard's own colour. The newest week, not yet over, is lighter.
+# Each dashboard in its own accent; one with no theme found falls back to ink.
+accents <- dashboard_accent(dashboards$file)
+accents <- setNames(dplyr::coalesce(accents, palette$ink), dashboards$name)
+
 p <- ggplot(weeks, aes(week + 3, views)) +
-  geom_col(aes(fill = partial), width = 5.5) +
-  scale_fill_manual(values = c(`FALSE` = palette$accent, `TRUE` = palette$quiet),
-                    guide = "none") +
+  geom_col(aes(fill = name, alpha = partial), width = 5.5) +
+  scale_fill_manual(values = accents, guide = "none") +
+  scale_alpha_manual(values = c(`FALSE` = 1, `TRUE` = 0.35), guide = "none") +
   scale_y_continuous(labels = label_comma(), limits = c(0, NA),
                      expand = expansion(mult = c(0, 0.08))) +
   scale_x_date(date_labels = "%b %d",
