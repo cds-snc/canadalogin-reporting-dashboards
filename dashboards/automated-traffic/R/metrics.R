@@ -42,6 +42,9 @@ toronto_today <- function(now = Sys.time()) {
   as.Date(format(now, "%Y-%m-%d", tz = local_tz))
 }
 
+# The first of `day`'s month.
+month_start <- function(day) as.Date(format(day, "%Y-%m-01"))
+
 # Reads ----------------------------------------------------------------------
 
 # Cache a read for the session. Every page reads the same rows, and the data
@@ -126,6 +129,20 @@ sms_phone_days <- read_once(\(con) {
     as_plain_numbers() |>
     dplyr::mutate(day = as.Date(day), per_phone = sms_sent / phones) |>
     dplyr::arrange(day)
+})
+
+# Monthly active users, one row per month. A month not yet over holds its
+# users so far.
+active_users_by_month <- read_once(\(con) {
+  dplyr::tbl(con, dbplyr::in_schema("ibm_verify", "auth_total_logins")) |>
+    dplyr::select(date, mtd_unique_users) |>
+    dplyr::collect() |>
+    as_plain_numbers() |>
+    dplyr::mutate(date = as.Date(date)) |>
+    dplyr::group_by(month = month_start(date)) |>
+    dplyr::summarise(volume = mtd_unique_users[which.max(date)],
+                     .groups = "drop") |>
+    dplyr::arrange(month)
 })
 
 # Longest wait recorded between an email code sent and entered, in seconds.
@@ -504,22 +521,43 @@ last_flag <- function(scored, from, volume, baseline_days = 28L) {
        n = nrow(flagged))
 }
 
-# The price of one SMS at a month's volume, from tiers of `up_to` and `price`.
-sms_price <- function(volume, tiers) {
+# Days any method fired, from `from` on.
+flagged_any <- function(scored, from) {
+  days <- purrr::map(scored, \(s) s$day[s$day >= from & s$fired %in% TRUE])
+  sort(unique(do.call(c, unname(days))))
+}
+
+# The first of each of the last `n` months to `through`, oldest first, none
+# before launch.
+cost_months <- function(through, n = 12L) {
+  months <- rev(seq(month_start(through), by = "-1 month", length.out = n))
+  months[months >= month_start(canadalogin_launch)]
+}
+
+# What one more unit costs at a month's `volume`, from tiers of `up_to` and
+# `price`.
+tier_price <- function(volume, tiers) {
   tiers$price[findInterval(volume, tiers$up_to, left.open = TRUE) + 1L]
 }
 
-# What the extra SMS on flagged days cost. Each day's extra codes are priced
-# at the tier set by the codes sent in the 30 days ending that day.
-extra_sms_cost <- function(sms_scored, from, tiers) {
-  sms_scored |>
-    dplyr::mutate(month_volume = purrr::map_dbl(day, \(d) {
-      sum(sms_sent[day > d - 30L & day <= d])
-    })) |>
-    dplyr::filter(day >= from, fired %in% TRUE) |>
-    dplyr::summarise(cost = sum(pmax(sms_sent - baseline, 0) *
-                                  sms_price(month_volume, tiers))) |>
-    dplyr::pull(cost)
+# A method's `volume` above its typical day on `days`, summed by month for
+# each of `months`, and priced at one more unit at the tier that month's
+# `billed` volume falls in. `billed` has columns `month` and `volume`.
+extra_cost_by_month <- function(scored, days, volume, billed, tiers, months) {
+  extra <- scored |>
+    dplyr::filter(day %in% days) |>
+    dplyr::group_by(month = month_start(day)) |>
+    dplyr::summarise(extra = sum(pmax(.data[[volume]] - baseline, 0),
+                                 na.rm = TRUE),
+                     .groups = "drop")
+  tibble::tibble(month = months) |>
+    dplyr::left_join(extra, by = "month") |>
+    dplyr::left_join(dplyr::rename(billed, billed = volume), by = "month") |>
+    dplyr::mutate(
+      extra = dplyr::coalesce(extra, 0),
+      price = tier_price(billed, tiers),
+      cost = dplyr::if_else(extra == 0, 0, extra * price)
+    )
 }
 
 # Days flagged in the last seven, for the publishing workflow's Slack post.
@@ -558,6 +596,12 @@ format_long_date <- function(d) {
   d <- as.Date(d)
   paste0(format(d, "%B"), " ", as.integer(format(d, "%d")), ", ",
          format(d, "%Y"))
+}
+
+# "July 2026", with "(to date)" on a month not yet over.
+month_label <- function(month, through) {
+  label <- format(month, "%B %Y")
+  ifelse(month == month_start(through + 1L), paste(label, "(to date)"), label)
 }
 
 # "4.4x", or a dash where there is no baseline.

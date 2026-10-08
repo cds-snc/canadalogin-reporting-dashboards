@@ -273,18 +273,61 @@ test_that("a flagged day reads as one Str", {
                    "Wed,\u00a0September\u00a030")
 })
 
-test_that("an SMS is priced by the tier its month's volume falls in", {
-  tiers <- tibble::tibble(up_to = c(50000, 250000, 1000000, Inf),
-                          price = c(0.0456, 0.0453, 0.0428, 0.0402))
-  expect_equal(traffic$sms_price(c(1, 50000, 50001, 250000, 1e6, 1e6 + 1), tiers),
-               c(0.0456, 0.0456, 0.0453, 0.0453, 0.0428, 0.0402))
+test_that("flagged days are pooled across methods", {
+  scored <- list(
+    sms = tibble::tibble(day = as.Date(c("2026-09-07", "2026-09-30")),
+                         fired = c(FALSE, TRUE)),
+    location = tibble::tibble(day = as.Date(c("2026-09-07", "2026-09-30")),
+                              fired = c(TRUE, TRUE)),
+    errors = tibble::tibble(day = as.Date("2026-09-08"), fired = NA)
+  )
+  expect_identical(traffic$flagged_any(scored, as.Date("2026-09-01")),
+                   as.Date(c("2026-09-07", "2026-09-30")))
+  expect_identical(traffic$flagged_any(scored, as.Date("2026-09-08")),
+                   as.Date("2026-09-30"))
 })
 
-test_that("extra SMS on a flagged day are priced at that day's 30-day volume", {
+test_that("one more unit is priced by the tier its month's volume falls in", {
   tiers <- tibble::tibble(up_to = c(50000, 250000, 1000000, Inf),
-                          price = c(0.0456, 0.0453, 0.0428, 0.0402))
+                          price = c(0.05, 0.04, 0.03, 0.02))
+  expect_equal(traffic$tier_price(c(1, 50000, 50001, 250000, 1e6, 1e6 + 1), tiers),
+               c(0.05, 0.05, 0.04, 0.04, 0.03, 0.02))
+})
+
+test_that("extra volume on flagged days is summed and priced by month", {
+  tiers <- tibble::tibble(up_to = c(50000, Inf), price = c(0.05, 0.04))
   scored <- traffic$score_sms(traffic_sms(), traffic_thresholds)
-  # The 30 days to the bot day hold over 50,000 codes: the second tier.
-  expect_equal(traffic$extra_sms_cost(scored, as.Date("2026-09-01"), tiers),
-               38000 * 0.0453)
+  months <- as.Date(c("2026-08-01", "2026-09-01"))
+  billed <- tibble::tibble(month = months, volume = c(10000, 60000))
+  costs <- traffic$extra_cost_by_month(scored, traffic_bot_day, "sms_sent",
+                                       billed, tiers, months)
+  # The bot day sent 40,000 against a typical weekday of 2,000; September's
+  # 60,000 codes put it in the second tier. A month with no flag costs nothing.
+  expect_equal(costs$extra, c(0, 38000))
+  expect_equal(costs$cost, c(0, 38000 * 0.04))
+})
+
+test_that("extra volume in a month with no billed volume has no price", {
+  tiers <- tibble::tibble(up_to = Inf, price = 0.05)
+  scored <- traffic$score_sms(traffic_sms(), traffic_thresholds)
+  billed <- tibble::tibble(month = as.Date(character()), volume = numeric())
+  costs <- traffic$extra_cost_by_month(scored, traffic_bot_day, "sms_sent",
+                                       billed, tiers, as.Date("2026-09-01"))
+  expect_true(is.na(costs$cost))
+})
+
+test_that("only a month not yet over is labelled to date", {
+  months <- as.Date(c("2026-08-01", "2026-10-01"))
+  expect_identical(traffic$month_label(months, as.Date("2026-10-07")),
+                   c("August 2026", "October 2026 (to date)"))
+  expect_identical(traffic$month_label(as.Date("2026-09-01"),
+                                       as.Date("2026-09-30")),
+                   "September 2026")
+})
+
+test_that("cost months run 12 months back, none before launch", {
+  expect_identical(traffic$cost_months(as.Date("2026-10-07")),
+                   seq(as.Date("2026-04-01"), as.Date("2026-10-01"),
+                       by = "month"))
+  expect_length(traffic$cost_months(as.Date("2027-12-15")), 12)
 })

@@ -26,3 +26,16 @@ published_url <- function(file, utm_source = "dashboard_link",
   url <- rows$url[order(rows$published_at, decreasing = TRUE)][1]
   if (is.null(utm_source)) url else paste0(url, "?utm_source=", utm_source)
 }
+
+# A file in the publishing repo's private data/ folder, which Pages does not
+# serve, e.g. private_data("prices.csv"). NULL with a console message when it
+# is missing, so a missing file never fails a render.
+private_data <- function(file, read = utils::read.csv,
+                         dir = file.path(publishing_repo_root(), "data")) {
+  path <- file.path(dir, file)
+  if (!file.exists(path)) {
+    message("No data from ", file, ": ", path, " not found")
+    return(NULL)
+  }
+  read(path)
+}

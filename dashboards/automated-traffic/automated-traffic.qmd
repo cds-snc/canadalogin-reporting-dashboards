@@ -55,16 +55,6 @@ known_bot_days <- tibble::tribble(
   as.Date("2026-09-30"), TRUE, TRUE,      TRUE,  TRUE,   FALSE
 )
 
-# What one SMS costs, in dollars, by codes sent in the trailing 30 days.
-# `up_to` is the top of each tier.
-sms_price_tiers <- tibble::tribble(
-  ~up_to,    ~price,
-  50000,     0.0456,
-  250000,    0.0453,
-  1000000,   0.0428,
-  Inf,       0.0402
-)
-
 # Setup -----------------------------------------------------------------------
 
 # The working directory is this folder; the shared layer is two levels up.
@@ -72,6 +62,20 @@ source("../../common/setup.R")
 
 source("R/metrics.R")
 source("R/preflight.R")
+
+# Estimated prices, in dollars before tax. `up_to` is the top of each tier
+# of monthly volume. They are read from the publishing repo, and with no file
+# every price is NA and the costs read "-".
+prices <- private_data("prices.csv")
+price_tiers <- function(item) {
+  no_prices <- tibble::tibble(up_to = Inf, price = NA_real_)
+  if (is.null(prices)) return(no_prices)
+  tibble::as_tibble(prices[prices$item == item, c("up_to", "price")])
+}
+# One SMS code, by codes sent in the month.
+sms_price_tiers <- price_tiers("sms")
+# One monthly active user, by active users in the month.
+user_price_tiers <- price_tiers("active_user")
 
 con <- connect_athena()
 
@@ -407,7 +411,8 @@ link is unlisted. For anything that leaves EDCP, please reach out to the
 It uses **five methods**, each on its own page: [SMS codes](#sms-codes),
 [SMS location](#sms-location), [Idle accounts](#idle-accounts),
 [Sign-up speed](#sign-up-speed) and [Error patterns](#error-patterns). Each
-page explains how its method works and when it fires. The calendar below
+page explains how its method works and when it fires. The last page,
+[Extra costs](#extra-costs), estimates what the flagged days cost. The calendar below
 shades every day by its strongest method and labels the days a method flagged.
 As we find more methods, we will add them here.
 
@@ -1134,6 +1139,77 @@ error_rows |>
   daily_table(c(names(signature_labels), "all_errors"),
               c(as.list(signature_labels), list(all_errors = "All errors"))) |>
   cols_label(ratio = "Signature share")
+```
+
+:::
+
+# Extra costs
+
+```{r costs-summary}
+#| include: false
+months <- cost_months(through)
+cost_days <- flagged_any(scored, months[1])
+sms_billed <- sms |>
+  dplyr::group_by(month = month_start(day)) |>
+  dplyr::summarise(volume = sum(sms_sent), .groups = "drop")
+sms_costs <- extra_cost_by_month(scored$sms, cost_days, "sms_sent",
+                                 sms_billed, sms_price_tiers, months)
+account_costs <- extra_cost_by_month(scored$idle, cost_days, "new_accounts",
+                                     active_users_by_month(con),
+                                     user_price_tiers, months)
+costs <- tibble::tibble(
+  month = month_label(months, through),
+  sms_extra = sms_costs$extra,
+  sms_cost = sms_costs$cost,
+  account_extra = account_costs$extra,
+  account_cost = account_costs$cost
+)
+costs <- dplyr::bind_rows(
+  costs,
+  dplyr::summarise(costs, month = "Total",
+                   dplyr::across(-month, sum))
+)
+```
+
+## Row {height="auto"}
+
+::: {.card title="How we estimate the costs"}
+We count only the `r length(cost_days)`
+`r if (length(cost_days) == 1) "day" else "days"` any method flagged in the last
+12 months. On each, the extra is how far SMS codes sent and new accounts went
+above a typical day.
+
+Each extra is priced at an estimate of what one more costs that month, before
+tax. Prices are lower per unit at higher monthly volumes.
+
+- An extra SMS code costs the price per code at the month's total codes sent.
+- An extra account costs the price of one monthly active user at the month's
+  total active users. We assume an extra account is active only in the month
+  it was made.
+
+The cost is the extra times the price. Fixed monthly charges are left out,
+since they do not change with traffic. A month not yet over is priced at its
+volume so far.
+:::
+
+## Row
+
+::: {.card title="Estimated extra costs by month"}
+
+```{r costs-table}
+costs |>
+  gt() |>
+  fmt_number(c(sms_extra, account_extra), decimals = 0) |>
+  fmt_currency(c(sms_cost, account_cost), decimals = 0) |>
+  sub_missing(missing_text = "-") |>
+  cols_merge(c(sms_extra, sms_cost), pattern = "{1} ({2})") |>
+  cols_merge(c(account_extra, account_cost), pattern = "{1} ({2})") |>
+  cols_label(month = "", sms_extra = "Extra SMS codes (cost)",
+             account_extra = "Extra new accounts (cost)") |>
+  tab_style(cell_text(weight = "bold"),
+            cells_body(rows = month == "Total")) |>
+  tab_options(table.width = pct(100), table.font.size = px(14),
+              data_row.padding = px(3), table.border.top.style = "none")
 ```
 
 :::
