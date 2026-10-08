@@ -10,12 +10,14 @@ traffic_thresholds <- list(
   sms = list(volume = 3, entry_rate_below = 0.5),
   location = list(volume = 1.5, share_at_least = 0.3),
   idle = list(volume = 2, idle_share_at_least = 0.5),
+  speed = list(volume = 2, median_seconds_below = 10),
   errors = list(group_volume = 3, groups_at_least = 3L, group_floor = 20,
                 share_at_least = 0.3)
 )
 
 traffic_known_days <- tibble::tibble(
-  day = traffic_bot_day, sms = TRUE, location = TRUE, idle = TRUE, errors = TRUE
+  day = traffic_bot_day, sms = TRUE, location = TRUE, idle = TRUE, speed = TRUE,
+  errors = TRUE
 )
 
 traffic_days <- function(from = as.Date("2026-05-01"),
@@ -65,6 +67,18 @@ traffic_pairs <- function(days = traffic_days(), bot_days = traffic_bot_day) {
   dplyr::bind_rows(rows) |> dplyr::filter(accounts > 0)
 }
 
+# Seconds to enter an email code: people take 12 to 30, the bot day's 9,000
+# extra codes take 1.
+traffic_email_seconds <- function(days = traffic_days(),
+                                  bot_days = traffic_bot_day) {
+  rows <- purrr::map(days, \(day) {
+    people <- if (is_weekend(day)) c(100, 150, 50) else c(250, 400, 150)
+    bot <- if (day %in% bot_days) 9000 else 0
+    tibble::tibble(day = day, seconds = c(1, 12, 20, 30), codes = c(bot, people))
+  })
+  dplyr::bind_rows(rows) |> dplyr::filter(codes > 0)
+}
+
 # GA error codes; the four signature groups rise together on the bot day.
 traffic_codes <- function(days = traffic_days(as.Date("2026-06-01"),
                                               traffic_today - 2L),
@@ -82,13 +96,16 @@ traffic_codes <- function(days = traffic_days(as.Date("2026-06-01"),
 }
 
 traffic_with_data <- function(sms = traffic_sms(), origins = traffic_origins(),
-                              pairs = traffic_pairs(), codes = traffic_codes()) {
+                              pairs = traffic_pairs(),
+                              seconds = traffic_email_seconds(),
+                              codes = traffic_codes()) {
   env <- load_dashboard("automated-traffic")
   stub(
     env,
     sms_days = function(con) sms,
     sms_origin_days = function(con) origins,
     account_pairs = function(con) pairs,
+    email_code_seconds = function(con) seconds,
     error_codes = function(con) codes
   )
 }

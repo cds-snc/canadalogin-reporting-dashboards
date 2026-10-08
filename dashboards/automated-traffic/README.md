@@ -11,6 +11,8 @@ on CanadaLogin. Each page is one detection method:
 - **Idle accounts**, from the IBM Verify event stream: far more new accounts
   than usual, and most never signing in to a partner service that day. A second
   tab has accounts since launch, with idle accounts by week.
+- **Sign-up speed**, from the IBM Verify event stream: far more sign-up email
+  codes entered than usual, and entered faster than people enter them.
 - **Error patterns**, from `google_analytics.error_events`: four rare errors
   rising together.
 

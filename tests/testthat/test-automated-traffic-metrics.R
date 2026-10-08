@@ -91,6 +91,50 @@ test_that("idle accounts fires on a bulk wave of idle accounts", {
                    traffic_bot_day)
 })
 
+test_that("a weighted median counts each value its weight", {
+  expect_equal(traffic$weighted_median(c(20, 1), c(1, 3)), 1)
+  expect_equal(traffic$weighted_median(c(30, 12, 20), c(1, 1, 1)), 20)
+})
+
+test_that("sign-up speed fires on a wave of codes entered by machine", {
+  scored <- traffic$score_speed(traffic$speed_days(traffic_email_seconds()),
+                                traffic_thresholds)
+  expect_identical(fired_on(scored), traffic_bot_day)
+  expect_equal(scored$ratio[scored$day == traffic_bot_day], 1)
+})
+
+test_that("sign-up speed does not fire on a launch where people type their codes", {
+  seconds <- traffic_email_seconds() |>
+    dplyr::mutate(seconds = dplyr::if_else(seconds == 1, 20, seconds))
+  speed <- traffic$speed_days(seconds)
+  expect_length(fired_on(traffic$score_speed(speed, traffic_thresholds)), 0)
+})
+
+test_that("fast codes at an ordinary volume do not fire", {
+  seconds <- traffic_email_seconds() |>
+    dplyr::filter(day != traffic_bot_day | seconds == 1) |>
+    dplyr::mutate(codes = dplyr::if_else(day == traffic_bot_day, 700, codes))
+  speed <- traffic$speed_days(seconds)
+  expect_equal(speed$median_seconds[speed$day == traffic_bot_day], 1)
+  expect_length(fired_on(traffic$score_speed(speed, traffic_thresholds)), 0)
+})
+
+test_that("a day without email codes is left out, not scored as a quiet day", {
+  seconds <- dplyr::filter(traffic_email_seconds(), day != as.Date("2026-09-02"))
+  expect_false(as.Date("2026-09-02") %in% traffic$speed_days(seconds)$day)
+})
+
+test_that("the typical time to enter a code leaves out flagged days", {
+  seconds <- traffic_email_seconds()
+  week <- traffic$window_median_seconds(seconds, as.Date("2026-09-14"),
+                                        as.Date("2026-09-20"))
+  typical <- traffic$window_median_seconds(seconds, as.Date("2026-09-14"),
+                                           as.Date("2026-09-20"),
+                                           skip = traffic_bot_day)
+  expect_equal(week, 1)
+  expect_equal(typical, 20)
+})
+
 test_that("error patterns fires when the signature errors rise together", {
   errors <- traffic$error_days(traffic_codes())
   expect_identical(fired_on(traffic$score_errors(errors, traffic_thresholds)),
@@ -191,15 +235,17 @@ test_that("the calendar counts methods, marks waiting days, takes the strongest"
     "sms",      as.Date("2026-09-17"), 20,        0.1,    TRUE,
     "location", as.Date("2026-09-17"), 20,        0.9,    TRUE,
     "idle",     as.Date("2026-09-17"), 4,         0.8,    TRUE,
+    "speed",    as.Date("2026-09-17"), 4,         2,      TRUE,
     "errors",   as.Date("2026-09-17"), 5,         0.5,    TRUE,
     "sms",      as.Date("2026-09-18"), 1,         0.95,   FALSE,
     "location", as.Date("2026-09-18"), 1,         0.02,   FALSE,
     "idle",     as.Date("2026-09-18"), 50,        0.1,    FALSE,
+    "speed",    as.Date("2026-09-18"), 1,         20,     FALSE,
     "errors",   as.Date("2026-09-18"), NA,        NA,     NA
   )
   cal <- traffic$calendar_days(scores, as.Date("2026-09-17"),
                                as.Date("2026-09-18"))
-  expect_equal(cal$n_fired, c(4, 0))
+  expect_equal(cal$n_fired, c(5, 0))
   # Error patterns last reported on the 17th, so the 18th waits on it.
   expect_identical(cal$waiting, c(FALSE, TRUE))
   # Only methods that fired count: 50x idle accounts on the 18th did not.
@@ -214,10 +260,12 @@ test_that("a day before a method could score is not waiting", {
     "sms",      as.Date("2026-07-01"), 1,         0.95,   FALSE,
     "location", as.Date("2026-07-01"), 1,         0.02,   FALSE,
     "idle",     as.Date("2026-07-01"), 1,         0.2,    FALSE,
+    "speed",    as.Date("2026-07-01"), 1,         20,     FALSE,
     "errors",   as.Date("2026-07-01"), NA,        NA,     NA,
     "sms",      as.Date("2026-07-02"), 1,         0.95,   FALSE,
     "location", as.Date("2026-07-02"), 1,         0.02,   FALSE,
     "idle",     as.Date("2026-07-02"), 1,         0.2,    FALSE,
+    "speed",    as.Date("2026-07-02"), 1,         20,     FALSE,
     "errors",   as.Date("2026-07-02"), 1,         0.1,    FALSE
   )
   cal <- traffic$calendar_days(scores, as.Date("2026-07-01"),

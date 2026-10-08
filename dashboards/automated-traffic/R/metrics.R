@@ -16,6 +16,7 @@ methods <- tibble::tribble(
   "sms",      "SMS codes",      "sms-codes",
   "location", "SMS location",   "sms-location",
   "idle",     "Idle accounts",  "idle-accounts",
+  "speed",    "Sign-up speed",  "sign-up-speed",
   "errors",   "Error patterns", "error-patterns"
 )
 
@@ -127,12 +128,46 @@ sms_phone_days <- read_once(\(con) {
     dplyr::arrange(day)
 })
 
-# A Toronto day from the event stream's "2026-10-05 17:10:37 UTC".
+# Longest wait recorded between an email code sent and entered, in seconds.
+email_seconds_cap <- 600L
+
+# Seconds from an email code sent by the sign-up API to its entry, linked by
+# hashed address: one row per day and whole second, capped.
+email_code_seconds <- read_once(\(con) {
+  dplyr::tbl(con, dbplyr::in_schema("ibm_verify_events_raw", "mfa_activity")) |>
+    dplyr::filter(mfamethod == "Email OTP", performedby_type == "api",
+                  !is.na(mfadevice),
+                  !mfadevice %in% c("", "UNKNOWN", "Unknown")) |>
+    dplyr::mutate(at = !!utc_seconds_sql("time")) |>
+    dplyr::group_by(mfadevice) |>
+    dbplyr::window_order(at) |>
+    dplyr::mutate(prev_result = dplyr::lag(result), prev_at = dplyr::lag(at)) |>
+    dplyr::ungroup() |>
+    dplyr::filter(result == "success", prev_result == "sent") |>
+    dplyr::mutate(
+      day = !!toronto_day_sql("time"),
+      seconds = least(floor(at - prev_at), !!email_seconds_cap)
+    ) |>
+    dplyr::count(day, seconds, name = "codes") |>
+    dplyr::collect() |>
+    as_plain_numbers() |>
+    dplyr::mutate(day = as.Date(day)) |>
+    dplyr::arrange(day, seconds)
+})
+
+# The event stream's "2026-10-05 17:10:37 UTC" as a SQL timestamp.
+utc_time_sql <- function(column) {
+  glue::glue(
+    "from_iso8601_timestamp(replace(substr({column}, 1, 19), ' ', 'T') || 'Z')"
+  )
+}
+
 toronto_day_sql <- function(column) {
-  dplyr::sql(glue::glue(
-    "date(at_timezone(from_iso8601_timestamp(",
-    "replace(substr({column}, 1, 19), ' ', 'T') || 'Z'), '{local_tz}'))"
-  ))
+  dplyr::sql(glue::glue("date(at_timezone({utc_time_sql(column)}, '{local_tz}'))"))
+}
+
+utc_seconds_sql <- function(column) {
+  dplyr::sql(glue::glue("to_unixtime({utc_time_sql(column)})"))
 }
 
 # Application names that belong to a public partner service. Unknown names
@@ -202,6 +237,30 @@ account_days <- function(pairs, through) {
       .groups = "drop"
     ) |>
     dplyr::arrange(day)
+}
+
+# The middle of `x`, each value counted `w` times.
+weighted_median <- function(x, w) {
+  o <- order(x)
+  x[o][which(cumsum(w[o]) >= sum(w) / 2)[1]]
+}
+
+# Email codes entered per day, and the median seconds to enter one. A day
+# with no codes is left out, so it reads as a missing day.
+speed_days <- function(seconds) {
+  seconds |>
+    dplyr::group_by(day) |>
+    dplyr::summarise(codes_timed = sum(codes),
+                     median_seconds = weighted_median(seconds, codes),
+                     .groups = "drop")
+}
+
+# Median seconds to enter an email code from `from` to `through`, leaving
+# out the days in `skip`.
+window_median_seconds <- function(seconds, from, through,
+                                  skip = as.Date(character())) {
+  rows <- dplyr::filter(seconds, day >= from, day <= through, !day %in% skip)
+  weighted_median(rows$seconds, rows$codes)
 }
 
 # Accounts since launch as of each day. Point in time: an account leaves the
@@ -346,6 +405,22 @@ score_idle <- function(accounts, thresholds) {
     )
   }, thresholds)
   dplyr::bind_cols(accounts, dplyr::select(scored, -day))
+}
+
+# Sign-up speed: email codes entered well above normal, and entered faster
+# than people enter them.
+score_speed <- function(speed, thresholds) {
+  t <- thresholds$speed
+  scored <- score_days(speed$day, \(i, history) {
+    baseline <- stats::median(speed$codes_timed[history])
+    multiple <- speed$codes_timed[i] / baseline
+    ratio <- speed$median_seconds[i]
+    tibble::tibble(
+      baseline = baseline, multiple = multiple, ratio = ratio,
+      fired = multiple >= t$volume & ratio < t$median_seconds_below
+    )
+  }, thresholds)
+  dplyr::bind_cols(speed, dplyr::select(scored, -day))
 }
 
 # Error patterns: several signature errors up together, each against its own
@@ -511,6 +586,12 @@ fmt_multiple <- function(x) {
 
 # Spaces to non-breaking, so a value box value stays one Str and keeps its class.
 nbsp <- function(x) gsub(" ", "\u00a0", x, fixed = TRUE)
+
+# "21 seconds", one Str for a value box; a dash where there is none.
+fmt_seconds <- function(x) {
+  if (is.na(x)) return("-")
+  nbsp(paste(x, if (x == 1) "second" else "seconds"))
+}
 
 # "About 15,000", rounded to the thousand, for a value box; "None" for zero.
 fmt_about <- function(x) {
