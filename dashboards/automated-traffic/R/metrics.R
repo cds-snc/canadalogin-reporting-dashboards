@@ -255,14 +255,6 @@ speed_days <- function(seconds) {
                      .groups = "drop")
 }
 
-# Median seconds to enter an email code from `from` to `through`, leaving
-# out the days in `skip`.
-window_median_seconds <- function(seconds, from, through,
-                                  skip = as.Date(character())) {
-  rows <- dplyr::filter(seconds, day >= from, day <= through, !day %in% skip)
-  weighted_median(rows$seconds, rows$codes)
-}
-
 # Accounts since launch as of each day. Point in time: an account leaves the
 # idle count the day it first signs in to a service; no earlier day changes.
 accounts_since_launch <- function(pairs, through) {
@@ -383,8 +375,6 @@ score_location <- function(sms, thresholds) {
     ratio <- sms$sms_outside[i] / sms$sms_sent[i]
     tibble::tibble(
       baseline = baseline, multiple = multiple, ratio = ratio,
-      # Codes from outside on a typical day, for the value boxes.
-      typical = stats::median(sms$sms_outside[history]),
       fired = multiple >= t$volume & ratio >= t$share_at_least
     )
   }, thresholds)
@@ -436,8 +426,6 @@ score_errors <- function(errors, thresholds) {
     ratio <- sum(today) / errors$all_errors[i]
     tibble::tibble(
       baseline = sum(baselines), multiple = sum(today) / sum(baselines),
-      # Unfloored, for the value boxes' typical week; the floor is for firing.
-      typical = sum(medians),
       ratio = ratio, groups_up = groups_up,
       fired = groups_up >= t$groups_at_least & ratio >= t$share_at_least
     )
@@ -497,29 +485,23 @@ calendar_days <- function(scores, from, through) {
     dplyr::mutate(waiting = day > caught_up)
 }
 
-# A method's last `days` days ending `end`, for its value boxes: `volume`
-# against the sum of each day's own baseline, and `numerator` over
-# `denominator` against the median day over the window before, flagged days
-# left out. The median keeps unflagged attack spillover from moving it.
-method_window <- function(scored, end, volume, numerator, denominator,
-                          days = 7L, baseline_days = 28L,
-                          baseline = "baseline") {
-  now <- dplyr::filter(scored, day > end - days, day <= end)
-  before <- dplyr::filter(scored, day > end - days - baseline_days,
-                          day <= end - days, !(fired %in% TRUE))
-  list(
-    volume = sum(now[[volume]]),
-    multiple = sum(now[[volume]]) / sum(now[[baseline]]),
-    ratio = sum(now[[numerator]]) / sum(now[[denominator]]),
-    typical_ratio = stats::median(before[[numerator]] / before[[denominator]],
-                                  na.rm = TRUE)
-  )
-}
-
-# A method's `volume` above a typical day on the days it fired, from `from` on.
-extra_on_flagged <- function(scored, from, volume, baseline = "baseline") {
-  rows <- dplyr::filter(scored, day >= from, fired %in% TRUE)
-  sum(pmax(rows[[volume]] - rows[[baseline]], 0))
+# A method's newest flagged day from `from` on, for its value boxes: that
+# day's `volume`, multiple and ratio, and the median ratio over the
+# `baseline_days` before it, flagged days left out, and `n` flagged days in
+# all. All NA if none fired.
+last_flag <- function(scored, from, volume, baseline_days = 28L) {
+  flagged <- dplyr::filter(scored, day >= from, fired %in% TRUE)
+  if (nrow(flagged) == 0) {
+    return(list(day = as.Date(NA), volume = NA, multiple = NA, ratio = NA,
+                typical_ratio = NA, n = 0L))
+  }
+  row <- dplyr::slice_max(flagged, day, n = 1)
+  before <- dplyr::filter(scored, day >= row$day - baseline_days,
+                          day < row$day, !(fired %in% TRUE))
+  list(day = row$day, volume = row[[volume]], multiple = row$multiple,
+       ratio = row$ratio,
+       typical_ratio = stats::median(before$ratio, na.rm = TRUE),
+       n = nrow(flagged))
 }
 
 # The price of one SMS at a month's volume, from tiers of `up_to` and `price`.
@@ -590,15 +572,29 @@ nbsp <- function(x) gsub(" ", "\u00a0", x, fixed = TRUE)
 # "21 seconds", one Str for a value box; a dash where there is none.
 fmt_seconds <- function(x) {
   if (is.na(x)) return("-")
+  x <- round(x)
   nbsp(paste(x, if (x == 1) "second" else "seconds"))
 }
 
-# "About 15,000", rounded to the thousand, for a value box; "None" for zero.
-fmt_about <- function(x) {
-  if (x == 0) "None" else nbsp(paste("About", scales::comma(round(x, -3))))
+# "12,286" or "34%" for a value box; a dash where there is none.
+fmt_count <- function(x) if (is.na(x)) "-" else scales::comma(x)
+fmt_share <- function(x) if (is.na(x)) "-" else scales::percent(x, accuracy = 1)
+
+# "Wed, September 30", one Str for a value box.
+fmt_flag_day <- function(d) {
+  if (is.na(d)) return(nbsp("None in three months"))
+  nbsp(paste0(format(d, "%a, %B "), as.integer(format(d, "%d"))))
 }
 
-# "More than usual, on 3 flagged days", under an extra-volume value box.
-extra_line <- function(n) {
-  glue::glue("More than usual, on {n} flagged {if (n == 1) 'day' else 'days'}")
+# Captions under the last-flag value boxes; the multiple and typical lines
+# are blank when no day was flagged.
+flag_count_line <- function(flag) {
+  paste(flag$n, if (flag$n == 1) "flagged day" else "flagged days",
+        "in three months")
+}
+multiple_line <- function(flag) {
+  if (is.na(flag$day)) "" else paste(fmt_multiple(flag$multiple), "a typical day")
+}
+typical_line <- function(flag, fmt) {
+  if (is.na(flag$day)) "" else paste(fmt(flag$typical_ratio), "on a typical day")
 }

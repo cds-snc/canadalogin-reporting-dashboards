@@ -474,11 +474,8 @@ that method's typical day.
 ```{r sms-summary}
 #| include: false
 sms_rows <- scored$sms
-sms_week <- method_window(sms_rows, reported_through$sms, "sms_sent",
-                          "sms_success", "sms_sent",
-                          baseline_days = thresholds$baseline_days)
-sms_extra <- extra_on_flagged(sms_rows, chart_from, "sms_sent")
-sms_extra_cost <- extra_sms_cost(sms_rows, chart_from, sms_price_tiers)
+sms_flag <- last_flag(sms_rows, chart_from, "sms_sent",
+                      thresholds$baseline_days)
 
 phone_rows <- sms_phone_days(con) |>
   dplyr::filter(day >= chart_from, day <= through) |>
@@ -506,27 +503,27 @@ one-time-password to that number, and the user types it back. Real users enter a
 ## Row {height="150px"}
 
 ::: {.valuebox color="primary"}
-SMS codes sent, last 7 days
+Last flagged day
 
-`r comma(sms_week$volume)`
+`r fmt_flag_day(sms_flag$day)`
 
-`r fmt_multiple(sms_week$multiple)` a typical week
+`r flag_count_line(sms_flag)`
 :::
 
 ::: {.valuebox color="info"}
-Codes entered, last 7 days
+SMS codes sent, last flagged day
 
-`r percent(sms_week$ratio, accuracy = 1)`
+`r fmt_count(sms_flag$volume)`
 
-`r percent(sms_week$typical_ratio, accuracy = 1)` on a typical day
+`r multiple_line(sms_flag)`
 :::
 
 ::: {.valuebox color="secondary"}
-Extra SMS codes, last three months
+Codes entered, last flagged day
 
-`r fmt_about(sms_extra)`
+`r fmt_share(sms_flag$ratio)`
 
-Costing about `r dollar(round(sms_extra_cost, -2))`
+`r typical_line(sms_flag, fmt_share)`
 :::
 
 ## Row {height="560px"}
@@ -613,20 +610,16 @@ sms_rows |>
 ```{r location-summary}
 #| include: false
 location_rows <- scored$location
-location_week <- method_window(location_rows, reported_through$location,
-                               "sms_outside", "sms_outside", "sms_sent",
-                               baseline_days = thresholds$baseline_days,
-                               baseline = "typical")
-location_extra <- extra_on_flagged(location_rows, chart_from, "sms_outside",
-                                   baseline = "typical")
+location_flag <- last_flag(location_rows, chart_from, "sms_sent",
+                           thresholds$baseline_days)
 ```
 
 ## Row {height="auto"}
 
 ::: {.card title="How this method works"}
 Almost every SMS code is requested from Canada or the US. On a typical day,
-only a few percent come from anywhere else. On the bot days in September, most
-did. This method fires when **codes sent are at least
+only a few percent come from anywhere else. This method fires when **codes
+sent are at least
 `r thresholds$location$volume`x a typical day** and **at least
 `r percent(thresholds$location$share_at_least)` of them were requested from
 outside Canada and the US**. The location comes from the requester's IP
@@ -636,27 +629,27 @@ address, so a bot using a Canadian or US address leaves no trace here.
 ## Row {height="150px"}
 
 ::: {.valuebox color="primary"}
-Codes from outside Canada and the US, last 7 days
+Last flagged day
 
-`r comma(location_week$volume)`
+`r fmt_flag_day(location_flag$day)`
 
-`r fmt_multiple(location_week$multiple)` a typical week
+`r flag_count_line(location_flag)`
 :::
 
 ::: {.valuebox color="info"}
-Share from outside, last 7 days
+SMS codes sent, last flagged day
 
-`r percent(location_week$ratio, accuracy = 1)`
+`r fmt_count(location_flag$volume)`
 
-`r percent(location_week$typical_ratio, accuracy = 1)` on a typical day
+`r multiple_line(location_flag)`
 :::
 
 ::: {.valuebox color="secondary"}
-Extra codes from outside, last three months
+Share from outside, last flagged day
 
-`r fmt_about(location_extra)`
+`r fmt_share(location_flag$ratio)`
 
-`r extra_line(sum(location_rows$fired[location_rows$day >= chart_from] %in% TRUE))`
+`r typical_line(location_flag, fmt_share)`
 :::
 
 ## Row {height="560px"}
@@ -707,10 +700,8 @@ location_rows |>
 ```{r idle-summary}
 #| include: false
 idle_rows <- scored$idle
-idle_week <- method_window(idle_rows, reported_through$idle, "new_accounts",
-                           "idle_same_day", "new_accounts",
-                           baseline_days = thresholds$baseline_days)
-idle_extra <- extra_on_flagged(idle_rows, chart_from, "new_accounts")
+idle_flag <- last_flag(idle_rows, chart_from, "new_accounts",
+                       thresholds$baseline_days)
 launch_latest <- since_launch[since_launch$date == through, ]
 
 idle_flag_days <- dplyr::filter(idle_rows, fired %in% TRUE)$day
@@ -738,27 +729,27 @@ made**.
 ##### Row {height="150px"}
 
 ::: {.valuebox color="primary"}
-New accounts, last 7 days
+Last flagged day
 
-`r comma(idle_week$volume)`
+`r fmt_flag_day(idle_flag$day)`
 
-`r fmt_multiple(idle_week$multiple)` a typical week
+`r flag_count_line(idle_flag)`
 :::
 
 ::: {.valuebox color="info"}
-Idle on the day made, last 7 days
+New accounts, last flagged day
 
-`r percent(idle_week$ratio, accuracy = 1)`
+`r fmt_count(idle_flag$volume)`
 
-`r percent(idle_week$typical_ratio, accuracy = 1)` on a typical day
+`r multiple_line(idle_flag)`
 :::
 
 ::: {.valuebox color="secondary"}
-Extra accounts, last three months
+Idle on the day made, last flagged day
 
-`r fmt_about(idle_extra)`
+`r fmt_share(idle_flag$ratio)`
 
-`r extra_line(sum(idle_flag_days >= chart_from))`
+`r typical_line(idle_flag, fmt_share)`
 :::
 
 ##### Row {height="560px"}
@@ -923,18 +914,8 @@ account and never use it.
 ```{r speed-summary}
 #| include: false
 speed_rows <- scored$speed
-speed_end <- reported_through$speed
-speed_week <- method_window(speed_rows, speed_end, "codes_entered",
-                            "codes_entered", "codes_entered",
-                            baseline_days = thresholds$baseline_days)
-speed_flagged <- speed_rows$day[speed_rows$fired %in% TRUE]
-speed_week_seconds <- window_median_seconds(email_seconds, speed_end - 6L,
-                                            speed_end)
-speed_typical_seconds <- window_median_seconds(
-  email_seconds, speed_end - 6L - thresholds$baseline_days, speed_end - 7L,
-  skip = speed_flagged
-)
-speed_extra <- extra_on_flagged(speed_rows, chart_from, "codes_entered")
+speed_flag <- last_flag(speed_rows, chart_from, "codes_entered",
+                        thresholds$baseline_days)
 ```
 
 ## Row {height="auto"}
@@ -952,27 +933,27 @@ waits before entering its codes leaves no trace here.
 ## Row {height="150px"}
 
 ::: {.valuebox color="primary"}
-Email codes entered, last 7 days
+Last flagged day
 
-`r comma(speed_week$volume)`
+`r fmt_flag_day(speed_flag$day)`
 
-`r fmt_multiple(speed_week$multiple)` a typical week
+`r flag_count_line(speed_flag)`
 :::
 
 ::: {.valuebox color="info"}
-Median time to enter, last 7 days
+Email codes entered, last flagged day
 
-`r fmt_seconds(speed_week_seconds)`
+`r fmt_count(speed_flag$volume)`
 
-`r fmt_seconds(speed_typical_seconds)` on a typical day
+`r multiple_line(speed_flag)`
 :::
 
 ::: {.valuebox color="secondary"}
-Extra email codes entered, last three months
+Median time to enter, last flagged day
 
-`r fmt_about(speed_extra)`
+`r fmt_seconds(speed_flag$ratio)`
 
-`r extra_line(sum(speed_flagged >= chart_from))`
+`r typical_line(speed_flag, fmt_seconds)`
 :::
 
 ## Row {height="560px"}
@@ -1029,12 +1010,8 @@ accounts, timed from the code being sent to it being entered.
 ```{r errors-summary}
 #| include: false
 error_rows <- scored$errors
-errors_week <- method_window(error_rows, reported_through$errors, "signature",
-                             "signature", "all_errors",
-                             baseline_days = thresholds$baseline_days,
-                             baseline = "typical")
-errors_extra <- extra_on_flagged(error_rows, chart_from, "signature",
-                                 baseline = "typical")
+errors_flag <- last_flag(error_rows, chart_from, "signature",
+                         thresholds$baseline_days)
 ```
 
 ## Row {height="auto"}
@@ -1052,27 +1029,27 @@ errors**. A bot that doesn't use a normal browser leaves no trace here.
 ## Row {height="150px"}
 
 ::: {.valuebox color="primary"}
-Signature errors, last 7 days
+Last flagged day
 
-`r comma(errors_week$volume)`
+`r fmt_flag_day(errors_flag$day)`
 
-`r fmt_multiple(errors_week$multiple)` a typical week
+`r flag_count_line(errors_flag)`
 :::
 
 ::: {.valuebox color="info"}
-Share of all errors, last 7 days
+Signature errors, last flagged day
 
-`r percent(errors_week$ratio, accuracy = 1)`
+`r fmt_count(errors_flag$volume)`
 
-`r percent(errors_week$typical_ratio, accuracy = 1)` on a typical day
+`r multiple_line(errors_flag)`
 :::
 
 ::: {.valuebox color="secondary"}
-Extra signature errors, last three months
+Share of all errors, last flagged day
 
-`r fmt_about(errors_extra)`
+`r fmt_share(errors_flag$ratio)`
 
-`r extra_line(sum(error_rows$fired[error_rows$day >= chart_from] %in% TRUE))`
+`r typical_line(errors_flag, fmt_share)`
 :::
 
 ## Row {height="560px"}

@@ -64,14 +64,6 @@ test_that("SMS location does not fire on a launch at home", {
   expect_length(fired_on(traffic$score_location(origins, traffic_thresholds)), 0)
 })
 
-test_that("extra codes from outside count those above a typical day", {
-  scored <- traffic$score_location(traffic_origins(), traffic_thresholds)
-  # The bot day had 34,000 codes from outside against 40 on a typical weekday.
-  expect_equal(traffic$extra_on_flagged(scored, as.Date("2026-09-01"),
-                                        "sms_outside", baseline = "typical"),
-               34000 - 40)
-})
-
 test_that("a high share from outside alone does not fire", {
   origins <- traffic_origins(bot_days = as.Date(NA)) |>
     dplyr::mutate(sms_outside = ifelse(day == traffic_bot_day, 1500, sms_outside))
@@ -117,17 +109,6 @@ test_that("fast codes at an ordinary volume do not fire", {
   speed <- traffic$speed_days(seconds)
   expect_equal(speed$median_seconds[speed$day == traffic_bot_day], 1)
   expect_length(fired_on(traffic$score_speed(speed, traffic_thresholds)), 0)
-})
-
-test_that("the typical time to enter a code leaves out flagged days", {
-  seconds <- traffic_email_seconds()
-  week <- traffic$window_median_seconds(seconds, as.Date("2026-09-14"),
-                                        as.Date("2026-09-20"))
-  typical <- traffic$window_median_seconds(seconds, as.Date("2026-09-14"),
-                                           as.Date("2026-09-20"),
-                                           skip = traffic_bot_day)
-  expect_equal(week, 1)
-  expect_equal(typical, 20)
 })
 
 test_that("error patterns fires when the signature errors rise together", {
@@ -268,24 +249,28 @@ test_that("a day before a method could score is not waiting", {
   expect_identical(cal$waiting, c(FALSE, FALSE))
 })
 
-test_that("extra SMS counts sends above a typical day on fired days only", {
+test_that("the last flag has its own multiple and a typical entry rate", {
   scored <- traffic$score_sms(traffic_sms(), traffic_thresholds)
-  # The bot day sent 40,000 against a typical weekday of 2,000.
-  expect_equal(traffic$extra_on_flagged(scored, as.Date("2026-09-01"), "sms_sent"),
-               38000)
-  expect_equal(traffic$extra_on_flagged(scored, as.Date("2026-09-18"), "sms_sent"),
-               0)
+  flag <- traffic$last_flag(scored, as.Date("2026-09-01"), "sms_sent")
+  expect_identical(flag$day, traffic_bot_day)
+  expect_equal(flag$volume, 40000)
+  expect_equal(flag$multiple, 20)
+  expect_equal(flag$typical_ratio, 0.96, tolerance = 0.001)
+  expect_identical(traffic$flag_count_line(flag), "1 flagged day in three months")
 })
 
-test_that("the SMS week compares with a typical week and a typical entry rate", {
+test_that("no flag since `from` leaves the last flag empty", {
   scored <- traffic$score_sms(traffic_sms(), traffic_thresholds)
-  # Mon Sep 14 to Sun Sep 20 holds the bot day: 4 weekdays at 2,000, the bot
-  # day at 40,000, and a weekend at 700 a day.
-  week <- traffic$method_window(scored, as.Date("2026-09-20"), "sms_sent",
-                                "sms_success", "sms_sent")
-  expect_equal(week$volume, 4 * 2000 + 40000 + 2 * 700)
-  expect_equal(week$multiple, week$volume / (5 * 2000 + 2 * 700))
-  expect_equal(week$typical_ratio, 0.96, tolerance = 0.001)
+  flag <- traffic$last_flag(scored, traffic_bot_day + 1L, "sms_sent")
+  expect_true(is.na(flag$day))
+  expect_identical(traffic$multiple_line(flag), "")
+  expect_identical(traffic$fmt_flag_day(flag$day),
+                   traffic$nbsp("None in three months"))
+})
+
+test_that("a flagged day reads as one Str", {
+  expect_identical(traffic$fmt_flag_day(as.Date("2026-09-30")),
+                   "Wed,\u00a0September\u00a030")
 })
 
 test_that("an SMS is priced by the tier its month's volume falls in", {
