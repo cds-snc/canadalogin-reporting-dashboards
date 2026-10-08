@@ -114,3 +114,61 @@ test_that("the long window reads the one stored window ending on as_of", {
   expect_identical(call$from, as.Date("2026-09-02"))
   expect_identical(call$to, as.Date("2026-09-02"))
 })
+
+# Relying party attribution ---------------------------------------------------
+
+starters <- function(...) {
+  counts <- c(...)
+  tibble::tibble(breakdown_value = names(counts), activeusers = unname(counts))
+}
+
+test_that("unattributed share counts empty and (not set) names", {
+  window <- tibble::tibble(
+    breakdown_value = c("RESERVED_TOTAL", "rp-a", "", "(not set)"),
+    activeusers = c(100, 60, 10, 30)
+  )
+  expect_equal(expmon$unattributed_share(window), 0.4)
+})
+
+test_that("unattributed share divides by the total row, not the party sum", {
+  window <- starters(RESERVED_TOTAL = 100, "rp-a" = 95, "(not set)" = 10)
+  expect_equal(expmon$unattributed_share(window), 0.1)
+})
+
+test_that("unattributed share is zero when every party is named", {
+  window <- starters(RESERVED_TOTAL = 100, "rp-a" = 100)
+  expect_equal(expmon$unattributed_share(window), 0)
+})
+
+test_that("unattributed share is NA without a usable total", {
+  expect_true(is.na(expmon$unattributed_share(starters("rp-a" = 5))))
+  expect_true(is.na(expmon$unattributed_share(starters(RESERVED_TOTAL = 0))))
+})
+
+test_that("largest starter drops rank the services that lost most", {
+  previous <- starters(RESERVED_TOTAL = 100, "rp-a" = 50, "rp-b" = 30, "rp-c" = 10)
+  current <- starters(RESERVED_TOTAL = 100, "rp-a" = 45, "rp-b" = 5, "rp-c" = 12)
+  drops <- expmon$largest_starter_drops(current, previous)
+  expect_equal(drops$breakdown_value, c("rp-b", "rp-a"))
+  expect_equal(drops$drop, c(25, 5))
+})
+
+test_that("a service absent from the current window fell by all its starters", {
+  previous <- starters(RESERVED_TOTAL = 100, "rp-a" = 40)
+  current <- starters(RESERVED_TOTAL = 100, "(not set)" = 90)
+  drops <- expmon$largest_starter_drops(current, previous)
+  expect_equal(drops$breakdown_value, "rp-a")
+  expect_equal(drops$activeusers_current, 0)
+})
+
+test_that("largest starter drops ignore the unattributed rows and the total", {
+  previous <- starters(RESERVED_TOTAL = 100, "(not set)" = 50, "rp-a" = 5)
+  current <- starters(RESERVED_TOTAL = 60, "(not set)" = 0, "rp-a" = 5)
+  expect_equal(nrow(expmon$largest_starter_drops(current, previous)), 0)
+})
+
+test_that("largest starter drops keep at most n services", {
+  previous <- starters(RESERVED_TOTAL = 9, "a" = 3, "b" = 2, "c" = 1)
+  current <- starters(RESERVED_TOTAL = 0)
+  expect_equal(nrow(expmon$largest_starter_drops(current, previous, n = 2)), 2)
+})
