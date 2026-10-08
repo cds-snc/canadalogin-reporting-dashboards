@@ -1,0 +1,761 @@
+---
+title: "CanadaLogin Readership"
+author: "EDCP Data and Research Team"  # colin.douglas@cds-snc.ca
+slug: readership
+format:
+  dashboard:
+    # Written by the setup chunk at render time
+    include-before-body: page-header.html
+    include-after-body: analytics-tag.html # see _analytics.qmd
+params:
+  ga_page_title: "Readership Dashboard"
+  # A saved snapshot to read instead of Athena, e.g. notes/snapshot.rds. The
+  # live-data check fails on one, so the page carries the banner.
+  snapshot: ""
+---
+
+```{r setup}
+#| include: false
+
+# The working directory is this folder; the shared layer is two levels up.
+source("../../common/setup.R")
+
+source("R/metrics.R")
+source("R/preflight.R")
+
+snapshot <- if (nzchar(params$snapshot)) params$snapshot else NULL
+if (is.null(snapshot)) {
+  con <- connect_athena()
+} else {
+  con <- NULL
+  use_snapshot(snapshot)
+}
+
+# A failed check adds a banner. See R/preflight.R.
+preflight <- run_preflight_safety_check(con, snapshot = snapshot)
+write_preflight_status(preflight)
+
+traffic <- page_traffic(con)
+events <- page_events(con)
+
+# The newest day exported. A day nobody read leaves no rows, so this comes
+# from the export, not the meta tables.
+through <- export_through(con)
+
+editions <- edition_list(traffic)
+coverage <- edition_coverage(editions, through)
+days <- edition_days(traffic, editions)
+cumulative <- cumulative_views(days, coverage)
+
+# Editions with all of their first 14 days tracked, newest last, and the
+# newest one with any days at all: the one in the value boxes.
+comparable <- dplyr::filter(coverage, comparable, days_seen > 0)
+latest <- dplyr::slice_tail(comparable, n = 1)
+complete <- dplyr::filter(coverage, complete, number != latest$number)
+
+dashboards <- dashboard_list(traffic)
+
+page_header <- "page-header.html"
+
+write_preflight_banner(preflight, page_header)
+
+cat(
+  c(
+    '<div class="page-strip">',
+    glue("  <p><strong>Data through {format_long_date(through)}.</strong> ",
+         "Internal to Enterprise Digital Credentials, not for public ",
+         "consumption.</p>"),
+    "</div>"
+  ),
+  file = page_header, sep = "\n", append = TRUE
+)
+
+# Presentation ---------------------------------------------------------------
+
+# Chart colours, mirroring _theme.scss ("Marginalia"): the margin's red marks
+# the newest edition and our own links, sepia ink the rest of a series, and
+# paper the context behind it.
+palette <- list(accent = "#A63A26", ink = "#3B2A20", quiet = "#D6CBB9")
+
+# Where a session started, in legend order. Our own links take the accent.
+source_colours <- c(
+  slack = unname(colors$brand["blue"]),
+  teams = unname(colors$brand["green"]),
+  email = unname(colors$brand["orange"]),
+  our_links = palette$accent,
+  direct = "#9AA3AB",
+  other = "#D3D7DB"
+)
+
+brand_figure <- function(p, height = 0.09) {
+  add_cds_logo(
+    add_watermark(p, report_name = "CanadaLogin Readership", date = through),
+    height = height
+  )
+}
+
+dwell_breaks <- dwell_marks
+
+# One panel per page: its drop-off curve in the accent, every other page's in
+# the background, and a dashed line where half the views have left.
+dwell_panels <- function(curve, panel, ncol) {
+  curve <- dplyr::mutate(curve, panel = .data[[panel]])
+  others <- curve |>
+    dplyr::rename(other = panel) |>
+    tidyr::crossing(panel = unique(curve$panel)) |>
+    dplyr::filter(other != panel)
+  counts <- curve |>
+    dplyr::distinct(panel, page_views) |>
+    dplyr::mutate(label = paste(comma(page_views), "views"))
+
+  ggplot(curve, aes(seconds, share)) +
+    geom_hline(yintercept = 0.5, linetype = "dashed", colour = "grey55",
+               linewidth = 0.35) +
+    geom_line(data = others, aes(group = other), colour = palette$quiet,
+              linewidth = 0.5) +
+    geom_line(colour = palette$accent, linewidth = 1) +
+    geom_point(colour = palette$accent, size = 1.4) +
+    geom_text(data = counts, aes(x = 600, y = 1, label = label),
+              inherit.aes = FALSE, hjust = 1, vjust = 1, size = 3,
+              colour = "grey35") +
+    scale_x_log10(breaks = dwell_breaks, labels = fmt_mark_short(dwell_breaks)) +
+    scale_y_continuous(labels = label_percent(), limits = c(0, 1),
+                       breaks = c(0, 0.5, 1)) +
+    facet_wrap(~panel, ncol = ncol) +
+    theme_cds() +
+    theme(panel.grid.minor = element_blank(),
+          strip.background = element_blank(),
+          strip.text = element_text(face = "bold", hjust = 0, size = 11)) +
+    labs(x = "Time on the page, visible", y = "Page views still open")
+}
+
+# Sessions by where they started, one stacked bar per row of `group`, in the
+# order of `levels` from the top.
+source_bars <- function(rows, group, levels) {
+  rows <- rows |>
+    dplyr::mutate(row = factor(.data[[group]], levels = rev(levels)),
+                  source = factor(source_group(sessionsource),
+                                  levels = rev(source_groups$group))) |>
+    dplyr::group_by(row, source) |>
+    dplyr::summarise(sessions = sum(sessions), .groups = "drop")
+  totals <- rows |>
+    dplyr::group_by(row) |>
+    dplyr::summarise(sessions = sum(sessions), .groups = "drop")
+
+  ggplot(rows, aes(sessions, row)) +
+    geom_col(aes(fill = source), width = 0.7) +
+    geom_text(data = totals, aes(label = comma(sessions)), hjust = -0.3,
+              size = 3.2, colour = "grey30") +
+    scale_fill_manual(values = source_colours,
+                      labels = setNames(source_groups$label, source_groups$group),
+                      breaks = source_groups$group, name = NULL) +
+    scale_x_continuous(expand = expansion(mult = c(0, 0.08))) +
+    guides(fill = guide_legend(nrow = 1)) +
+    theme_cds() +
+    theme(panel.grid.minor = element_blank(),
+          panel.grid.major.y = element_blank(),
+          legend.position = "top", legend.justification = "left",
+          legend.key.size = unit(0.35, "cm"),
+          legend.text = element_text(margin = margin(r = 12)),
+          legend.margin = margin(0, 0, 0, 0)) +
+    labs(x = "Sessions", y = NULL)
+}
+
+table_options <- function(gt_table) {
+  tab_options(gt_table, table.width = pct(100), table.font.size = px(14),
+              data_row.padding = px(3), table.border.top.style = "none")
+}
+```
+
+# Signal Check
+
+```{r signal-check-summary}
+#| include: false
+latest_age <- latest$days_seen - 1L
+latest_views <- max(cumulative$cumulative[cumulative$number == latest$number])
+typical_views <- typical_at_age(cumulative, complete, latest_age)
+
+# Dwell over the latest edition's days so far, and every complete edition's
+# over the same number of days.
+dwell_so_far <- edition_dwell(events, dplyr::filter(editions, number %in%
+                                                      c(latest$number,
+                                                        complete$number)),
+                              days = latest$days_seen)
+latest_dwell <- dplyr::filter(dwell_so_far, number == latest$number)
+typical_reading <- stats::median(
+  dwell_so_far$reading_seconds[dwell_so_far$number %in% complete$number]
+)
+
+# The median dwell of every complete edition's views together.
+pooled_median <- edition_window_events(
+  events, dplyr::filter(editions, number %in% complete$number)
+) |>
+  dplyr::mutate(all = "all") |>
+  dwell_curve("all") |>
+  dplyr::summarise(m = median_dwell(seconds, share)) |>
+  dplyr::pull(m)
+
+so_far <- if (latest$days_seen < edition_window_days) {
+  glue("first {latest$days_seen} {if (latest$days_seen == 1) 'day' else 'days'}")
+} else {
+  "first 14 days"
+}
+
+window_curve <- edition_window_events(
+  events, dplyr::filter(editions, number %in% comparable$number)
+) |>
+  dwell_curve(c("number", "label")) |>
+  dplyr::left_join(dplyr::select(coverage, number, published), by = "number") |>
+  dplyr::mutate(panel = factor(
+    paste0(label, ", ", format_short_date(published)),
+    levels = paste0(comparable$label, ", ", format_short_date(comparable$published))
+  ))
+window_dwell <- edition_dwell(events, editions)
+
+cumulative_alt <- glue(
+  "Line chart of each edition's views, added up day by day over its first ",
+  "14 days, for editions {comparable$label[1]} to {latest$label}. Most of ",
+  "each edition's views come on the day it is sent and the day after, then ",
+  "the lines flatten. {latest$label} has {comma(latest_views)} views in its ",
+  "{so_far}."
+)
+```
+
+## Row {height="auto"}
+
+::: {.card title="Reading this dashboard"}
+
+This dashboard shows how much attention our own reporting gets: who opens
+each Signal Check edition and dashboard, how long they keep it open, and which
+link brought them. It reads the analytics tag on our pages, the same kind of
+tag that measures CanadaLogin itself. It is internal to Enterprise Digital
+Credentials and the link is unlisted.
+
+Editions are compared over **their first 14 days**, the fortnight before the
+next one arrives, so every edition is measured over the same span.
+Views before an edition is sent are our own review, and are left out.
+
+:::
+
+## Row {height="150px"}
+
+::: {.valuebox color="primary"}
+`r latest$label` views, `r so_far`
+
+`r nbsp(comma(latest_views))`
+
+`r if (is.na(typical_views)) "No earlier edition to compare" else glue("{comma(typical_views)} for a typical edition by day {latest$days_seen}")`
+:::
+
+::: {.valuebox color="info"}
+`r latest$label` median read, `r so_far`
+
+`r nbsp(fmt_dwell(latest_dwell$median_seconds))`
+
+`r glue("{fmt_dwell(pooled_median)} across earlier editions")`
+:::
+
+::: {.valuebox color="secondary"}
+Time spent reading `r latest$label`, at least
+
+`r nbsp(fmt_reading(latest_dwell$reading_seconds))`
+
+`r if (is.na(typical_reading)) "No earlier edition to compare" else glue("{fmt_reading(typical_reading)} for a typical edition by day {latest$days_seen}")`
+:::
+
+## Row {height="520px"}
+
+::: {.card title="Views in each edition's first 14 days, added up day by day"}
+
+```{r cumulative-chart}
+#| fig-width: 10
+#| fig-height: 3.7
+#| fig-alt: !expr cumulative_alt
+lines <- dplyr::mutate(cumulative, newest = number == latest$number)
+ends <- lines |>
+  dplyr::group_by(number) |>
+  dplyr::filter(age == max(age)) |>
+  dplyr::ungroup()
+# Labels of editions that ended on the same day can collide.
+ends <- ends |>
+  dplyr::group_by(age) |>
+  dplyr::mutate(label_y = spread_labels(cumulative,
+                                        0.045 * max(lines$cumulative))) |>
+  dplyr::ungroup()
+
+p <- ggplot(lines, aes(age, cumulative, group = number)) +
+  geom_step(data = dplyr::filter(lines, !newest), colour = palette$ink,
+            linewidth = 0.6, alpha = 0.55, direction = "hv") +
+  geom_step(data = dplyr::filter(lines, newest), colour = palette$accent,
+            linewidth = 1.3, direction = "hv") +
+  geom_point(data = ends, aes(colour = newest), size = 2) +
+  geom_text(data = ends, aes(y = label_y, label = label, colour = newest),
+            hjust = -0.35, fontface = "bold", size = 3.4) +
+  scale_colour_manual(values = c(`TRUE` = palette$accent, `FALSE` = palette$ink),
+                      guide = "none") +
+  scale_x_continuous(breaks = c(0, 2, 4, 6, 8, 10, 13),
+                     labels = \(x) ifelse(x == 0, "Day sent", paste("Day", x + 1)),
+                     limits = c(0, 13.6), expand = expansion(mult = c(0.01, 0))) +
+  scale_y_continuous(labels = label_comma(), limits = c(0, NA),
+                     expand = expansion(mult = c(0, 0.08))) +
+  theme_cds() +
+  theme(panel.grid.minor = element_blank()) +
+  labs(x = NULL, y = "Views so far",
+       subtitle = glue("{latest$label} in colour. Editions {comparable$label[1]} ",
+                       "onward: earlier ones were sent before tracking began."))
+brand_figure(p)
+```
+
+:::
+
+## Row {height="620px"}
+
+::: {.card title="How long readers keep each edition open, first 14 days"}
+
+```{r edition-dwell-chart}
+#| fig-width: 10
+#| fig-height: 4.6
+#| fig-alt: |
+#|   Small multiples, one panel per Signal Check edition. Each shows the share
+#|   of the edition's page views still open after 1 second, 5, 15 and 30
+#|   seconds, and 1, 2, 5 and 10 minutes, with every other edition's curve in
+#|   the background and a dashed line at 50 percent.
+brand_figure(dwell_panels(window_curve, "panel", ncol = 3), height = 0.07)
+```
+
+::: {.figure-note}
+Each curve is the share of page views that stayed open, and visible, at
+least that long. Where it crosses the dashed line is the median read. A tab
+in the background does not count. Most editions have a few dozen views, so
+one reader can move a curve by several percentage points.
+:::
+
+:::
+
+## Row {height="auto"}
+
+::: {.card title="Every edition"}
+
+```{r edition-table}
+review <- days |>
+  dplyr::filter(age < 0) |>
+  dplyr::group_by(number) |>
+  dplyr::summarise(review = sum(views), .groups = "drop")
+since <- days |>
+  dplyr::filter(age >= 0) |>
+  dplyr::group_by(number) |>
+  dplyr::summarise(all_time = sum(views), .groups = "drop")
+first_window <- cumulative |>
+  dplyr::group_by(number) |>
+  dplyr::summarise(first = max(cumulative), .groups = "drop")
+
+coverage |>
+  dplyr::left_join(first_window, by = "number") |>
+  dplyr::left_join(dplyr::filter(window_dwell, number %in% comparable$number),
+                   by = c("number", "label")) |>
+  dplyr::left_join(since, by = "number") |>
+  dplyr::left_join(review, by = "number") |>
+  dplyr::arrange(dplyr::desc(published)) |>
+  dplyr::transmute(
+    label,
+    sent = format_short_date(published),
+    first = dplyr::case_when(
+      !comparable ~ "Before tracking",
+      days_seen < edition_window_days ~
+        glue("{comma(first)} ({days_seen} of 14 days)"),
+      .default = comma(first)
+    ),
+    median = ifelse(comparable, fmt_dwell(median_seconds), "-"),
+    past_minute, past_five,
+    reading = ifelse(comparable, fmt_reading(reading_seconds), "-"),
+    all_time = dplyr::coalesce(all_time, 0),
+    review = dplyr::coalesce(review, 0)
+  ) |>
+  gt() |>
+  fmt_percent(c(past_minute, past_five), decimals = 0) |>
+  fmt_number(c(all_time, review), decimals = 0) |>
+  sub_missing(missing_text = "-") |>
+  cols_align("right", c(first, median, reading)) |>
+  cols_label(label = "Edition", sent = "Sent", first = "Views, first 14 days",
+             median = "Median read", past_minute = "Open 1 min+",
+             past_five = "Open 5 min+", reading = "Reading time, at least",
+             all_time = "Views since sent", review = "Review views") |>
+  table_options()
+```
+
+::: {.figure-note}
+Median read and the two *Open* columns cover the first 14 days. *Reading time*
+adds up each view's time, counted down to the last milestone it reached, so
+it is a floor. *Review views* came before the edition was sent, from our own
+review link, and count nowhere else. Tracking began July 23, 2026, after
+editions #1 and #2 were sent.
+:::
+
+:::
+
+# Where readers come from
+
+```{r sources-summary}
+#| include: false
+window_sessions <- traffic |>
+  dplyr::inner_join(dplyr::filter(coverage, comparable),
+                    by = "pagepath_redacted") |>
+  dplyr::filter(day >= published, day < published + edition_window_days)
+
+source_table <- window_sessions |>
+  dplyr::group_by(sessionsource) |>
+  dplyr::summarise(sessions = sum(sessions), .groups = "drop") |>
+  dplyr::mutate(
+    what = describe_source(sessionsource),
+    group = source_groups$label[match(source_group(sessionsource),
+                                      source_groups$group)],
+    share = sessions / sum(sessions)
+  ) |>
+  dplyr::group_by(what, group) |>
+  dplyr::summarise(sources = paste(sort(unique(sessionsource)), collapse = ", "),
+                   sessions = sum(sessions), share = sum(share),
+                   .groups = "drop") |>
+  dplyr::arrange(dplyr::desc(sessions))
+
+posts <- sum(source_table$share[source_table$group %in%
+                                  c("Slack", "Teams", "Email")])
+
+chart_from <- monday_of(through) - 12L * 7L
+dashboard_sessions <- traffic |>
+  dplyr::filter(page_kind == "dashboard", day >= chart_from) |>
+  dplyr::mutate(file = dashboard_file(pagepath_redacted)) |>
+  dplyr::inner_join(dashboards, by = "file")
+```
+
+## Row {height="auto"}
+
+::: {.card title="How readers reach Signal Check"}
+
+Every edition goes out by Slack, Teams and email, and each of those links
+is tagged, so a session that starts from one is counted under it. *Our own
+links* are the link to the latest edition and links inside an edition or a
+dashboard. *No link recorded* is a bookmark, a typed address, or an app that
+drops the link's source. In editions `r comparable$label[1]` onward, the
+three posts started **`r percent(posts, accuracy = 1)`** of sessions in the
+first 14 days.
+
+:::
+
+## Row {height="460px"}
+
+::: {.card title="Signal Check sessions by where they started, first 14 days"}
+
+```{r edition-sources-chart}
+#| fig-width: 10
+#| fig-height: 3.2
+#| fig-alt: |
+#|   Horizontal stacked bars, one per Signal Check edition, newest at the
+#|   top, splitting each edition's sessions in its first 14 days by where
+#|   they started: Slack, Teams, email, our own links, no link recorded and
+#|   other sites. The total is at the end of each bar.
+p <- source_bars(window_sessions, "label", rev(comparable$label))
+brand_figure(p)
+```
+
+::: {.figure-note}
+A session counts once for each edition it opened, and starts from one place.
+:::
+
+:::
+
+## Row {height="auto"}
+
+::: {.card title="Every source, editions `r comparable$label[1]` to `r latest$label`, first 14 days"}
+
+```{r source-table}
+source_table |>
+  dplyr::select(what, sources, group, sessions, share) |>
+  gt() |>
+  fmt_number(sessions, decimals = 0) |>
+  fmt_percent(share, decimals = 0) |>
+  cols_label(what = "Where", sources = "Recorded as", group = "Grouped as",
+             sessions = "Sessions", share = "Share") |>
+  table_options()
+```
+
+:::
+
+## Row {height="400px"}
+
+::: {.card title="Dashboard sessions by where they started, last three months"}
+
+```{r dashboard-sources-chart}
+#| fig-width: 10
+#| fig-height: 2.7
+#| fig-alt: |
+#|   Horizontal stacked bars, one per dashboard, splitting its sessions over
+#|   the last three months by where they started: Slack, Teams, email, our own
+#|   links, no link recorded and other sites.
+p <- source_bars(dashboard_sessions, "name", sort(dashboards$name))
+brand_figure(p, height = 0.11)
+```
+
+:::
+
+# Dashboards
+
+```{r dashboards-summary}
+#| include: false
+dashboard_rows <- traffic |>
+  dplyr::filter(page_kind == "dashboard") |>
+  dplyr::mutate(file = dashboard_file(pagepath_redacted)) |>
+  dplyr::inner_join(dashboards, by = "file")
+
+all_window <- window_totals(dashboard_rows, "views", through)
+all_change <- relative_change(all_window[["current"]], all_window[["prior"]])
+
+per_dashboard <- dashboard_rows |>
+  dplyr::group_by(name) |>
+  dplyr::group_modify(\(rows, key) {
+    totals <- window_totals(rows, "views", through)
+    tibble::tibble(current = totals[["current"]], prior = totals[["prior"]])
+  }) |>
+  dplyr::ungroup() |>
+  dplyr::mutate(change = relative_change(current, prior))
+top <- dplyr::slice_max(per_dashboard, current, n = 1, with_ties = FALSE)
+
+dashboard_events <- events |>
+  dplyr::filter(page_kind == "dashboard", day >= chart_from) |>
+  dplyr::mutate(file = dashboard_file(pagepath_redacted)) |>
+  dplyr::inner_join(dashboards, by = "file")
+dashboard_curve <- dwell_curve(dashboard_events, "name")
+dashboard_dwell <- dwell_summary(dashboard_curve, "name")
+
+pooled_dashboard_median <- dashboard_events |>
+  dplyr::mutate(all = "all") |>
+  dwell_curve("all") |>
+  dplyr::summarise(m = median_dwell(seconds, share)) |>
+  dplyr::pull(m)
+
+weeks <- dashboard_rows |>
+  dplyr::filter(day >= chart_from) |>
+  dplyr::mutate(week = monday_of(day)) |>
+  dplyr::group_by(name, week) |>
+  dplyr::summarise(views = sum(views), .groups = "drop") |>
+  tidyr::complete(name = dashboards$name,
+                  week = seq(chart_from, monday_of(through), by = "week"),
+                  fill = list(views = 0)) |>
+  dplyr::mutate(partial = week + 6L > through)
+```
+
+## Row {height="150px"}
+
+::: {.valuebox color="primary"}
+Dashboard views, last 4 weeks
+
+`r nbsp(comma(all_window[["current"]]))`
+
+`r fmt_delta(all_change)` on the 4 weeks before
+:::
+
+::: {.valuebox color="info"}
+Most viewed, last 4 weeks
+
+`r nbsp(top$name)`
+
+`r glue("{comma(top$current)} views")`
+:::
+
+::: {.valuebox color="secondary"}
+Median read, last three months
+
+`r nbsp(fmt_dwell(pooled_dashboard_median))`
+
+All dashboards together
+:::
+
+## Row {height="460px"}
+
+::: {.card title="Views each week, last three months"}
+
+```{r dashboard-weeks-chart}
+#| fig-width: 10
+#| fig-height: 3.1
+#| fig-alt: |
+#|   Small multiples of weekly bar charts, one panel per dashboard, showing
+#|   page views each Monday-to-Sunday week over the last three months. The newest
+#|   week, not yet over, is lighter.
+p <- ggplot(weeks, aes(week + 3, views)) +
+  geom_col(aes(fill = partial), width = 5.5) +
+  scale_fill_manual(values = c(`FALSE` = palette$accent, `TRUE` = palette$quiet),
+                    guide = "none") +
+  scale_y_continuous(labels = label_comma(), limits = c(0, NA),
+                     expand = expansion(mult = c(0, 0.08))) +
+  scale_x_date(date_labels = "%b %d",
+               breaks = rev(seq(monday_of(through), chart_from, by = "-4 weeks"))) +
+  facet_wrap(~name, nrow = 1) +
+  theme_cds() +
+  theme(panel.grid.minor = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_text(face = "bold", hjust = 0, size = 11)) +
+  labs(x = NULL, y = "Views",
+       subtitle = "Weeks run Monday to Sunday. The lighter bar is this week so far.")
+brand_figure(p)
+```
+
+:::
+
+## Row {height="460px"}
+
+::: {.card title="How long readers keep each dashboard open, last three months"}
+
+```{r dashboard-dwell-chart}
+#| fig-width: 10
+#| fig-height: 3.1
+#| fig-alt: |
+#|   Small multiples, one panel per dashboard, each showing the share of its
+#|   page views still open after 1 second up to 10 minutes, with the other
+#|   dashboards' curves in the background and a dashed line at 50 percent.
+brand_figure(dwell_panels(dashboard_curve, "name", ncol = nrow(dashboards)))
+```
+
+:::
+
+## Row {height="auto"}
+
+::: {.card title="Every dashboard"}
+
+```{r dashboard-table}
+per_dashboard |>
+  dplyr::left_join(dashboard_dwell, by = "name") |>
+  dplyr::left_join(dplyr::select(dashboards, name, first_seen), by = "name") |>
+  dplyr::arrange(dplyr::desc(current)) |>
+  dplyr::transmute(
+    name, current, prior,
+    direction = delta_direction(change), change = fmt_delta(change),
+    median = fmt_dwell(median_seconds), past_minute, past_five,
+    first_seen = format_short_date(first_seen)
+  ) |>
+  gt() |>
+  fmt_number(c(current, prior), decimals = 0) |>
+  fmt_percent(c(past_minute, past_five), decimals = 0) |>
+  sub_missing(missing_text = "-") |>
+  tab_style(cell_text(color = delta_colours[["up"]]),
+            cells_body(change, rows = direction == "up")) |>
+  tab_style(cell_text(color = delta_colours[["down"]]),
+            cells_body(change, rows = direction == "down")) |>
+  tab_style(cell_text(color = delta_colours[["flat"]]),
+            cells_body(change, rows = direction == "flat")) |>
+  cols_hide(direction) |>
+  cols_align("right", c(change, median)) |>
+  cols_label(name = "Dashboard", current = "Views, last 4 weeks",
+             prior = "4 weeks before", change = "Change",
+             median = "Median read", past_minute = "Open 1 min+",
+             past_five = "Open 5 min+", first_seen = "First view") |>
+  table_options()
+```
+
+::: {.figure-note}
+Read times cover the last three months. Task Success Monitoring, Experience
+Monitoring's earlier name, is counted as Experience Monitoring. This page
+counts its own readers too.
+:::
+
+:::
+
+# Metrics Cookbook
+
+```{r cookbook-summary}
+#| include: false
+cookbook <- dplyr::filter(traffic, page_kind == "cookbook")
+previews <- sum(traffic$views[traffic$page_kind == "preview"])
+
+cookbook_weeks <- cookbook |>
+  dplyr::mutate(week = monday_of(day)) |>
+  dplyr::group_by(week) |>
+  dplyr::summarise(views = sum(views), .groups = "drop") |>
+  tidyr::complete(week = seq(monday_of(tracking_from), monday_of(through),
+                             by = "week"),
+                  fill = list(views = 0)) |>
+  dplyr::mutate(partial = week + 6L > through)
+
+# Two pages share a title (a recipe and its table), so the section names them.
+cookbook_pages <- cookbook |>
+  dplyr::mutate(
+    section = sub("^/canadalogin-metrics-cookbook/([^/]*).*$", "\\1",
+                  pagepath_redacted),
+    section = ifelse(grepl("\\.html$", section) | section == "", "home",
+                     section),
+    title = sub("\\s*\u2013 CanadaLogin Metrics Cookbook$", "", pagetitle),
+    title = dplyr::case_when(
+      section == "home" ~ "Front page",
+      endsWith(pagepath_redacted, "/") ~ paste(tools::toTitleCase(section), "index"),
+      .default = title
+    )
+  ) |>
+  dplyr::group_by(pagepath_redacted) |>
+  dplyr::summarise(title = dplyr::last(title), section = dplyr::first(section),
+                   views = sum(views), .groups = "drop") |>
+  dplyr::mutate(page = ifelse(section == "home" | grepl(" index$", title),
+                              title, glue("{title} ({section})"))) |>
+  dplyr::slice_max(views, n = 12, with_ties = FALSE)
+```
+
+## Row {height="380px"}
+
+::: {.card title="Cookbook views each week, since tracking began"}
+
+```{r cookbook-weeks-chart}
+#| fig-width: 10
+#| fig-height: 2.6
+#| fig-alt: |
+#|   Bar chart of Metrics Cookbook page views each Monday-to-Sunday week since
+#|   tracking began in July 2026. The newest week, not yet over, is lighter.
+p <- ggplot(cookbook_weeks, aes(week + 3, views)) +
+  geom_col(aes(fill = partial), width = 5.5) +
+  scale_fill_manual(values = c(`FALSE` = palette$ink, `TRUE` = palette$quiet),
+                    guide = "none") +
+  scale_y_continuous(labels = label_comma(), limits = c(0, NA),
+                     expand = expansion(mult = c(0, 0.08))) +
+  scale_x_date(date_labels = "%b %d") +
+  theme_cds() +
+  theme(panel.grid.minor = element_blank()) +
+  labs(x = NULL, y = "Views")
+brand_figure(p, height = 0.12)
+```
+
+::: {.figure-note}
+Previews of changes under review are left out: `r comma(previews)` views, all
+ours. The Cookbook does not track how long a page stays open.
+:::
+
+:::
+
+## Row {height="480px"}
+
+::: {.card title="Most viewed pages, since tracking began"}
+
+```{r cookbook-pages-chart}
+#| fig-width: 10
+#| fig-height: 3.5
+#| fig-alt: |
+#|   Horizontal bar chart of the twelve most viewed Metrics Cookbook pages
+#|   since tracking began, most viewed at the top, each bar labelled with its
+#|   views.
+p <- ggplot(cookbook_pages, aes(views, stats::reorder(page, views))) +
+  geom_col(fill = palette$ink, width = 0.7) +
+  geom_text(aes(label = comma(views)), hjust = -0.3, size = 3.2,
+            colour = "grey30") +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.08))) +
+  theme_cds() +
+  theme(panel.grid.minor = element_blank(),
+        panel.grid.major.y = element_blank()) +
+  labs(x = "Views", y = NULL)
+brand_figure(p)
+```
+
+:::
+
+```{r cleanup}
+#| include: false
+# include: false matters for layout: this chunk sits in the last Row, where
+# anything visible becomes a card and takes width from the chart.
+if (!is.null(con)) DBI::dbDisconnect(con)
+```
+
+{{< include ../../_analytics.qmd >}}

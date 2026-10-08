@@ -1,0 +1,43 @@
+// This dashboard's accent. Every dashboard shares the CDS palette in
+// ../../_brand.yml and overrides only what makes it distinct.
+//
+// "Marginalia": sepia ink on paper, ruled off with the red double line of a
+// notebook margin. The one light navbar, for the dashboard about reading.
+// Ink is 13:1 on the paper.
+
+/*-- scss:defaults --*/
+
+$primary: #3B2A20;
+
+$paper: #F5EFE3;
+$margin-red: #B03A2E;
+
+$info: #EDE3D2;
+
+$navbar-bg: $paper;
+$navbar-fg: $primary;
+$navbar-hl: $primary;
+
+/*-- scss:rules --*/
+
+// A faint blue rule along the bottom, as on lined paper.
+.quarto-dashboard .navbar {
+  border-bottom: 1px solid #BFD0E0;
+}
+
+// The margin's double red rule between the logo and the title, then a
+// pilcrow.
+.navbar-brand-container .navbar-title {
+  border-left: 3px double $margin-red;
+  padding-left: 0.6em;
+}
+
+.navbar-brand-container .navbar-title::before {
+  content: "\00B6";
+  color: $margin-red;
+  margin-right: 0.35em;
+}
+
+.navbar .nav-link.active {
+  box-shadow: inset 0 -3px 0 $margin-red;
+}
