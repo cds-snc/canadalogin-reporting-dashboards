@@ -246,11 +246,11 @@ weighted_median <- function(x, w) {
 }
 
 # Email codes entered per day, and the median seconds to enter one. A day
-# with no codes is left out, so it reads as a missing day.
+# with no codes has no row, so preflight sees it as missing.
 speed_days <- function(seconds) {
   seconds |>
     dplyr::group_by(day) |>
-    dplyr::summarise(codes_timed = sum(codes),
+    dplyr::summarise(codes_entered = sum(codes),
                      median_seconds = weighted_median(seconds, codes),
                      .groups = "drop")
 }
@@ -412,8 +412,8 @@ score_idle <- function(accounts, thresholds) {
 score_speed <- function(speed, thresholds) {
   t <- thresholds$speed
   scored <- score_days(speed$day, \(i, history) {
-    baseline <- stats::median(speed$codes_timed[history])
-    multiple <- speed$codes_timed[i] / baseline
+    baseline <- stats::median(speed$codes_entered[history])
+    multiple <- speed$codes_entered[i] / baseline
     ratio <- speed$median_seconds[i]
     tibble::tibble(
       baseline = baseline, multiple = multiple, ratio = ratio,

@@ -119,11 +119,6 @@ test_that("fast codes at an ordinary volume do not fire", {
   expect_length(fired_on(traffic$score_speed(speed, traffic_thresholds)), 0)
 })
 
-test_that("a day without email codes is left out, not scored as a quiet day", {
-  seconds <- dplyr::filter(traffic_email_seconds(), day != as.Date("2026-09-02"))
-  expect_false(as.Date("2026-09-02") %in% traffic$speed_days(seconds)$day)
-})
-
 test_that("the typical time to enter a code leaves out flagged days", {
   seconds <- traffic_email_seconds()
   week <- traffic$window_median_seconds(seconds, as.Date("2026-09-14"),

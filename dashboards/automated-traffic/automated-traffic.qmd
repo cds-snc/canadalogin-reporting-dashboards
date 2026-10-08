@@ -46,7 +46,7 @@ thresholds <- list(
 # Confirmed bot days, and the methods each should fire on.
 known_bot_days <- tibble::tribble(
   ~day,                  ~sms, ~location, ~idle, ~speed, ~errors,
-  # SMS from abroad; the new accounts those days were not idle.
+  # SMS from outside Canada and the US; those days' new accounts were not idle.
   as.Date("2026-09-07"), TRUE, TRUE,      FALSE, FALSE,  TRUE,
   as.Date("2026-09-08"), TRUE, TRUE,      FALSE, FALSE,  FALSE,
   as.Date("2026-09-17"), TRUE, TRUE,      TRUE,  FALSE,  TRUE,
@@ -924,8 +924,8 @@ account and never use it.
 #| include: false
 speed_rows <- scored$speed
 speed_end <- reported_through$speed
-speed_week <- method_window(speed_rows, speed_end, "codes_timed", "codes_timed",
-                            "codes_timed",
+speed_week <- method_window(speed_rows, speed_end, "codes_entered",
+                            "codes_entered", "codes_entered",
                             baseline_days = thresholds$baseline_days)
 speed_flagged <- speed_rows$day[speed_rows$fired %in% TRUE]
 speed_week_seconds <- window_median_seconds(email_seconds, speed_end - 6L,
@@ -934,7 +934,7 @@ speed_typical_seconds <- window_median_seconds(
   email_seconds, speed_end - 6L - thresholds$baseline_days, speed_end - 7L,
   skip = speed_flagged
 )
-speed_extra <- extra_on_flagged(speed_rows, chart_from, "codes_timed")
+speed_extra <- extra_on_flagged(speed_rows, chart_from, "codes_entered")
 ```
 
 ## Row {height="auto"}
@@ -989,7 +989,7 @@ Extra email codes entered, last three months
 #|   a dashed line at 10 seconds.
 p <- method_figure(
   speed_rows,
-  volume = "codes_timed", volume_label = "Email codes entered",
+  volume = "codes_entered", volume_label = "Email codes entered",
   volume_note = glue("Fires at {thresholds$speed$volume}x a typical day or ",
                      "more. Lighter bars are weekends, compared only with ",
                      "weekends."),
@@ -1011,8 +1011,8 @@ brand_figure(p)
 
 ```{r speed-table}
 speed_rows |>
-  dplyr::select(day, codes_timed, multiple, ratio, fired) |>
-  daily_table("codes_timed", list(codes_timed = "Email codes entered"),
+  dplyr::select(day, codes_entered, multiple, ratio, fired) |>
+  daily_table("codes_entered", list(codes_entered = "Email codes entered"),
               ratio_unit = "seconds") |>
   cols_label(ratio = "Median time")
 ```
