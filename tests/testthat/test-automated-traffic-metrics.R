@@ -50,6 +50,34 @@ test_that("a day without enough baseline is not scored", {
   expect_true(is.na(scored$fired[1]))
 })
 
+test_that("SMS location fires on a surge of codes from outside Canada and the US", {
+  scored <- traffic$score_location(traffic_origins(), traffic_thresholds)
+  expect_identical(fired_on(scored), traffic_bot_day)
+})
+
+test_that("SMS location does not fire on a launch at home", {
+  origins <- traffic_origins(bot_days = as.Date(NA)) |>
+    dplyr::mutate(
+      sms_sent = ifelse(day == traffic_bot_day, 60000, sms_sent),
+      sms_outside = ifelse(day == traffic_bot_day, 600, sms_outside)
+    )
+  expect_length(fired_on(traffic$score_location(origins, traffic_thresholds)), 0)
+})
+
+test_that("extra codes from outside count those above a typical day", {
+  scored <- traffic$score_location(traffic_origins(), traffic_thresholds)
+  # The bot day had 34,000 codes from outside against 40 on a typical weekday.
+  expect_equal(traffic$extra_on_flagged(scored, as.Date("2026-09-01"),
+                                        "sms_outside", baseline = "typical"),
+               34000 - 40)
+})
+
+test_that("a high share from outside alone does not fire", {
+  origins <- traffic_origins(bot_days = as.Date(NA)) |>
+    dplyr::mutate(sms_outside = ifelse(day == traffic_bot_day, 1500, sms_outside))
+  expect_length(fired_on(traffic$score_location(origins, traffic_thresholds)), 0)
+})
+
 test_that("idle accounts counts an account idle unless it reached a service that day", {
   accounts <- traffic$account_days(traffic_pairs(), traffic_today - 1L)
   monday <- accounts[accounts$day == as.Date("2026-09-14"), ]
@@ -159,17 +187,19 @@ test_that("the method charts start on a Monday, 13 weeks back", {
 
 test_that("the calendar counts methods, marks waiting days, takes the strongest", {
   scores <- tibble::tribble(
-    ~method,  ~day,                  ~multiple, ~ratio, ~fired,
-    "sms",    as.Date("2026-09-17"), 20,        0.1,    TRUE,
-    "idle",   as.Date("2026-09-17"), 4,         0.8,    TRUE,
-    "errors", as.Date("2026-09-17"), 5,         0.5,    TRUE,
-    "sms",    as.Date("2026-09-18"), 1,         0.95,   FALSE,
-    "idle",   as.Date("2026-09-18"), 50,        0.1,    FALSE,
-    "errors", as.Date("2026-09-18"), NA,        NA,     NA
+    ~method,    ~day,                  ~multiple, ~ratio, ~fired,
+    "sms",      as.Date("2026-09-17"), 20,        0.1,    TRUE,
+    "location", as.Date("2026-09-17"), 20,        0.9,    TRUE,
+    "idle",     as.Date("2026-09-17"), 4,         0.8,    TRUE,
+    "errors",   as.Date("2026-09-17"), 5,         0.5,    TRUE,
+    "sms",      as.Date("2026-09-18"), 1,         0.95,   FALSE,
+    "location", as.Date("2026-09-18"), 1,         0.02,   FALSE,
+    "idle",     as.Date("2026-09-18"), 50,        0.1,    FALSE,
+    "errors",   as.Date("2026-09-18"), NA,        NA,     NA
   )
   cal <- traffic$calendar_days(scores, as.Date("2026-09-17"),
                                as.Date("2026-09-18"))
-  expect_equal(cal$n_fired, c(3, 0))
+  expect_equal(cal$n_fired, c(4, 0))
   # Error patterns last reported on the 17th, so the 18th waits on it.
   expect_identical(cal$waiting, c(FALSE, TRUE))
   # Only methods that fired count: 50x idle accounts on the 18th did not.
@@ -180,13 +210,15 @@ test_that("the calendar counts methods, marks waiting days, takes the strongest"
 
 test_that("a day before a method could score is not waiting", {
   scores <- tibble::tribble(
-    ~method,  ~day,                  ~multiple, ~ratio, ~fired,
-    "sms",    as.Date("2026-07-01"), 1,         0.95,   FALSE,
-    "idle",   as.Date("2026-07-01"), 1,         0.2,    FALSE,
-    "errors", as.Date("2026-07-01"), NA,        NA,     NA,
-    "sms",    as.Date("2026-07-02"), 1,         0.95,   FALSE,
-    "idle",   as.Date("2026-07-02"), 1,         0.2,    FALSE,
-    "errors", as.Date("2026-07-02"), 1,         0.1,    FALSE
+    ~method,    ~day,                  ~multiple, ~ratio, ~fired,
+    "sms",      as.Date("2026-07-01"), 1,         0.95,   FALSE,
+    "location", as.Date("2026-07-01"), 1,         0.02,   FALSE,
+    "idle",     as.Date("2026-07-01"), 1,         0.2,    FALSE,
+    "errors",   as.Date("2026-07-01"), NA,        NA,     NA,
+    "sms",      as.Date("2026-07-02"), 1,         0.95,   FALSE,
+    "location", as.Date("2026-07-02"), 1,         0.02,   FALSE,
+    "idle",     as.Date("2026-07-02"), 1,         0.2,    FALSE,
+    "errors",   as.Date("2026-07-02"), 1,         0.1,    FALSE
   )
   cal <- traffic$calendar_days(scores, as.Date("2026-07-01"),
                                as.Date("2026-07-02"))

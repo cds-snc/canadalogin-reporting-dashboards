@@ -8,13 +8,14 @@ traffic_thresholds <- list(
   baseline_days = 28L,
   baseline_min_days = c(weekday = 10L, weekend = 4L),
   sms = list(volume = 3, entry_rate_below = 0.5),
+  location = list(volume = 1.5, share_at_least = 0.3),
   idle = list(volume = 2, idle_share_at_least = 0.5),
   errors = list(group_volume = 3, groups_at_least = 3L, group_floor = 20,
                 share_at_least = 0.3)
 )
 
 traffic_known_days <- tibble::tibble(
-  day = traffic_bot_day, sms = TRUE, idle = TRUE, errors = TRUE
+  day = traffic_bot_day, sms = TRUE, location = TRUE, idle = TRUE, errors = TRUE
 )
 
 traffic_days <- function(from = as.Date("2026-05-01"),
@@ -33,6 +34,19 @@ traffic_sms <- function(days = traffic_days(), bot_days = traffic_bot_day) {
     day = days,
     sms_sent = sent,
     sms_success = ifelse(bot, 3000, round(sent * 0.96))
+  )
+}
+
+# Codes sent and how many came from outside Canada and the US; 2% on a
+# typical day, 85% on the bot day.
+traffic_origins <- function(days = traffic_days(), bot_days = traffic_bot_day) {
+  sent <- ifelse(is_weekend(days), 700, 2000)
+  bot <- days %in% bot_days
+  sent[bot] <- 40000
+  tibble::tibble(
+    day = days,
+    sms_sent = sent,
+    sms_outside = ifelse(bot, 34000, round(sent * 0.02))
   )
 }
 
@@ -67,12 +81,13 @@ traffic_codes <- function(days = traffic_days(as.Date("2026-06-01"),
   dplyr::bind_rows(rows)
 }
 
-traffic_with_data <- function(sms = traffic_sms(), pairs = traffic_pairs(),
-                              codes = traffic_codes()) {
+traffic_with_data <- function(sms = traffic_sms(), origins = traffic_origins(),
+                              pairs = traffic_pairs(), codes = traffic_codes()) {
   env <- load_dashboard("automated-traffic")
   stub(
     env,
     sms_days = function(con) sms,
+    sms_origin_days = function(con) origins,
     account_pairs = function(con) pairs,
     error_codes = function(con) codes
   )

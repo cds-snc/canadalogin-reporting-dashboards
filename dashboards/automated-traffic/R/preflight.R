@@ -6,7 +6,7 @@
 
 # How far behind today each source may be. mfa_activity and the event stream
 # land yesterday's day by about 06:00 ET; GA is exported on a two-day lag.
-source_lag_days <- c(sms = 2L, idle = 2L, errors = 3L)
+source_lag_days <- c(sms = 2L, location = 2L, idle = 2L, errors = 3L)
 
 run_preflight_safety_check <- function(con, thresholds, known_bot_days,
                                        today = toronto_today()) {
@@ -37,15 +37,18 @@ run_preflight_safety_check <- function(con, thresholds, known_bot_days,
   pairs <- account_pairs(con)
   series <- list(
     sms = dplyr::filter(sms_days(con), day <= through),
+    location = dplyr::filter(sms_origin_days(con), day <= through),
     idle = account_days(pairs, through),
     errors = dplyr::filter(error_days(error_codes(con)), day <= through)
   )
   sources <- c(sms = "ibm_verify.mfa_activity",
+               location = "ibm_verify_events_raw.mfa_activity",
                idle = "ibm_verify_events_raw",
                errors = "google_analytics.error_events")
 
   scored <- list(
     sms = score_sms(series$sms, thresholds),
+    location = score_location(series$location, thresholds),
     idle = score_idle(series$idle, thresholds),
     errors = score_errors(series$errors, thresholds)
   )

@@ -26,6 +26,9 @@ thresholds <- list(
   # Codes sent at least `volume` times a typical day, and fewer than
   # `entry_rate_below` of them entered correctly.
   sms = list(volume = 3, entry_rate_below = 0.5),
+  # Codes sent at least `volume` times a typical day, and at least
+  # `share_at_least` of them requested from outside Canada and the US.
+  location = list(volume = 1.5, share_at_least = 0.3),
   # New accounts at least `volume` times a typical day, and at least
   # `idle_share_at_least` of them idle on the day they were made.
   idle = list(volume = 2, idle_share_at_least = 0.5),
@@ -40,11 +43,11 @@ thresholds <- list(
 # Confirmed bot days, and the methods each should fire on. Days the methods
 # flag that nobody has confirmed (Sep 7 and 8) stay off this list.
 known_bot_days <- tibble::tribble(
-  ~day,                  ~sms, ~idle, ~errors,
-  as.Date("2026-09-17"), TRUE, TRUE,  TRUE,
-  as.Date("2026-09-24"), TRUE, TRUE,  TRUE,
+  ~day,                  ~sms, ~location, ~idle, ~errors,
+  as.Date("2026-09-17"), TRUE, TRUE,      TRUE,  TRUE,
+  as.Date("2026-09-24"), TRUE, TRUE,      TRUE,  TRUE,
   # Ran without a browser, or blocked GA, so no error trail.
-  as.Date("2026-09-30"), TRUE, TRUE,  FALSE
+  as.Date("2026-09-30"), TRUE, TRUE,      TRUE,  FALSE
 )
 
 # What one SMS costs, in dollars, by codes sent in the trailing 30 days.
@@ -78,11 +81,13 @@ chart_from <- calendar_start(through, chart_weeks)
 
 pairs <- account_pairs(con)
 sms <- dplyr::filter(sms_days(con), day <= through)
+sms_origins <- dplyr::filter(sms_origin_days(con), day <= through)
 accounts <- account_days(pairs, through)
 errors <- dplyr::filter(error_days(error_codes(con)), day <= through)
 
 scored <- list(
   sms = score_sms(sms, thresholds),
+  location = score_location(sms_origins, thresholds),
   idle = score_idle(accounts, thresholds),
   errors = score_errors(errors, thresholds)
 )
@@ -383,8 +388,9 @@ rather than people. It is internal to Enterprise Digital Credentials and the
 link is unlisted. For anything that leaves EDCP, please reach out to the
 [Data and Research team](https://gcdigital.slack.com/archives/C0A6S9F7KV4).
 
-It uses **three methods**, each on its own page: [SMS codes](#sms-codes),
-[Idle accounts](#idle-accounts) and [Error patterns](#error-patterns). Each
+It uses **four methods**, each on its own page: [SMS codes](#sms-codes),
+[SMS location](#sms-location), [Idle accounts](#idle-accounts) and
+[Error patterns](#error-patterns). Each
 page explains how its method works and when it fires. The calendar below
 shades every day by its strongest method and labels the days a method flagged.
 As we find more methods, we will add them here.
@@ -530,6 +536,100 @@ sms_rows |>
   daily_table(c("sms_sent", "sms_success"),
               list(sms_sent = "SMS sent", sms_success = "SMS entered")) |>
   cols_label(ratio = "Entered")
+```
+
+:::
+
+# SMS location
+
+```{r location-summary}
+#| include: false
+location_rows <- scored$location
+location_week <- method_window(location_rows, reported_through$location,
+                               "sms_outside", "sms_outside", "sms_sent",
+                               baseline_days = thresholds$baseline_days,
+                               baseline = "typical")
+location_extra <- extra_on_flagged(location_rows, chart_from, "sms_outside",
+                                   baseline = "typical")
+```
+
+## Row {height="auto"}
+
+::: {.card title="How this method works"}
+Almost every SMS code is requested from Canada or the US. On a typical day,
+only a few percent come from anywhere else. On the bot days in September, most
+did. This method fires when **codes sent are at least
+`r thresholds$location$volume`x a typical day** and **at least
+`r percent(thresholds$location$share_at_least)` of them were requested from
+outside Canada and the US**. The location comes from the requester's IP
+address, so a bot using a Canadian or US address leaves no trace here.
+:::
+
+## Row {height="150px"}
+
+::: {.valuebox color="primary"}
+Codes from outside Canada and the US, last 7 days
+
+`r comma(location_week$volume)`
+
+`r fmt_multiple(location_week$multiple)` a typical week
+:::
+
+::: {.valuebox color="info"}
+Share from outside, last 7 days
+
+`r percent(location_week$ratio, accuracy = 1)`
+
+`r percent(location_week$typical_ratio, accuracy = 1)` on a typical day
+:::
+
+::: {.valuebox color="secondary"}
+Extra codes from outside, last three months
+
+`r fmt_about(location_extra)`
+
+`r extra_line(sum(location_rows$fired[location_rows$day >= chart_from] %in% TRUE))`
+:::
+
+## Row {height="560px"}
+
+::: {.card title="SMS codes sent each day, and the share from outside Canada and the US (last three months)"}
+
+```{r location-chart}
+#| fig-width: 13
+#| fig-height: 4.8
+#| fig-alt: |
+#|   Two charts on a shared date axis. Above, SMS codes sent each day, with
+#|   flagged days in amber. Below, the share of codes requested from outside
+#|   Canada and the US each day, near zero on most days, with a dashed line
+#|   at 30 percent.
+p <- method_figure(
+  location_rows,
+  volume = "sms_sent", volume_label = "SMS codes sent",
+  volume_note = glue("Fires at {thresholds$location$volume}x a typical day or ",
+                     "more. Lighter bars are weekends, compared only with ",
+                     "weekends."),
+  ratio_label = "Outside Canada and the US",
+  ratio_cut = thresholds$location$share_at_least,
+  ratio_cut_label = glue("Fires at ",
+                         "{percent(thresholds$location$share_at_least)} or more")
+)
+brand_figure(p)
+```
+
+:::
+
+## Row
+
+::: {.card title="Each day (last three months)"}
+
+```{r location-table}
+location_rows |>
+  dplyr::select(day, sms_sent, sms_outside, multiple, ratio, fired) |>
+  daily_table(c("sms_sent", "sms_outside"),
+              list(sms_sent = "SMS sent",
+                   sms_outside = "Outside Canada and the US")) |>
+  cols_label(ratio = "Share outside")
 ```
 
 :::

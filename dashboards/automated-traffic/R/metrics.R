@@ -12,10 +12,11 @@ local_tz <- "America/Toronto"
 # The methods, in the order they appear in the navbar and every table. `page`
 # is the page heading's id, for links from the Overview.
 methods <- tibble::tribble(
-  ~method,  ~label,           ~page,
-  "sms",    "SMS codes",      "sms-codes",
-  "idle",   "Idle accounts",  "idle-accounts",
-  "errors", "Error patterns", "error-patterns"
+  ~method,    ~label,           ~page,
+  "sms",      "SMS codes",      "sms-codes",
+  "location", "SMS location",   "sms-location",
+  "idle",     "Idle accounts",  "idle-accounts",
+  "errors",   "Error patterns", "error-patterns"
 )
 
 # GA error codes in the bot signature. The two SMS limit codes are one limit.
@@ -75,6 +76,33 @@ sms_days <- read_once(\(con) {
     dplyr::transmute(day = as.Date(date), column = paste0("sms_", result), n) |>
     tidyr::pivot_wider(names_from = column, values_from = n, values_fill = 0) |>
     with_columns(c("sms_sent", "sms_success")) |>
+    dplyr::arrange(day)
+})
+
+# SMS code requests from these GeoIP countries are not counted as outside.
+home_countries <- c("CAN", "USA")
+
+# SMS codes sent per day, and how many were requested from outside
+# `home_countries`. A request with no country is not counted as outside.
+sms_origin_days <- read_once(\(con) {
+  inside <- c(home_countries, "", "UNKNOWN", "Unknown")
+  dplyr::tbl(con, dbplyr::in_schema("ibm_verify_events_raw", "mfa_activity")) |>
+    dplyr::filter(mfamethod == "SMS OTP", result == "sent") |>
+    dplyr::mutate(
+      day = !!toronto_day_sql("time"),
+      outside = dplyr::if_else(
+        is.na(geoip__country_iso_code) |
+          geoip__country_iso_code %in% !!inside,
+        0L, 1L
+      )
+    ) |>
+    dplyr::group_by(day) |>
+    dplyr::summarise(sms_sent = dplyr::n(),
+                     sms_outside = sum(outside, na.rm = TRUE),
+                     .groups = "drop") |>
+    dplyr::collect() |>
+    as_plain_numbers() |>
+    dplyr::mutate(day = as.Date(day)) |>
     dplyr::arrange(day)
 })
 
@@ -260,6 +288,24 @@ score_sms <- function(sms, thresholds) {
     tibble::tibble(
       baseline = baseline, multiple = multiple, ratio = ratio,
       fired = multiple >= t$volume & ratio < t$entry_rate_below
+    )
+  }, thresholds)
+  dplyr::bind_cols(sms, dplyr::select(scored, -day))
+}
+
+# SMS location: sends well above normal, and many requested from outside
+# Canada and the US.
+score_location <- function(sms, thresholds) {
+  t <- thresholds$location
+  scored <- score_days(sms$day, \(i, history) {
+    baseline <- stats::median(sms$sms_sent[history])
+    multiple <- sms$sms_sent[i] / baseline
+    ratio <- sms$sms_outside[i] / sms$sms_sent[i]
+    tibble::tibble(
+      baseline = baseline, multiple = multiple, ratio = ratio,
+      # Codes from outside on a typical day, for the value boxes.
+      typical = stats::median(sms$sms_outside[history]),
+      fired = multiple >= t$volume & ratio >= t$share_at_least
     )
   }, thresholds)
   dplyr::bind_cols(sms, dplyr::select(scored, -day))
