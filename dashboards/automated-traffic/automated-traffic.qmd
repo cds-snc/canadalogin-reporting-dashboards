@@ -26,9 +26,15 @@ thresholds <- list(
   # Codes sent at least `volume` times a typical day, and fewer than
   # `entry_rate_below` of them entered correctly.
   sms = list(volume = 3, entry_rate_below = 0.5),
+  # Codes sent at least `volume` times a typical day, and at least
+  # `share_at_least` of them requested from outside Canada and the US.
+  location = list(volume = 1.5, share_at_least = 0.3),
   # New accounts at least `volume` times a typical day, and at least
   # `idle_share_at_least` of them idle on the day they were made.
   idle = list(volume = 2, idle_share_at_least = 0.5),
+  # Email codes entered at least `volume` times a typical day, and the median
+  # entered in under `median_seconds_below` seconds.
+  speed = list(volume = 2, median_seconds_below = 10),
   # At least `groups_at_least` of the four signature errors each
   # `group_volume` times their own typical day (never less than
   # `group_floor` events), and together at least `share_at_least` of all
@@ -37,24 +43,16 @@ thresholds <- list(
                 share_at_least = 0.3)
 )
 
-# Confirmed bot days, and the methods each should fire on. Days the methods
-# flag that nobody has confirmed (Sep 7 and 8) stay off this list.
+# Confirmed bot days, and the methods each should fire on.
 known_bot_days <- tibble::tribble(
-  ~day,                  ~sms, ~idle, ~errors,
-  as.Date("2026-09-17"), TRUE, TRUE,  TRUE,
-  as.Date("2026-09-24"), TRUE, TRUE,  TRUE,
+  ~day,                  ~sms, ~location, ~idle, ~speed, ~errors,
+  # SMS from outside Canada and the US; those days' new accounts were not idle.
+  as.Date("2026-09-07"), TRUE, TRUE,      FALSE, FALSE,  TRUE,
+  as.Date("2026-09-08"), TRUE, TRUE,      FALSE, FALSE,  FALSE,
+  as.Date("2026-09-17"), TRUE, TRUE,      TRUE,  FALSE,  TRUE,
+  as.Date("2026-09-24"), TRUE, TRUE,      TRUE,  FALSE,  TRUE,
   # Ran without a browser, or blocked GA, so no error trail.
-  as.Date("2026-09-30"), TRUE, TRUE,  FALSE
-)
-
-# What one SMS costs, in dollars, by codes sent in the trailing 30 days.
-# `up_to` is the top of each tier.
-sms_price_tiers <- tibble::tribble(
-  ~up_to,    ~price,
-  50000,     0.0456,
-  250000,    0.0453,
-  1000000,   0.0428,
-  Inf,       0.0402
+  as.Date("2026-09-30"), TRUE, TRUE,      TRUE,  TRUE,   FALSE
 )
 
 # Setup -----------------------------------------------------------------------
@@ -64,6 +62,20 @@ source("../../common/setup.R")
 
 source("R/metrics.R")
 source("R/preflight.R")
+
+# Estimated prices, in dollars before tax. `up_to` is the top of each tier
+# of monthly volume. They are read from the publishing repo, and with no file
+# every price is NA and the costs read "-".
+prices <- private_data("prices.csv")
+price_tiers <- function(item) {
+  no_prices <- tibble::tibble(up_to = Inf, price = NA_real_)
+  if (is.null(prices)) return(no_prices)
+  tibble::as_tibble(prices[prices$item == item, c("up_to", "price")])
+}
+# One SMS code, by codes sent in the month.
+sms_price_tiers <- price_tiers("sms")
+# One monthly active user, by active users in the month.
+user_price_tiers <- price_tiers("active_user")
 
 con <- connect_athena()
 
@@ -78,12 +90,16 @@ chart_from <- calendar_start(through, chart_weeks)
 
 pairs <- account_pairs(con)
 sms <- dplyr::filter(sms_days(con), day <= through)
+sms_origins <- dplyr::filter(sms_origin_days(con), day <= through)
 accounts <- account_days(pairs, through)
 errors <- dplyr::filter(error_days(error_codes(con)), day <= through)
+email_seconds <- dplyr::filter(email_code_seconds(con), day <= through)
 
 scored <- list(
   sms = score_sms(sms, thresholds),
+  location = score_location(sms_origins, thresholds),
   idle = score_idle(accounts, thresholds),
+  speed = score_speed(speed_days(email_seconds), thresholds),
   errors = score_errors(errors, thresholds)
 )
 scores <- method_scores(scored)
@@ -244,9 +260,12 @@ calendar_plot <- function(cal) {
 }
 
 # Two panels on one date axis: volume, with days that fired highlighted, and
-# the ratio against its threshold.
+# the ratio against its threshold, on `ratio_scale`.
 method_figure <- function(rows, volume, volume_label, volume_note,
-                          ratio_label, ratio_cut, ratio_cut_label, top = NULL) {
+                          ratio_label, ratio_cut, ratio_cut_label, top = NULL,
+                          ratio_scale = scale_y_continuous(
+                            labels = label_percent(), limits = c(0, 1)
+                          )) {
   rows <- rows |>
     dplyr::filter(day >= chart_from) |>
     dplyr::mutate(
@@ -289,7 +308,7 @@ method_figure <- function(rows, volume, volume_label, volume_note,
     scale_colour_manual(values = c(`TRUE` = robot$accent, `FALSE` = "grey55"),
                         guide = "none") +
     scale_size_manual(values = c(`TRUE` = 2.2, `FALSE` = 0.8), guide = "none") +
-    scale_y_continuous(labels = label_percent(), limits = c(0, 1)) +
+    ratio_scale +
     scale_x_date(limits = limits, expand = c(0, 0),
                  breaks = rev(seq(through, chart_from, by = "-2 weeks")),
                  date_labels = "%b %d") +
@@ -301,9 +320,10 @@ method_figure <- function(rows, volume, volume_label, volume_note,
                      axis = "lr", rel_heights = c(1.4, 1))
 }
 
-# The quarter's daily numbers, newest first.
-daily_table <- function(rows, columns, labels) {
-  rows |>
+# The quarter's daily numbers, newest first. The ratio is a percentage, or
+# whole seconds.
+daily_table <- function(rows, columns, labels, ratio_unit = "percent") {
+  table <- rows |>
     dplyr::filter(day >= chart_from) |>
     dplyr::arrange(dplyr::desc(day)) |>
     dplyr::mutate(
@@ -314,8 +334,13 @@ daily_table <- function(rows, columns, labels) {
     dplyr::select(day, dplyr::all_of(columns), multiple, ratio, fired) |>
     gt() |>
     cols_align("right", multiple) |>
-    fmt_number(dplyr::all_of(columns), decimals = 0) |>
-    fmt_percent(ratio, decimals = 0) |>
+    fmt_number(dplyr::all_of(columns), decimals = 0)
+  table <- if (ratio_unit == "seconds") {
+    fmt_number(table, ratio, decimals = 0, pattern = "{x} s")
+  } else {
+    fmt_percent(table, ratio, decimals = 0)
+  }
+  table |>
     sub_missing(missing_text = "-") |>
     cols_label(.list = c(list(day = "Day"), labels,
                          list(multiple = "vs typical day"))) |>
@@ -383,9 +408,11 @@ rather than people. It is internal to Enterprise Digital Credentials and the
 link is unlisted. For anything that leaves EDCP, please reach out to the
 [Data and Research team](https://gcdigital.slack.com/archives/C0A6S9F7KV4).
 
-It uses **three methods**, each on its own page: [SMS codes](#sms-codes),
-[Idle accounts](#idle-accounts) and [Error patterns](#error-patterns). Each
-page explains how its method works and when it fires. The calendar below
+It uses **five methods**, each on its own page: [SMS codes](#sms-codes),
+[SMS location](#sms-location), [Idle accounts](#idle-accounts),
+[Sign-up speed](#sign-up-speed) and [Error patterns](#error-patterns). Each
+page explains how its method works and when it fires. The last page,
+[Extra costs](#extra-costs), estimates what the flagged days cost. The calendar below
 shades every day by its strongest method and labels the days a method flagged.
 As we find more methods, we will add them here.
 
@@ -452,11 +479,20 @@ that method's typical day.
 ```{r sms-summary}
 #| include: false
 sms_rows <- scored$sms
-sms_week <- method_window(sms_rows, reported_through$sms, "sms_sent",
-                          "sms_success", "sms_sent",
-                          baseline_days = thresholds$baseline_days)
-sms_extra <- extra_on_flagged(sms_rows, chart_from, "sms_sent")
-sms_extra_cost <- extra_sms_cost(sms_rows, chart_from, sms_price_tiers)
+sms_flag <- last_flag(sms_rows, chart_from, "sms_sent",
+                      thresholds$baseline_days)
+
+phone_rows <- sms_phone_days(con) |>
+  dplyr::filter(day >= chart_from, day <= through) |>
+  dplyr::mutate(fired = day %in% sms_rows$day[sms_rows$fired %in% TRUE])
+typical_per_phone <- stats::median(phone_rows$per_phone[!phone_rows$fired])
+busiest_phone <- dplyr::slice_max(phone_rows, top_phone, n = 1, with_ties = FALSE)
+phones_alt <- glue(
+  "Line chart of SMS codes sent per phone number each day for the last three ",
+  "months, about {number(typical_per_phone, accuracy = 0.1)} on a typical ",
+  "day, with days this method fired in amber. The most codes to one number ",
+  "in a day was {busiest_phone$top_phone}."
+)
 ```
 
 ## Row {height="auto"}
@@ -472,27 +508,27 @@ one-time-password to that number, and the user types it back. Real users enter a
 ## Row {height="150px"}
 
 ::: {.valuebox color="primary"}
-SMS codes sent, last 7 days
+Last flagged day
 
-`r comma(sms_week$volume)`
+`r fmt_flag_day(sms_flag$day)`
 
-`r fmt_multiple(sms_week$multiple)` a typical week
+`r flag_count_line(sms_flag)`
 :::
 
 ::: {.valuebox color="info"}
-Codes entered, last 7 days
+SMS codes sent, last flagged day
 
-`r percent(sms_week$ratio, accuracy = 1)`
+`r fmt_count(sms_flag$volume)`
 
-`r percent(sms_week$typical_ratio, accuracy = 1)` on a typical day
+`r multiple_line(sms_flag)`
 :::
 
 ::: {.valuebox color="secondary"}
-Extra SMS codes, last three months
+Codes entered, last flagged day
 
-`r fmt_about(sms_extra)`
+`r fmt_share(sms_flag$ratio)`
 
-Costing about `r dollar(round(sms_extra_cost, -2))`
+`r typical_line(sms_flag, fmt_share)`
 :::
 
 ## Row {height="560px"}
@@ -520,6 +556,46 @@ brand_figure(p)
 
 :::
 
+## Row {height="470px"}
+
+::: {.card title="SMS codes per phone number each day (last three months)"}
+
+```{r sms-phones-chart}
+#| fig-width: 13
+#| fig-height: 3.2
+#| fig-alt: !expr phones_alt
+p <- ggplot(phone_rows, aes(day, per_phone)) +
+  geom_line(colour = robot$quiet, linewidth = 0.5) +
+  geom_point(aes(colour = fired, size = fired)) +
+  scale_colour_manual(values = c(`TRUE` = robot$accent, `FALSE` = "grey55"),
+                      guide = "none") +
+  scale_size_manual(values = c(`TRUE` = 2.2, `FALSE` = 0.8), guide = "none") +
+  scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.06))) +
+  scale_x_date(limits = c(chart_from - 1L, through + 1L), expand = c(0, 0),
+               breaks = rev(seq(through, chart_from, by = "-2 weeks")),
+               date_labels = "%b %d") +
+  theme_cds() +
+  theme(panel.grid.minor = element_blank()) +
+  labs(
+    x = NULL, y = "Codes per number",
+    subtitle = glue(
+      "About {number(typical_per_phone, accuracy = 0.1)} on a typical day. ",
+      "The most to one number was {busiest_phone$top_phone}, on ",
+      "{format_short_date(busiest_phone$day)}."
+    )
+  )
+brand_figure(p, height = 0.13)
+```
+
+::: {.figure-note}
+Not part of the flag. A person rarely needs more than one or two codes a day.
+Many codes to the same numbers can be a sign of SMS fraud, where a bot runs up
+texts that are billed per code. Phone numbers are hashed before they reach us,
+so this counts numbers without seeing them.
+:::
+
+:::
+
 ## Row
 
 ::: {.card title="Each day (last three months)"}
@@ -534,15 +610,103 @@ sms_rows |>
 
 :::
 
+# SMS location
+
+```{r location-summary}
+#| include: false
+location_rows <- scored$location
+location_flag <- last_flag(location_rows, chart_from, "sms_sent",
+                           thresholds$baseline_days)
+```
+
+## Row {height="auto"}
+
+::: {.card title="How this method works"}
+Almost every SMS code is requested from Canada or the US. On a typical day,
+only a few percent come from anywhere else. This method fires when **codes
+sent are at least
+`r thresholds$location$volume`x a typical day** and **at least
+`r percent(thresholds$location$share_at_least)` of them were requested from
+outside Canada and the US**. The location comes from the requester's IP
+address, so a bot using a Canadian or US address leaves no trace here.
+:::
+
+## Row {height="150px"}
+
+::: {.valuebox color="primary"}
+Last flagged day
+
+`r fmt_flag_day(location_flag$day)`
+
+`r flag_count_line(location_flag)`
+:::
+
+::: {.valuebox color="info"}
+SMS codes sent, last flagged day
+
+`r fmt_count(location_flag$volume)`
+
+`r multiple_line(location_flag)`
+:::
+
+::: {.valuebox color="secondary"}
+Share from outside, last flagged day
+
+`r fmt_share(location_flag$ratio)`
+
+`r typical_line(location_flag, fmt_share)`
+:::
+
+## Row {height="560px"}
+
+::: {.card title="SMS codes sent each day, and the share from outside Canada and the US (last three months)"}
+
+```{r location-chart}
+#| fig-width: 13
+#| fig-height: 4.8
+#| fig-alt: |
+#|   Two charts on a shared date axis. Above, SMS codes sent each day, with
+#|   flagged days in amber. Below, the share of codes requested from outside
+#|   Canada and the US each day, near zero on most days, with a dashed line
+#|   at 30 percent.
+p <- method_figure(
+  location_rows,
+  volume = "sms_sent", volume_label = "SMS codes sent",
+  volume_note = glue("Fires at {thresholds$location$volume}x a typical day or ",
+                     "more. Lighter bars are weekends, compared only with ",
+                     "weekends."),
+  ratio_label = "Outside Canada and the US",
+  ratio_cut = thresholds$location$share_at_least,
+  ratio_cut_label = glue("Fires at ",
+                         "{percent(thresholds$location$share_at_least)} or more")
+)
+brand_figure(p)
+```
+
+:::
+
+## Row
+
+::: {.card title="Each day (last three months)"}
+
+```{r location-table}
+location_rows |>
+  dplyr::select(day, sms_sent, sms_outside, multiple, ratio, fired) |>
+  daily_table(c("sms_sent", "sms_outside"),
+              list(sms_sent = "SMS sent",
+                   sms_outside = "Outside Canada and the US")) |>
+  cols_label(ratio = "Share outside")
+```
+
+:::
+
 # Idle accounts
 
 ```{r idle-summary}
 #| include: false
 idle_rows <- scored$idle
-idle_week <- method_window(idle_rows, reported_through$idle, "new_accounts",
-                           "idle_same_day", "new_accounts",
-                           baseline_days = thresholds$baseline_days)
-idle_extra <- extra_on_flagged(idle_rows, chart_from, "new_accounts")
+idle_flag <- last_flag(idle_rows, chart_from, "new_accounts",
+                       thresholds$baseline_days)
 launch_latest <- since_launch[since_launch$date == through, ]
 
 idle_flag_days <- dplyr::filter(idle_rows, fired %in% TRUE)$day
@@ -570,27 +734,27 @@ made**.
 ##### Row {height="150px"}
 
 ::: {.valuebox color="primary"}
-New accounts, last 7 days
+Last flagged day
 
-`r comma(idle_week$volume)`
+`r fmt_flag_day(idle_flag$day)`
 
-`r fmt_multiple(idle_week$multiple)` a typical week
+`r flag_count_line(idle_flag)`
 :::
 
 ::: {.valuebox color="info"}
-Idle on the day made, last 7 days
+New accounts, last flagged day
 
-`r percent(idle_week$ratio, accuracy = 1)`
+`r fmt_count(idle_flag$volume)`
 
-`r percent(idle_week$typical_ratio, accuracy = 1)` on a typical day
+`r multiple_line(idle_flag)`
 :::
 
 ::: {.valuebox color="secondary"}
-Extra accounts, last three months
+Idle on the day made, last flagged day
 
-`r fmt_about(idle_extra)`
+`r fmt_share(idle_flag$ratio)`
 
-`r extra_line(sum(idle_flag_days >= chart_from))`
+`r typical_line(idle_flag, fmt_share)`
 :::
 
 ##### Row {height="560px"}
@@ -750,17 +914,109 @@ account and never use it.
 
 :::
 
+# Sign-up speed
+
+```{r speed-summary}
+#| include: false
+speed_rows <- scored$speed
+speed_flag <- last_flag(speed_rows, chart_from, "codes_entered",
+                        thresholds$baseline_days)
+```
+
+## Row {height="auto"}
+
+::: {.card title="How this method works"}
+A new account confirms its email address by entering a code that CanadaLogin
+emails to it. A person has to open the email and type the code, which takes
+about 20 seconds. A bot that reads its mail by machine takes a second or two.
+This method fires when **email codes entered are at least
+`r thresholds$speed$volume`x a typical day** and **the median code is entered
+in under `r thresholds$speed$median_seconds_below` seconds**. A bot that
+waits before entering its codes leaves no trace here.
+:::
+
+## Row {height="150px"}
+
+::: {.valuebox color="primary"}
+Last flagged day
+
+`r fmt_flag_day(speed_flag$day)`
+
+`r flag_count_line(speed_flag)`
+:::
+
+::: {.valuebox color="info"}
+Email codes entered, last flagged day
+
+`r fmt_count(speed_flag$volume)`
+
+`r multiple_line(speed_flag)`
+:::
+
+::: {.valuebox color="secondary"}
+Median time to enter, last flagged day
+
+`r fmt_seconds(speed_flag$ratio)`
+
+`r typical_line(speed_flag, fmt_seconds)`
+:::
+
+## Row {height="560px"}
+
+::: {.card title="Email codes entered each day, and the median time to enter one (last three months)"}
+
+```{r speed-chart}
+#| fig-width: 13
+#| fig-height: 4.8
+#| fig-alt: |
+#|   Two charts on a shared date axis. Above, email codes entered each day,
+#|   with flagged days in amber. Below, the median seconds from an email code
+#|   being sent to being entered each day, near 20 seconds on most days, with
+#|   a dashed line at 10 seconds.
+p <- method_figure(
+  speed_rows,
+  volume = "codes_entered", volume_label = "Email codes entered",
+  volume_note = glue("Fires at {thresholds$speed$volume}x a typical day or ",
+                     "more. Lighter bars are weekends, compared only with ",
+                     "weekends."),
+  ratio_label = "Median time to enter",
+  ratio_cut = thresholds$speed$median_seconds_below,
+  ratio_cut_label = glue("Fires below ",
+                         "{thresholds$speed$median_seconds_below} seconds"),
+  ratio_scale = scale_y_continuous(labels = \(x) paste0(x, " s"),
+                                   limits = c(0, NA))
+)
+brand_figure(p)
+```
+
+:::
+
+## Row
+
+::: {.card title="Each day (last three months)"}
+
+```{r speed-table}
+speed_rows |>
+  dplyr::select(day, codes_entered, multiple, ratio, fired) |>
+  daily_table("codes_entered", list(codes_entered = "Email codes entered"),
+              ratio_unit = "seconds") |>
+  cols_label(ratio = "Median time")
+```
+
+::: {.figure-note}
+*Email codes entered* are those sent by the sign-up service, mostly to new
+accounts, timed from the code being sent to it being entered.
+:::
+
+:::
+
 # Error patterns
 
 ```{r errors-summary}
 #| include: false
 error_rows <- scored$errors
-errors_week <- method_window(error_rows, reported_through$errors, "signature",
-                             "signature", "all_errors",
-                             baseline_days = thresholds$baseline_days,
-                             baseline = "typical")
-errors_extra <- extra_on_flagged(error_rows, chart_from, "signature",
-                                 baseline = "typical")
+errors_flag <- last_flag(error_rows, chart_from, "signature",
+                         thresholds$baseline_days)
 ```
 
 ## Row {height="auto"}
@@ -778,27 +1034,27 @@ errors**. A bot that doesn't use a normal browser leaves no trace here.
 ## Row {height="150px"}
 
 ::: {.valuebox color="primary"}
-Signature errors, last 7 days
+Last flagged day
 
-`r comma(errors_week$volume)`
+`r fmt_flag_day(errors_flag$day)`
 
-`r fmt_multiple(errors_week$multiple)` a typical week
+`r flag_count_line(errors_flag)`
 :::
 
 ::: {.valuebox color="info"}
-Share of all errors, last 7 days
+Signature errors, last flagged day
 
-`r percent(errors_week$ratio, accuracy = 1)`
+`r fmt_count(errors_flag$volume)`
 
-`r percent(errors_week$typical_ratio, accuracy = 1)` on a typical day
+`r multiple_line(errors_flag)`
 :::
 
 ::: {.valuebox color="secondary"}
-Extra signature errors, last three months
+Share of all errors, last flagged day
 
-`r fmt_about(errors_extra)`
+`r fmt_share(errors_flag$ratio)`
 
-`r extra_line(sum(error_rows$fired[error_rows$day >= chart_from] %in% TRUE))`
+`r typical_line(errors_flag, fmt_share)`
 :::
 
 ## Row {height="560px"}
@@ -883,6 +1139,77 @@ error_rows |>
   daily_table(c(names(signature_labels), "all_errors"),
               c(as.list(signature_labels), list(all_errors = "All errors"))) |>
   cols_label(ratio = "Signature share")
+```
+
+:::
+
+# Extra costs
+
+```{r costs-summary}
+#| include: false
+months <- cost_months(through)
+cost_days <- flagged_any(scored, months[1])
+sms_billed <- sms |>
+  dplyr::group_by(month = month_start(day)) |>
+  dplyr::summarise(volume = sum(sms_sent), .groups = "drop")
+sms_costs <- extra_cost_by_month(scored$sms, cost_days, "sms_sent",
+                                 sms_billed, sms_price_tiers, months)
+account_costs <- extra_cost_by_month(scored$idle, cost_days, "new_accounts",
+                                     active_users_by_month(con),
+                                     user_price_tiers, months)
+costs <- tibble::tibble(
+  month = month_label(months, through),
+  sms_extra = sms_costs$extra,
+  sms_cost = sms_costs$cost,
+  account_extra = account_costs$extra,
+  account_cost = account_costs$cost
+)
+costs <- dplyr::bind_rows(
+  costs,
+  dplyr::summarise(costs, month = "Total",
+                   dplyr::across(-month, sum))
+)
+```
+
+## Row {height="auto"}
+
+::: {.card title="How we estimate the costs"}
+We count only the `r length(cost_days)`
+`r if (length(cost_days) == 1) "day" else "days"` any method flagged in the last
+12 months. On each, the extra is how far SMS codes sent and new accounts went
+above a typical day.
+
+Each extra is priced at an estimate of what one more costs that month, before
+tax. Prices are lower per unit at higher monthly volumes.
+
+- An extra SMS code costs the price per code at the month's total codes sent.
+- An extra account costs the price of one monthly active user at the month's
+  total active users. We assume an extra account is active only in the month
+  it was made.
+
+The cost is the extra times the price. Fixed monthly charges are left out,
+since they do not change with traffic. A month not yet over is priced at its
+volume so far.
+:::
+
+## Row
+
+::: {.card title="Estimated extra costs by month"}
+
+```{r costs-table}
+costs |>
+  gt() |>
+  fmt_number(c(sms_extra, account_extra), decimals = 0) |>
+  fmt_currency(c(sms_cost, account_cost), decimals = 0) |>
+  sub_missing(missing_text = "-") |>
+  cols_merge(c(sms_extra, sms_cost), pattern = "{1} ({2})") |>
+  cols_merge(c(account_extra, account_cost), pattern = "{1} ({2})") |>
+  cols_label(month = "", sms_extra = "Extra SMS codes (cost)",
+             account_extra = "Extra new accounts (cost)") |>
+  tab_style(cell_text(weight = "bold"),
+            cells_body(rows = month == "Total")) |>
+  tab_options(table.width = pct(100), table.font.size = px(14),
+              data_row.padding = px(3), table.border.top.style = "none")
 ```
 
 :::

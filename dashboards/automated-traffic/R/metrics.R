@@ -12,10 +12,12 @@ local_tz <- "America/Toronto"
 # The methods, in the order they appear in the navbar and every table. `page`
 # is the page heading's id, for links from the Overview.
 methods <- tibble::tribble(
-  ~method,  ~label,           ~page,
-  "sms",    "SMS codes",      "sms-codes",
-  "idle",   "Idle accounts",  "idle-accounts",
-  "errors", "Error patterns", "error-patterns"
+  ~method,    ~label,           ~page,
+  "sms",      "SMS codes",      "sms-codes",
+  "location", "SMS location",   "sms-location",
+  "idle",     "Idle accounts",  "idle-accounts",
+  "speed",    "Sign-up speed",  "sign-up-speed",
+  "errors",   "Error patterns", "error-patterns"
 )
 
 # GA error codes in the bot signature. The two SMS limit codes are one limit.
@@ -39,6 +41,9 @@ signature_labels <- c(
 toronto_today <- function(now = Sys.time()) {
   as.Date(format(now, "%Y-%m-%d", tz = local_tz))
 }
+
+# The first of `day`'s month.
+month_start <- function(day) as.Date(format(day, "%Y-%m-01"))
 
 # Reads ----------------------------------------------------------------------
 
@@ -78,12 +83,108 @@ sms_days <- read_once(\(con) {
     dplyr::arrange(day)
 })
 
-# A Toronto day from the event stream's "2026-10-05 17:10:37 UTC".
+# SMS code requests from these GeoIP countries are not counted as outside.
+home_countries <- c("CAN", "USA")
+
+# SMS codes sent per day, and how many were requested from outside
+# `home_countries`. A request with no country is not counted as outside.
+sms_origin_days <- read_once(\(con) {
+  inside <- c(home_countries, "", "UNKNOWN", "Unknown")
+  dplyr::tbl(con, dbplyr::in_schema("ibm_verify_events_raw", "mfa_activity")) |>
+    dplyr::filter(mfamethod == "SMS OTP", result == "sent") |>
+    dplyr::mutate(
+      day = !!toronto_day_sql("time"),
+      outside = dplyr::if_else(
+        is.na(geoip__country_iso_code) |
+          geoip__country_iso_code %in% !!inside,
+        0L, 1L
+      )
+    ) |>
+    dplyr::group_by(day) |>
+    dplyr::summarise(sms_sent = dplyr::n(),
+                     sms_outside = sum(outside, na.rm = TRUE),
+                     .groups = "drop") |>
+    dplyr::collect() |>
+    as_plain_numbers() |>
+    dplyr::mutate(day = as.Date(day)) |>
+    dplyr::arrange(day)
+})
+
+# SMS codes sent per day by hashed phone number: numbers reached, codes per
+# number, and the most to one number.
+sms_phone_days <- read_once(\(con) {
+  dplyr::tbl(con, dbplyr::in_schema("ibm_verify_events_raw", "mfa_activity")) |>
+    dplyr::filter(mfamethod == "SMS OTP", result == "sent", !is.na(mfadevice),
+                  !mfadevice %in% c("", "UNKNOWN", "Unknown")) |>
+    dplyr::mutate(day = !!toronto_day_sql("time")) |>
+    dplyr::count(day, mfadevice, name = "codes") |>
+    dplyr::group_by(day) |>
+    dplyr::summarise(
+      phones = dplyr::n(),
+      sms_sent = sum(codes, na.rm = TRUE),
+      top_phone = max(codes, na.rm = TRUE),
+      .groups = "drop"
+    ) |>
+    dplyr::collect() |>
+    as_plain_numbers() |>
+    dplyr::mutate(day = as.Date(day), per_phone = sms_sent / phones) |>
+    dplyr::arrange(day)
+})
+
+# Monthly active users, one row per month. A month not yet over holds its
+# users so far.
+active_users_by_month <- read_once(\(con) {
+  dplyr::tbl(con, dbplyr::in_schema("ibm_verify", "auth_total_logins")) |>
+    dplyr::select(date, mtd_unique_users) |>
+    dplyr::collect() |>
+    as_plain_numbers() |>
+    dplyr::mutate(date = as.Date(date)) |>
+    dplyr::group_by(month = month_start(date)) |>
+    dplyr::summarise(volume = mtd_unique_users[which.max(date)],
+                     .groups = "drop") |>
+    dplyr::arrange(month)
+})
+
+# Longest wait recorded between an email code sent and entered, in seconds.
+email_seconds_cap <- 600L
+
+# Seconds from an email code sent by the sign-up API to its entry, linked by
+# hashed address: one row per day and whole second, capped.
+email_code_seconds <- read_once(\(con) {
+  dplyr::tbl(con, dbplyr::in_schema("ibm_verify_events_raw", "mfa_activity")) |>
+    dplyr::filter(mfamethod == "Email OTP", performedby_type == "api",
+                  !is.na(mfadevice),
+                  !mfadevice %in% c("", "UNKNOWN", "Unknown")) |>
+    dplyr::mutate(at = !!utc_seconds_sql("time")) |>
+    dplyr::group_by(mfadevice) |>
+    dbplyr::window_order(at) |>
+    dplyr::mutate(prev_result = dplyr::lag(result), prev_at = dplyr::lag(at)) |>
+    dplyr::ungroup() |>
+    dplyr::filter(result == "success", prev_result == "sent") |>
+    dplyr::mutate(
+      day = !!toronto_day_sql("time"),
+      seconds = least(floor(at - prev_at), !!email_seconds_cap)
+    ) |>
+    dplyr::count(day, seconds, name = "codes") |>
+    dplyr::collect() |>
+    as_plain_numbers() |>
+    dplyr::mutate(day = as.Date(day)) |>
+    dplyr::arrange(day, seconds)
+})
+
+# The event stream's "2026-10-05 17:10:37 UTC" as a SQL timestamp.
+utc_time_sql <- function(column) {
+  glue::glue(
+    "from_iso8601_timestamp(replace(substr({column}, 1, 19), ' ', 'T') || 'Z')"
+  )
+}
+
 toronto_day_sql <- function(column) {
-  dplyr::sql(glue::glue(
-    "date(at_timezone(from_iso8601_timestamp(",
-    "replace(substr({column}, 1, 19), ' ', 'T') || 'Z'), '{local_tz}'))"
-  ))
+  dplyr::sql(glue::glue("date(at_timezone({utc_time_sql(column)}, '{local_tz}'))"))
+}
+
+utc_seconds_sql <- function(column) {
+  dplyr::sql(glue::glue("to_unixtime({utc_time_sql(column)})"))
 }
 
 # Application names that belong to a public partner service. Unknown names
@@ -153,6 +254,22 @@ account_days <- function(pairs, through) {
       .groups = "drop"
     ) |>
     dplyr::arrange(day)
+}
+
+# The middle of `x`, each value counted `w` times.
+weighted_median <- function(x, w) {
+  o <- order(x)
+  x[o][which(cumsum(w[o]) >= sum(w) / 2)[1]]
+}
+
+# Email codes entered per day, and the median seconds to enter one. A day
+# with no codes has no row, so preflight sees it as missing.
+speed_days <- function(seconds) {
+  seconds |>
+    dplyr::group_by(day) |>
+    dplyr::summarise(codes_entered = sum(codes),
+                     median_seconds = weighted_median(seconds, codes),
+                     .groups = "drop")
 }
 
 # Accounts since launch as of each day. Point in time: an account leaves the
@@ -265,6 +382,22 @@ score_sms <- function(sms, thresholds) {
   dplyr::bind_cols(sms, dplyr::select(scored, -day))
 }
 
+# SMS location: sends well above normal, and many requested from outside
+# Canada and the US.
+score_location <- function(sms, thresholds) {
+  t <- thresholds$location
+  scored <- score_days(sms$day, \(i, history) {
+    baseline <- stats::median(sms$sms_sent[history])
+    multiple <- sms$sms_sent[i] / baseline
+    ratio <- sms$sms_outside[i] / sms$sms_sent[i]
+    tibble::tibble(
+      baseline = baseline, multiple = multiple, ratio = ratio,
+      fired = multiple >= t$volume & ratio >= t$share_at_least
+    )
+  }, thresholds)
+  dplyr::bind_cols(sms, dplyr::select(scored, -day))
+}
+
 # Idle accounts: sign-ups well above normal, and most never reached a partner
 # service on the day they were made.
 score_idle <- function(accounts, thresholds) {
@@ -281,6 +414,22 @@ score_idle <- function(accounts, thresholds) {
   dplyr::bind_cols(accounts, dplyr::select(scored, -day))
 }
 
+# Sign-up speed: email codes entered well above normal, and entered faster
+# than people enter them.
+score_speed <- function(speed, thresholds) {
+  t <- thresholds$speed
+  scored <- score_days(speed$day, \(i, history) {
+    baseline <- stats::median(speed$codes_entered[history])
+    multiple <- speed$codes_entered[i] / baseline
+    ratio <- speed$median_seconds[i]
+    tibble::tibble(
+      baseline = baseline, multiple = multiple, ratio = ratio,
+      fired = multiple >= t$volume & ratio < t$median_seconds_below
+    )
+  }, thresholds)
+  dplyr::bind_cols(speed, dplyr::select(scored, -day))
+}
+
 # Error patterns: several signature errors up together, each against its own
 # baseline, floored so a jump from 2 to 9 is not 4.5x.
 score_errors <- function(errors, thresholds) {
@@ -294,8 +443,6 @@ score_errors <- function(errors, thresholds) {
     ratio <- sum(today) / errors$all_errors[i]
     tibble::tibble(
       baseline = sum(baselines), multiple = sum(today) / sum(baselines),
-      # Unfloored, for the value boxes' typical week; the floor is for firing.
-      typical = sum(medians),
       ratio = ratio, groups_up = groups_up,
       fired = groups_up >= t$groups_at_least & ratio >= t$share_at_least
     )
@@ -355,47 +502,62 @@ calendar_days <- function(scores, from, through) {
     dplyr::mutate(waiting = day > caught_up)
 }
 
-# A method's last `days` days ending `end`, for its value boxes: `volume`
-# against the sum of each day's own baseline, and `numerator` over
-# `denominator` against the median day over the window before, flagged days
-# left out. The median keeps unflagged attack spillover from moving it.
-method_window <- function(scored, end, volume, numerator, denominator,
-                          days = 7L, baseline_days = 28L,
-                          baseline = "baseline") {
-  now <- dplyr::filter(scored, day > end - days, day <= end)
-  before <- dplyr::filter(scored, day > end - days - baseline_days,
-                          day <= end - days, !(fired %in% TRUE))
-  list(
-    volume = sum(now[[volume]]),
-    multiple = sum(now[[volume]]) / sum(now[[baseline]]),
-    ratio = sum(now[[numerator]]) / sum(now[[denominator]]),
-    typical_ratio = stats::median(before[[numerator]] / before[[denominator]],
-                                  na.rm = TRUE)
-  )
+# A method's newest flagged day from `from` on, for its value boxes: that
+# day's `volume`, multiple and ratio, and the median ratio over the
+# `baseline_days` before it, flagged days left out, and `n` flagged days in
+# all. All NA if none fired.
+last_flag <- function(scored, from, volume, baseline_days = 28L) {
+  flagged <- dplyr::filter(scored, day >= from, fired %in% TRUE)
+  if (nrow(flagged) == 0) {
+    return(list(day = as.Date(NA), volume = NA, multiple = NA, ratio = NA,
+                typical_ratio = NA, n = 0L))
+  }
+  row <- dplyr::slice_max(flagged, day, n = 1)
+  before <- dplyr::filter(scored, day >= row$day - baseline_days,
+                          day < row$day, !(fired %in% TRUE))
+  list(day = row$day, volume = row[[volume]], multiple = row$multiple,
+       ratio = row$ratio,
+       typical_ratio = stats::median(before$ratio, na.rm = TRUE),
+       n = nrow(flagged))
 }
 
-# A method's `volume` above a typical day on the days it fired, from `from` on.
-extra_on_flagged <- function(scored, from, volume, baseline = "baseline") {
-  rows <- dplyr::filter(scored, day >= from, fired %in% TRUE)
-  sum(pmax(rows[[volume]] - rows[[baseline]], 0))
+# Days any method fired, from `from` on.
+flagged_any <- function(scored, from) {
+  days <- purrr::map(scored, \(s) s$day[s$day >= from & s$fired %in% TRUE])
+  sort(unique(do.call(c, unname(days))))
 }
 
-# The price of one SMS at a month's volume, from tiers of `up_to` and `price`.
-sms_price <- function(volume, tiers) {
+# The first of each of the last `n` months to `through`, oldest first, none
+# before launch.
+cost_months <- function(through, n = 12L) {
+  months <- rev(seq(month_start(through), by = "-1 month", length.out = n))
+  months[months >= month_start(canadalogin_launch)]
+}
+
+# What one more unit costs at a month's `volume`, from tiers of `up_to` and
+# `price`.
+tier_price <- function(volume, tiers) {
   tiers$price[findInterval(volume, tiers$up_to, left.open = TRUE) + 1L]
 }
 
-# What the extra SMS on flagged days cost. Each day's extra codes are priced
-# at the tier set by the codes sent in the 30 days ending that day.
-extra_sms_cost <- function(sms_scored, from, tiers) {
-  sms_scored |>
-    dplyr::mutate(month_volume = purrr::map_dbl(day, \(d) {
-      sum(sms_sent[day > d - 30L & day <= d])
-    })) |>
-    dplyr::filter(day >= from, fired %in% TRUE) |>
-    dplyr::summarise(cost = sum(pmax(sms_sent - baseline, 0) *
-                                  sms_price(month_volume, tiers))) |>
-    dplyr::pull(cost)
+# A method's `volume` above its typical day on `days`, summed by month for
+# each of `months`, and priced at one more unit at the tier that month's
+# `billed` volume falls in. `billed` has columns `month` and `volume`.
+extra_cost_by_month <- function(scored, days, volume, billed, tiers, months) {
+  extra <- scored |>
+    dplyr::filter(day %in% days) |>
+    dplyr::group_by(month = month_start(day)) |>
+    dplyr::summarise(extra = sum(pmax(.data[[volume]] - baseline, 0),
+                                 na.rm = TRUE),
+                     .groups = "drop")
+  tibble::tibble(month = months) |>
+    dplyr::left_join(extra, by = "month") |>
+    dplyr::left_join(dplyr::rename(billed, billed = volume), by = "month") |>
+    dplyr::mutate(
+      extra = dplyr::coalesce(extra, 0),
+      price = tier_price(billed, tiers),
+      cost = dplyr::if_else(extra == 0, 0, extra * price)
+    )
 }
 
 # Days flagged in the last seven, for the publishing workflow's Slack post.
@@ -436,6 +598,12 @@ format_long_date <- function(d) {
          format(d, "%Y"))
 }
 
+# "July 2026", with "(to date)" on a month not yet over.
+month_label <- function(month, through) {
+  label <- format(month, "%B %Y")
+  ifelse(month == month_start(through + 1L), paste(label, "(to date)"), label)
+}
+
 # "4.4x", or a dash where there is no baseline.
 fmt_multiple <- function(x) {
   ifelse(is.na(x) | !is.finite(x), "-",
@@ -445,12 +613,32 @@ fmt_multiple <- function(x) {
 # Spaces to non-breaking, so a value box value stays one Str and keeps its class.
 nbsp <- function(x) gsub(" ", "\u00a0", x, fixed = TRUE)
 
-# "About 15,000", rounded to the thousand, for a value box; "None" for zero.
-fmt_about <- function(x) {
-  if (x == 0) "None" else nbsp(paste("About", scales::comma(round(x, -3))))
+# "21 seconds", one Str for a value box; a dash where there is none.
+fmt_seconds <- function(x) {
+  if (is.na(x)) return("-")
+  x <- round(x)
+  nbsp(paste(x, if (x == 1) "second" else "seconds"))
 }
 
-# "More than usual, on 3 flagged days", under an extra-volume value box.
-extra_line <- function(n) {
-  glue::glue("More than usual, on {n} flagged {if (n == 1) 'day' else 'days'}")
+# "12,286" or "34%" for a value box; a dash where there is none.
+fmt_count <- function(x) if (is.na(x)) "-" else scales::comma(x)
+fmt_share <- function(x) if (is.na(x)) "-" else scales::percent(x, accuracy = 1)
+
+# "Wed, September 30", one Str for a value box.
+fmt_flag_day <- function(d) {
+  if (is.na(d)) return(nbsp("None in three months"))
+  nbsp(paste0(format(d, "%a, %B "), as.integer(format(d, "%d"))))
+}
+
+# Captions under the last-flag value boxes; the multiple and typical lines
+# are blank when no day was flagged.
+flag_count_line <- function(flag) {
+  paste(flag$n, if (flag$n == 1) "flagged day" else "flagged days",
+        "in three months")
+}
+multiple_line <- function(flag) {
+  if (is.na(flag$day)) "" else paste(fmt_multiple(flag$multiple), "a typical day")
+}
+typical_line <- function(flag, fmt) {
+  if (is.na(flag$day)) "" else paste(fmt(flag$typical_ratio), "on a typical day")
 }

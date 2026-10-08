@@ -1,9 +1,6 @@
-#' Links between published dashboards. A dashboard's URL carries its publish
-#' token, the only access control, so it is read at render time from the
-#' publishing repo's paths.tsv and never written into this public repo.
-#' paths.tsv is the manifest publish.sh reuses tokens from, so it holds the
-#' current URL. Renders locally read the full sibling checkout; the render
-#' workflow checks out paths.tsv alone into the same place.
+#' Links between published dashboards. A URL carries its publish token, the
+#' only access control, so it is read at render time from the publishing
+#' repo's paths.tsv and never written into this public repo.
 
 publishing_repo_root <- function() {
   repo_path("..", "canadalogin-signal-check-publishing")
@@ -28,4 +25,17 @@ published_url <- function(file, utm_source = "dashboard_link",
   # ISO 8601 timestamps sort as text.
   url <- rows$url[order(rows$published_at, decreasing = TRUE)][1]
   if (is.null(utm_source)) url else paste0(url, "?utm_source=", utm_source)
+}
+
+# A file in the publishing repo's private data/ folder, which Pages does not
+# serve, e.g. private_data("prices.csv"). NULL with a console message when it
+# is missing, so a missing file never fails a render.
+private_data <- function(file, read = utils::read.csv,
+                         dir = file.path(publishing_repo_root(), "data")) {
+  path <- file.path(dir, file)
+  if (!file.exists(path)) {
+    message("No data from ", file, ": ", path, " not found")
+    return(NULL)
+  }
+  read(path)
 }

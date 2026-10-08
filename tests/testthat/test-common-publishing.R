@@ -61,3 +61,21 @@ test_that("a row with no URL does not count as published", {
   )
   expect_null(url)
 })
+
+# Private data ----------------------------------------------------------------
+
+test_that("a present file is read", {
+  dir <- withr::local_tempdir()
+  writeLines(c("item,up_to,price", "sms,1000,0.5", "sms,Inf,0.25"),
+             file.path(dir, "prices.csv"))
+  prices <- publishing()$private_data("prices.csv", dir = dir)
+  expect_identical(prices$up_to, c(1000, Inf))
+  expect_identical(prices$item, c("sms", "sms"))
+})
+
+test_that("a missing file gives NULL and says why", {
+  dir <- file.path(tempdir(), "no-such-dir")
+  expect_message(prices <- publishing()$private_data("prices.csv", dir = dir),
+                 "not found")
+  expect_null(prices)
+})

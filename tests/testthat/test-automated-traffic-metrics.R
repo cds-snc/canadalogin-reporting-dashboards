@@ -50,6 +50,26 @@ test_that("a day without enough baseline is not scored", {
   expect_true(is.na(scored$fired[1]))
 })
 
+test_that("SMS location fires on a surge of codes from outside Canada and the US", {
+  scored <- traffic$score_location(traffic_origins(), traffic_thresholds)
+  expect_identical(fired_on(scored), traffic_bot_day)
+})
+
+test_that("SMS location does not fire on a launch at home", {
+  origins <- traffic_origins(bot_days = as.Date(NA)) |>
+    dplyr::mutate(
+      sms_sent = ifelse(day == traffic_bot_day, 60000, sms_sent),
+      sms_outside = ifelse(day == traffic_bot_day, 600, sms_outside)
+    )
+  expect_length(fired_on(traffic$score_location(origins, traffic_thresholds)), 0)
+})
+
+test_that("a high share from outside alone does not fire", {
+  origins <- traffic_origins(bot_days = as.Date(NA)) |>
+    dplyr::mutate(sms_outside = ifelse(day == traffic_bot_day, 1500, sms_outside))
+  expect_length(fired_on(traffic$score_location(origins, traffic_thresholds)), 0)
+})
+
 test_that("idle accounts counts an account idle unless it reached a service that day", {
   accounts <- traffic$account_days(traffic_pairs(), traffic_today - 1L)
   monday <- accounts[accounts$day == as.Date("2026-09-14"), ]
@@ -61,6 +81,34 @@ test_that("idle accounts fires on a bulk wave of idle accounts", {
   accounts <- traffic$account_days(traffic_pairs(), traffic_today - 1L)
   expect_identical(fired_on(traffic$score_idle(accounts, traffic_thresholds)),
                    traffic_bot_day)
+})
+
+test_that("a weighted median counts each value its weight", {
+  expect_equal(traffic$weighted_median(c(20, 1), c(1, 3)), 1)
+  expect_equal(traffic$weighted_median(c(30, 12, 20), c(1, 1, 1)), 20)
+})
+
+test_that("sign-up speed fires on a wave of codes entered by machine", {
+  scored <- traffic$score_speed(traffic$speed_days(traffic_email_seconds()),
+                                traffic_thresholds)
+  expect_identical(fired_on(scored), traffic_bot_day)
+  expect_equal(scored$ratio[scored$day == traffic_bot_day], 1)
+})
+
+test_that("sign-up speed does not fire on a launch where people type their codes", {
+  seconds <- traffic_email_seconds() |>
+    dplyr::mutate(seconds = dplyr::if_else(seconds == 1, 20, seconds))
+  speed <- traffic$speed_days(seconds)
+  expect_length(fired_on(traffic$score_speed(speed, traffic_thresholds)), 0)
+})
+
+test_that("fast codes at an ordinary volume do not fire", {
+  seconds <- traffic_email_seconds() |>
+    dplyr::filter(day != traffic_bot_day | seconds == 1) |>
+    dplyr::mutate(codes = dplyr::if_else(day == traffic_bot_day, 700, codes))
+  speed <- traffic$speed_days(seconds)
+  expect_equal(speed$median_seconds[speed$day == traffic_bot_day], 1)
+  expect_length(fired_on(traffic$score_speed(speed, traffic_thresholds)), 0)
 })
 
 test_that("error patterns fires when the signature errors rise together", {
@@ -159,17 +207,21 @@ test_that("the method charts start on a Monday, 13 weeks back", {
 
 test_that("the calendar counts methods, marks waiting days, takes the strongest", {
   scores <- tibble::tribble(
-    ~method,  ~day,                  ~multiple, ~ratio, ~fired,
-    "sms",    as.Date("2026-09-17"), 20,        0.1,    TRUE,
-    "idle",   as.Date("2026-09-17"), 4,         0.8,    TRUE,
-    "errors", as.Date("2026-09-17"), 5,         0.5,    TRUE,
-    "sms",    as.Date("2026-09-18"), 1,         0.95,   FALSE,
-    "idle",   as.Date("2026-09-18"), 50,        0.1,    FALSE,
-    "errors", as.Date("2026-09-18"), NA,        NA,     NA
+    ~method,    ~day,                  ~multiple, ~ratio, ~fired,
+    "sms",      as.Date("2026-09-17"), 20,        0.1,    TRUE,
+    "location", as.Date("2026-09-17"), 20,        0.9,    TRUE,
+    "idle",     as.Date("2026-09-17"), 4,         0.8,    TRUE,
+    "speed",    as.Date("2026-09-17"), 4,         2,      TRUE,
+    "errors",   as.Date("2026-09-17"), 5,         0.5,    TRUE,
+    "sms",      as.Date("2026-09-18"), 1,         0.95,   FALSE,
+    "location", as.Date("2026-09-18"), 1,         0.02,   FALSE,
+    "idle",     as.Date("2026-09-18"), 50,        0.1,    FALSE,
+    "speed",    as.Date("2026-09-18"), 1,         20,     FALSE,
+    "errors",   as.Date("2026-09-18"), NA,        NA,     NA
   )
   cal <- traffic$calendar_days(scores, as.Date("2026-09-17"),
                                as.Date("2026-09-18"))
-  expect_equal(cal$n_fired, c(3, 0))
+  expect_equal(cal$n_fired, c(5, 0))
   # Error patterns last reported on the 17th, so the 18th waits on it.
   expect_identical(cal$waiting, c(FALSE, TRUE))
   # Only methods that fired count: 50x idle accounts on the 18th did not.
@@ -180,51 +232,102 @@ test_that("the calendar counts methods, marks waiting days, takes the strongest"
 
 test_that("a day before a method could score is not waiting", {
   scores <- tibble::tribble(
-    ~method,  ~day,                  ~multiple, ~ratio, ~fired,
-    "sms",    as.Date("2026-07-01"), 1,         0.95,   FALSE,
-    "idle",   as.Date("2026-07-01"), 1,         0.2,    FALSE,
-    "errors", as.Date("2026-07-01"), NA,        NA,     NA,
-    "sms",    as.Date("2026-07-02"), 1,         0.95,   FALSE,
-    "idle",   as.Date("2026-07-02"), 1,         0.2,    FALSE,
-    "errors", as.Date("2026-07-02"), 1,         0.1,    FALSE
+    ~method,    ~day,                  ~multiple, ~ratio, ~fired,
+    "sms",      as.Date("2026-07-01"), 1,         0.95,   FALSE,
+    "location", as.Date("2026-07-01"), 1,         0.02,   FALSE,
+    "idle",     as.Date("2026-07-01"), 1,         0.2,    FALSE,
+    "speed",    as.Date("2026-07-01"), 1,         20,     FALSE,
+    "errors",   as.Date("2026-07-01"), NA,        NA,     NA,
+    "sms",      as.Date("2026-07-02"), 1,         0.95,   FALSE,
+    "location", as.Date("2026-07-02"), 1,         0.02,   FALSE,
+    "idle",     as.Date("2026-07-02"), 1,         0.2,    FALSE,
+    "speed",    as.Date("2026-07-02"), 1,         20,     FALSE,
+    "errors",   as.Date("2026-07-02"), 1,         0.1,    FALSE
   )
   cal <- traffic$calendar_days(scores, as.Date("2026-07-01"),
                                as.Date("2026-07-02"))
   expect_identical(cal$waiting, c(FALSE, FALSE))
 })
 
-test_that("extra SMS counts sends above a typical day on fired days only", {
+test_that("the last flag has its own multiple and a typical entry rate", {
   scored <- traffic$score_sms(traffic_sms(), traffic_thresholds)
-  # The bot day sent 40,000 against a typical weekday of 2,000.
-  expect_equal(traffic$extra_on_flagged(scored, as.Date("2026-09-01"), "sms_sent"),
-               38000)
-  expect_equal(traffic$extra_on_flagged(scored, as.Date("2026-09-18"), "sms_sent"),
-               0)
+  flag <- traffic$last_flag(scored, as.Date("2026-09-01"), "sms_sent")
+  expect_identical(flag$day, traffic_bot_day)
+  expect_equal(flag$volume, 40000)
+  expect_equal(flag$multiple, 20)
+  expect_equal(flag$typical_ratio, 0.96, tolerance = 0.001)
+  expect_identical(traffic$flag_count_line(flag), "1 flagged day in three months")
 })
 
-test_that("the SMS week compares with a typical week and a typical entry rate", {
+test_that("no flag since `from` leaves the last flag empty", {
   scored <- traffic$score_sms(traffic_sms(), traffic_thresholds)
-  # Mon Sep 14 to Sun Sep 20 holds the bot day: 4 weekdays at 2,000, the bot
-  # day at 40,000, and a weekend at 700 a day.
-  week <- traffic$method_window(scored, as.Date("2026-09-20"), "sms_sent",
-                                "sms_success", "sms_sent")
-  expect_equal(week$volume, 4 * 2000 + 40000 + 2 * 700)
-  expect_equal(week$multiple, week$volume / (5 * 2000 + 2 * 700))
-  expect_equal(week$typical_ratio, 0.96, tolerance = 0.001)
+  flag <- traffic$last_flag(scored, traffic_bot_day + 1L, "sms_sent")
+  expect_true(is.na(flag$day))
+  expect_identical(traffic$multiple_line(flag), "")
+  expect_identical(traffic$fmt_flag_day(flag$day),
+                   traffic$nbsp("None in three months"))
 })
 
-test_that("an SMS is priced by the tier its month's volume falls in", {
+test_that("a flagged day reads as one Str", {
+  expect_identical(traffic$fmt_flag_day(as.Date("2026-09-30")),
+                   "Wed,\u00a0September\u00a030")
+})
+
+test_that("flagged days are pooled across methods", {
+  scored <- list(
+    sms = tibble::tibble(day = as.Date(c("2026-09-07", "2026-09-30")),
+                         fired = c(FALSE, TRUE)),
+    location = tibble::tibble(day = as.Date(c("2026-09-07", "2026-09-30")),
+                              fired = c(TRUE, TRUE)),
+    errors = tibble::tibble(day = as.Date("2026-09-08"), fired = NA)
+  )
+  expect_identical(traffic$flagged_any(scored, as.Date("2026-09-01")),
+                   as.Date(c("2026-09-07", "2026-09-30")))
+  expect_identical(traffic$flagged_any(scored, as.Date("2026-09-08")),
+                   as.Date("2026-09-30"))
+})
+
+test_that("one more unit is priced by the tier its month's volume falls in", {
   tiers <- tibble::tibble(up_to = c(50000, 250000, 1000000, Inf),
-                          price = c(0.0456, 0.0453, 0.0428, 0.0402))
-  expect_equal(traffic$sms_price(c(1, 50000, 50001, 250000, 1e6, 1e6 + 1), tiers),
-               c(0.0456, 0.0456, 0.0453, 0.0453, 0.0428, 0.0402))
+                          price = c(0.05, 0.04, 0.03, 0.02))
+  expect_equal(traffic$tier_price(c(1, 50000, 50001, 250000, 1e6, 1e6 + 1), tiers),
+               c(0.05, 0.05, 0.04, 0.04, 0.03, 0.02))
 })
 
-test_that("extra SMS on a flagged day are priced at that day's 30-day volume", {
-  tiers <- tibble::tibble(up_to = c(50000, 250000, 1000000, Inf),
-                          price = c(0.0456, 0.0453, 0.0428, 0.0402))
+test_that("extra volume on flagged days is summed and priced by month", {
+  tiers <- tibble::tibble(up_to = c(50000, Inf), price = c(0.05, 0.04))
   scored <- traffic$score_sms(traffic_sms(), traffic_thresholds)
-  # The 30 days to the bot day hold over 50,000 codes: the second tier.
-  expect_equal(traffic$extra_sms_cost(scored, as.Date("2026-09-01"), tiers),
-               38000 * 0.0453)
+  months <- as.Date(c("2026-08-01", "2026-09-01"))
+  billed <- tibble::tibble(month = months, volume = c(10000, 60000))
+  costs <- traffic$extra_cost_by_month(scored, traffic_bot_day, "sms_sent",
+                                       billed, tiers, months)
+  # The bot day sent 40,000 against a typical weekday of 2,000; September's
+  # 60,000 codes put it in the second tier. A month with no flag costs nothing.
+  expect_equal(costs$extra, c(0, 38000))
+  expect_equal(costs$cost, c(0, 38000 * 0.04))
+})
+
+test_that("extra volume in a month with no billed volume has no price", {
+  tiers <- tibble::tibble(up_to = Inf, price = 0.05)
+  scored <- traffic$score_sms(traffic_sms(), traffic_thresholds)
+  billed <- tibble::tibble(month = as.Date(character()), volume = numeric())
+  costs <- traffic$extra_cost_by_month(scored, traffic_bot_day, "sms_sent",
+                                       billed, tiers, as.Date("2026-09-01"))
+  expect_true(is.na(costs$cost))
+})
+
+test_that("only a month not yet over is labelled to date", {
+  months <- as.Date(c("2026-08-01", "2026-10-01"))
+  expect_identical(traffic$month_label(months, as.Date("2026-10-07")),
+                   c("August 2026", "October 2026 (to date)"))
+  expect_identical(traffic$month_label(as.Date("2026-09-01"),
+                                       as.Date("2026-09-30")),
+                   "September 2026")
+})
+
+test_that("cost months run 12 months back, none before launch", {
+  expect_identical(traffic$cost_months(as.Date("2026-10-07")),
+                   seq(as.Date("2026-04-01"), as.Date("2026-10-01"),
+                       by = "month"))
+  expect_length(traffic$cost_months(as.Date("2027-12-15")), 12)
 })

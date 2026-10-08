@@ -4,10 +4,15 @@ An internal-only dashboard that looks for automated traffic (scripts and bots)
 on CanadaLogin. Each page is one detection method:
 
 - **SMS codes**, from `ibm_verify.mfa_activity`: far more SMS codes sent than
-  usual, and few of them entered.
+  usual, and few of them entered. The page also shows codes per phone number, as
+  context.
+- **SMS location**, from the IBM Verify event stream: far more SMS codes sent
+  than usual, and many requested from outside Canada and the US.
 - **Idle accounts**, from the IBM Verify event stream: far more new accounts
   than usual, and most never signing in to a partner service that day. A second
   tab has accounts since launch, with idle accounts by week.
+- **Sign-up speed**, from the IBM Verify event stream: far more sign-up email
+  codes entered than usual, and entered faster than people enter them.
 - **Error patterns**, from `google_analytics.error_events`: four rare errors
   rising together.
 

@@ -104,3 +104,9 @@ test_that("a method not expected to fire is not checked", {
   result <- run_traffic_preflight(traffic_with_data(codes = codes), known = known)
   expect_true(result$passed)
 })
+
+test_that("a missing day of email codes fails, rather than going unscored", {
+  seconds <- dplyr::filter(traffic_email_seconds(), day != as.Date("2026-09-02"))
+  result <- run_traffic_preflight(traffic_with_data(seconds = seconds))
+  expect_identical(failed_slugs(result), "no-missing-days")
+})
