@@ -40,10 +40,12 @@ thresholds <- list(
                 share_at_least = 0.3)
 )
 
-# Confirmed bot days, and the methods each should fire on. Days the methods
-# flag that nobody has confirmed (Sep 7 and 8) stay off this list.
+# Confirmed bot days, and the methods each should fire on.
 known_bot_days <- tibble::tribble(
   ~day,                  ~sms, ~location, ~idle, ~errors,
+  # SMS from abroad; the new accounts those days were not idle.
+  as.Date("2026-09-07"), TRUE, TRUE,      FALSE, TRUE,
+  as.Date("2026-09-08"), TRUE, TRUE,      FALSE, FALSE,
   as.Date("2026-09-17"), TRUE, TRUE,      TRUE,  TRUE,
   as.Date("2026-09-24"), TRUE, TRUE,      TRUE,  TRUE,
   # Ran without a browser, or blocked GA, so no error trail.
