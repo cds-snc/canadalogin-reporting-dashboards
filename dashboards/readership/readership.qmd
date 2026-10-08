@@ -186,6 +186,35 @@ table_options <- function(gt_table) {
 
 # Overview
 
+```{r overview-summary}
+#| include: false
+# A year of whole weeks, or every week since tracking began if that is less.
+year_from <- max(monday_of(through) - 51L * 7L, monday_of(tracking_from))
+products <- c(signal_check = "Signal Checks", dashboard = "Dashboards",
+              cookbook = "Metrics Cookbook")
+
+weekly_all <- traffic |>
+  dplyr::filter(page_kind %in% names(products), day >= year_from,
+                day <= through) |>
+  dplyr::mutate(week = monday_of(day)) |>
+  dplyr::group_by(week, page_kind) |>
+  dplyr::summarise(views = sum(views), .groups = "drop") |>
+  tidyr::complete(week = seq(year_from, monday_of(through), by = "week"),
+                  page_kind = names(products), fill = list(views = 0)) |>
+  dplyr::mutate(
+    product = factor(products[page_kind], levels = rev(products)),
+    # The week tracking began on a Thursday, and this week so far.
+    partial = week < tracking_from | week + 6L > through
+  )
+
+year_note <- if (year_from > monday_of(tracking_from)) {
+  "Monday-to-Sunday weeks over the last year. The lighter bar is this week so far."
+} else {
+  glue("Monday-to-Sunday weeks since tracking began on ",
+       "{format_long_date(tracking_from)}. Lighter bars are part weeks.")
+}
+```
+
 ## Row {height="auto"}
 
 ::: {.card title="About this dashboard"}
@@ -227,6 +256,39 @@ Volumes are small, a few dozen views per Signal Check, so one reader can move
 a percentage a long way. Check the view counts before the percentages. A view
 is one opening of a page, not one person: a reader who opens a Signal Check
 twice counts twice.
+
+:::
+
+## Row {height="460px"}
+
+::: {.card title="Views each week: Signal Checks, dashboards and the Cookbook"}
+
+```{r overview-weeks-chart}
+#| fig-width: 10
+#| fig-height: 3.6
+#| fig-alt: |
+#|   Stacked bar chart of page views each week, split into Signal Checks,
+#|   dashboards and the Metrics Cookbook, from the start of tracking or the
+#|   last year, whichever is shorter. Part weeks are lighter.
+product_colours <- setNames(c(palette$accent, palette$ink, "#B98A2E"),
+                            unname(products))
+
+p <- ggplot(weekly_all, aes(week + 3, views, fill = product)) +
+  geom_col(aes(alpha = partial), width = 5.5) +
+  scale_fill_manual(values = product_colours, breaks = unname(products),
+                    name = NULL) +
+  scale_alpha_manual(values = c(`FALSE` = 1, `TRUE` = 0.4), guide = "none") +
+  scale_x_date(date_breaks = "1 month", date_labels = "%b") +
+  scale_y_continuous(labels = label_comma(), limits = c(0, NA),
+                     expand = expansion(mult = c(0, 0.08))) +
+  theme_cds() +
+  theme(panel.grid.minor = element_blank(), legend.position = "top",
+        legend.justification = "left", legend.key.size = unit(0.35, "cm"),
+        legend.text = element_text(margin = margin(r = 12)),
+        legend.margin = margin(0, 0, 0, 0)) +
+  labs(x = NULL, y = "Views", subtitle = year_note)
+brand_figure(p)
+```
 
 :::
 
