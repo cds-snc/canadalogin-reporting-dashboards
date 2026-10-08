@@ -226,6 +226,29 @@ window_dwell <- edition_dwell(events, editions)
 daily <- days |>
   dplyr::filter(age >= 0, day >= chart_from, day <= through)
 
+window_sessions <- traffic |>
+  dplyr::inner_join(dplyr::filter(coverage, comparable),
+                    by = "pagepath_redacted") |>
+  dplyr::filter(day >= published, day < published + edition_window_days)
+
+source_table <- window_sessions |>
+  dplyr::group_by(sessionsource) |>
+  dplyr::summarise(sessions = sum(sessions), .groups = "drop") |>
+  dplyr::mutate(
+    what = describe_source(sessionsource),
+    group = source_groups$label[match(source_group(sessionsource),
+                                      source_groups$group)],
+    share = sessions / sum(sessions)
+  ) |>
+  dplyr::group_by(what, group) |>
+  dplyr::summarise(sources = paste(sort(unique(sessionsource)), collapse = ", "),
+                   sessions = sum(sessions), share = sum(share),
+                   .groups = "drop") |>
+  dplyr::arrange(dplyr::desc(sessions))
+
+posts <- sum(source_table$share[source_table$group %in%
+                                  c("Slack", "Teams", "Email")])
+
 daily_alt <- glue(
   "Stacked bar chart of Signal Check views each day over the last three ",
   "months, one colour per Signal Check. Each Signal Check's views spike on ",
@@ -353,9 +376,55 @@ one reader can move a curve by several percentage points.
 
 :::
 
+## Row {height="500px"}
+
+::: {.card title="Where Signal Check sessions started, first 14 days"}
+
+```{r edition-sources-chart}
+#| fig-width: 10
+#| fig-height: 3.2
+#| fig-alt: |
+#|   Horizontal stacked bars, one per Signal Check, newest at the top,
+#|   splitting each Signal Check's sessions in its first 14 days by where
+#|   they started: Slack, Teams, email, our own links, no link recorded and
+#|   other sites. The total is at the end of each bar.
+p <- source_bars(window_sessions, "label", rev(comparable$label))
+brand_figure(p)
+```
+
+::: {.figure-note}
+Every Signal Check goes out by Slack, Teams and email, each link tagged, so a
+session that starts from one is counted under it. From
+`r comparable$label[1]` onward, those three posts started
+**`r percent(posts, accuracy = 1)`** of sessions in the first 14 days. *Our
+own links* are the link to the latest Signal Check and links inside a Signal
+Check or a dashboard. *No link recorded* is a bookmark, a typed address, or an
+app that drops the link's source. A session counts once for each Signal Check
+it opened.
+:::
+
+:::
+
 ## Row {height="auto"}
 
-::: {.card title="Every edition"}
+::: {.card title="Every source, `r comparable$label[1]` to `r latest$label`, first 14 days"}
+
+```{r source-table}
+source_table |>
+  dplyr::select(what, sources, group, sessions, share) |>
+  gt() |>
+  fmt_number(sessions, decimals = 0) |>
+  fmt_percent(share, decimals = 0) |>
+  cols_label(what = "Where", sources = "Recorded as", group = "Grouped as",
+             sessions = "Sessions", share = "Share") |>
+  table_options()
+```
+
+:::
+
+## Row {height="auto"}
+
+::: {.card title="Every Signal Check"}
 
 ```{r edition-table}
 review <- days |>
@@ -416,110 +485,6 @@ Signal Check #1 and Signal Check #2 were sent.
 
 :::
 
-# Where readers come from
-
-```{r sources-summary}
-#| include: false
-window_sessions <- traffic |>
-  dplyr::inner_join(dplyr::filter(coverage, comparable),
-                    by = "pagepath_redacted") |>
-  dplyr::filter(day >= published, day < published + edition_window_days)
-
-source_table <- window_sessions |>
-  dplyr::group_by(sessionsource) |>
-  dplyr::summarise(sessions = sum(sessions), .groups = "drop") |>
-  dplyr::mutate(
-    what = describe_source(sessionsource),
-    group = source_groups$label[match(source_group(sessionsource),
-                                      source_groups$group)],
-    share = sessions / sum(sessions)
-  ) |>
-  dplyr::group_by(what, group) |>
-  dplyr::summarise(sources = paste(sort(unique(sessionsource)), collapse = ", "),
-                   sessions = sum(sessions), share = sum(share),
-                   .groups = "drop") |>
-  dplyr::arrange(dplyr::desc(sessions))
-
-posts <- sum(source_table$share[source_table$group %in%
-                                  c("Slack", "Teams", "Email")])
-
-chart_from <- monday_of(through) - 12L * 7L
-dashboard_sessions <- traffic |>
-  dplyr::filter(page_kind == "dashboard", day >= chart_from) |>
-  dplyr::mutate(file = dashboard_file(pagepath_redacted)) |>
-  dplyr::inner_join(dashboards, by = "file")
-```
-
-## Row {height="auto"}
-
-::: {.card title="How readers reach Signal Check"}
-
-Every edition goes out by Slack, Teams and email, and each of those links
-is tagged, so a session that starts from one is counted under it. *Our own
-links* are the link to the latest edition and links inside an edition or a
-dashboard. *No link recorded* is a bookmark, a typed address, or an app that
-drops the link's source. In editions `r comparable$label[1]` onward, the
-three posts started **`r percent(posts, accuracy = 1)`** of sessions in the
-first 14 days.
-
-:::
-
-## Row {height="460px"}
-
-::: {.card title="Signal Check sessions by where they started, first 14 days"}
-
-```{r edition-sources-chart}
-#| fig-width: 10
-#| fig-height: 3.2
-#| fig-alt: |
-#|   Horizontal stacked bars, one per Signal Check edition, newest at the
-#|   top, splitting each edition's sessions in its first 14 days by where
-#|   they started: Slack, Teams, email, our own links, no link recorded and
-#|   other sites. The total is at the end of each bar.
-p <- source_bars(window_sessions, "label", rev(comparable$label))
-brand_figure(p)
-```
-
-::: {.figure-note}
-A session counts once for each edition it opened, and starts from one place.
-:::
-
-:::
-
-## Row {height="auto"}
-
-::: {.card title="Every source, editions `r comparable$label[1]` to `r latest$label`, first 14 days"}
-
-```{r source-table}
-source_table |>
-  dplyr::select(what, sources, group, sessions, share) |>
-  gt() |>
-  fmt_number(sessions, decimals = 0) |>
-  fmt_percent(share, decimals = 0) |>
-  cols_label(what = "Where", sources = "Recorded as", group = "Grouped as",
-             sessions = "Sessions", share = "Share") |>
-  table_options()
-```
-
-:::
-
-## Row {height="400px"}
-
-::: {.card title="Dashboard sessions by where they started, last three months"}
-
-```{r dashboard-sources-chart}
-#| fig-width: 10
-#| fig-height: 2.7
-#| fig-alt: |
-#|   Horizontal stacked bars, one per dashboard, splitting its sessions over
-#|   the last three months by where they started: Slack, Teams, email, our own
-#|   links, no link recorded and other sites.
-p <- source_bars(dashboard_sessions, "name", sort(dashboards$name))
-brand_figure(p, height = 0.11)
-```
-
-:::
-
 # Dashboards
 
 ```{r dashboards-summary}
@@ -528,6 +493,8 @@ dashboard_rows <- traffic |>
   dplyr::filter(page_kind == "dashboard") |>
   dplyr::mutate(file = dashboard_file(pagepath_redacted)) |>
   dplyr::inner_join(dashboards, by = "file")
+
+dashboard_sessions <- dplyr::filter(dashboard_rows, day >= chart_from)
 
 all_window <- window_totals(dashboard_rows, "views", through)
 all_change <- relative_change(all_window[["current"]], all_window[["prior"]])
@@ -639,6 +606,23 @@ brand_figure(p)
 #|   page views still open after 1 second up to 10 minutes, with the other
 #|   dashboards' curves in the background and a dashed line at 50 percent.
 brand_figure(dwell_panels(dashboard_curve, "name", ncol = nrow(dashboards)))
+```
+
+:::
+
+## Row {height="400px"}
+
+::: {.card title="Where dashboard sessions started, last three months"}
+
+```{r dashboard-sources-chart}
+#| fig-width: 10
+#| fig-height: 2.7
+#| fig-alt: |
+#|   Horizontal stacked bars, one per dashboard, splitting its sessions over
+#|   the last three months by where they started: Slack, Teams, email, our own
+#|   links, no link recorded and other sites.
+p <- source_bars(dashboard_sessions, "name", sort(dashboards$name))
+brand_figure(p, height = 0.11)
 ```
 
 :::

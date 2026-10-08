@@ -1,21 +1,20 @@
 # CanadaLogin Readership
 
 An internal-only dashboard of how much attention our own reporting gets, from
-the meta-analytics GA4 property. It has four pages:
+the meta-analytics GA4 property. It has three pages:
 
-- **Signal Check**: each edition's views over its first 14 days, how long
-  readers keep it open (a drop-off curve per edition), and a table of every
-  edition.
-- **Where readers come from**: the sessions behind each edition and dashboard,
-  by the tagged link or site they started from.
-- **Dashboards**: weekly views and drop-off curves for each published
-  dashboard.
+- **Signal Check**: views each day, how long readers keep each Signal Check
+  open over its first 14 days (a drop-off curve per Signal Check), where its
+  sessions started (the tagged Slack, Teams and email links, and others), and
+  a table of every Signal Check.
+- **Dashboards**: weekly views in each dashboard's own colour, drop-off
+  curves, where sessions started, and a table.
 - **Metrics Cookbook**: weekly views and the most viewed pages.
 
 It reads `google_analytics.meta_page_traffic` and `meta_page_events`, and
 `property_traffic` to tell whether the export ran. Pages are always grouped on
-`pagepath_redacted`; the raw `pagepath` holds each edition's private token and
-is never read.
+`pagepath_redacted`; the raw `pagepath` holds each Signal Check's private
+token and is never read.
 
 Render with `quarto render dashboards/readership` from the repo root, or
 `quarto render readership.qmd` from inside this folder. To render without AWS,
