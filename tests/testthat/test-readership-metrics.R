@@ -15,7 +15,8 @@ test_that("editions are dated by their file name, oldest first", {
   expect_identical(editions$number, 3:5)
   expect_identical(editions$published,
                    as.Date(c("2026-08-10", "2026-08-24", "2026-10-03")))
-  expect_identical(editions$label, c("#3", "#4", "#5"))
+  expect_identical(editions$label,
+                   c("Signal Check #3", "Signal Check #4", "Signal Check #5"))
 })
 
 test_that("an edition sent before tracking is not comparable", {
@@ -99,14 +100,26 @@ test_that("a milestone nobody reached reads as zero", {
   expect_equal(curve$share[curve$seconds == 600], 0)
 })
 
-test_that("the median read is the longest milestone half the views reached", {
+test_that("the median read sits between the milestones either side of half", {
+  # 60% open at 15 s, 40% at 30 s: halfway on a log scale, about 21 s.
+  curve <- curve_of(10, c(10, 8, 6, 4, 3, 1, 0, 0))
+  expect_equal(readership$median_read(curve$seconds, curve$share),
+               sqrt(15 * 30))
+})
+
+test_that("the median read lands on a milestone exactly half reached", {
   curve <- curve_of(10, c(10, 8, 6, 5, 3, 1, 0, 0))
-  expect_equal(readership$median_dwell(curve$seconds, curve$share), 30)
+  expect_equal(readership$median_read(curve$seconds, curve$share), 30)
 })
 
 test_that("the median read is zero when fewer than half reach a second", {
   curve <- curve_of(10, c(4, 2, 0, 0, 0, 0, 0, 0))
-  expect_equal(readership$median_dwell(curve$seconds, curve$share), 0)
+  expect_equal(readership$median_read(curve$seconds, curve$share), 0)
+})
+
+test_that("the median read is unbounded when half stay past 10 minutes", {
+  curve <- curve_of(10, c(10, 9, 9, 8, 8, 7, 6, 6))
+  expect_identical(readership$median_read(curve$seconds, curve$share), Inf)
 })
 
 test_that("reading time counts each view down to its last milestone", {
@@ -175,8 +188,9 @@ test_that("sources fall into their groups", {
 
 # Formatting ------------------------------------------------------------------
 
-test_that("a median read reads as the band it falls in", {
-  expect_identical(readership$fmt_dwell(c(0, 30, 60, 600, NA)),
-                   c("Under 1 s", "30 s to 1 min", "1 to 2 min",
-                     "10 min or more", "-"))
+test_that("a median read reads as decimal minutes", {
+  expect_identical(
+    readership$fmt_read(c(0, 30, 21.2, 85, 120, Inf, NA)),
+    c("0 min", "0.5 min", "0.4 min", "1.4 min", "2 min", "Over 10 min", "-")
+  )
 })

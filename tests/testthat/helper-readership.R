@@ -10,7 +10,8 @@ readership_edition <- function(stamp) {
   paste0(readership_prefix, stamp, "_signal-check.html")
 }
 
-# Editions #3 and #4 have a full fortnight; #5 was sent three days ago.
+# Signal Check #3 and Signal Check #4 have two full weeks; Signal Check #5 was
+# sent three days ago.
 readership_editions <- tibble::tribble(
   ~stamp,     ~title,
   "20260810", "CanadaLogin Signal Check #3",

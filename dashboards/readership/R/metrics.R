@@ -8,7 +8,8 @@
 # published before it.
 tracking_from <- as.Date("2026-07-23")
 
-# An edition is compared over its own fortnight, publication day included.
+# A Signal Check is compared over its first two weeks, publication day
+# included.
 edition_window_days <- 14L
 
 # The dwell milestones every edition and dashboard fires, in seconds.
@@ -53,8 +54,8 @@ source_descriptions <- c(
   "slack" = "Link in a Slack post",
   "teams" = "Link in a Teams post",
   "email" = "Link in the email",
-  "latest-link" = "The link to the latest edition",
-  "report_link" = "Link in a Signal Check edition",
+  "latest-link" = "The link to the latest Signal Check",
+  "report_link" = "Link in a Signal Check",
   "dashboard_link" = "Link in a dashboard",
   "(direct)" = "No link recorded",
   "(not set)" = "No link recorded",
@@ -172,7 +173,8 @@ edition_list <- function(traffic) {
     dplyr::mutate(
       published = as.Date(sub(edition_pattern, "\\1", pagepath_redacted),
                           "%Y%m%d"),
-      label = paste0("#", number)
+      # Never a bare "#6": readers know them as Signal Checks.
+      label = paste0("Signal Check #", number)
     ) |>
     dplyr::arrange(published)
 }
@@ -217,7 +219,7 @@ cumulative_views <- function(days, coverage) {
     dplyr::ungroup()
 }
 
-# Median cumulative views at `age` over the editions with a full fortnight.
+# Median cumulative views at `age` over the Signal Checks with two full weeks.
 typical_at_age <- function(cumulative, coverage, age) {
   complete <- coverage$number[coverage$complete]
   at <- cumulative[cumulative$number %in% complete & cumulative$age == age, ]
@@ -267,11 +269,19 @@ dwell_curve <- function(events, by) {
     dplyr::arrange(dplyr::across(dplyr::all_of(c(by, "seconds"))))
 }
 
-# The longest milestone at least half of the page views reached, so a floor:
-# 60 means one to two minutes. Zero when fewer than half reached a second.
-median_dwell <- function(seconds, share) {
-  reached <- seconds[share >= 0.5]
-  if (length(reached) == 0L) 0 else max(reached)
+# The time half the page views were still open, interpolated on a log scale
+# between the milestones either side of 50%. Zero when fewer than half
+# reached a second; Inf when half were still open at the last milestone.
+median_read <- function(seconds, share) {
+  ordered <- order(seconds)
+  seconds <- seconds[ordered]
+  share <- share[ordered]
+  above <- which(share >= 0.5)
+  if (length(above) == 0L) return(0)
+  i <- max(above)
+  if (i == length(seconds)) return(Inf)
+  step <- (share[i] - 0.5) / (share[i] - share[i + 1L])
+  exp(log(seconds[i]) + step * (log(seconds[i + 1L]) - log(seconds[i])))
 }
 
 # The least time a curve's page views add up to, in seconds: each view that
@@ -292,7 +302,7 @@ dwell_summary <- function(curve, by) {
     dplyr::group_by(dplyr::across(dplyr::all_of(by))) |>
     dplyr::summarise(
       page_views = dplyr::first(page_views),
-      median_seconds = median_dwell(seconds, share),
+      median_seconds = median_read(seconds, share),
       past_minute = share[seconds == 60],
       past_five = share[seconds == 300],
       reading_seconds = reading_seconds(seconds, reached),
@@ -408,16 +418,15 @@ fmt_mark_short <- function(seconds) {
   ifelse(seconds < 60, paste0(seconds, "s"), paste0(seconds / 60, "m"))
 }
 
-# A median dwell, which is a floor, as the band it falls in: "1 to 2 min".
-dwell_bands <- c(
-  "0" = "Under 1 s", "1" = "1 to 5 s", "5" = "5 to 15 s", "15" = "15 to 30 s",
-  "30" = "30 s to 1 min", "60" = "1 to 2 min", "120" = "2 to 5 min",
-  "300" = "5 to 10 min", "600" = "10 min or more"
-)
-
-fmt_dwell <- function(seconds) {
-  band <- unname(dwell_bands[as.character(seconds)])
-  ifelse(is.na(band), "-", band)
+# A median read in minutes to one decimal: "0.4 min", "1.4 min", "2 min".
+# Zero when fewer than half the views stayed a second.
+fmt_read <- function(seconds) {
+  minutes <- as.character(round(seconds / 60, 1))
+  dplyr::case_when(
+    is.na(seconds) ~ "-",
+    is.infinite(seconds) ~ "Over 10 min",
+    .default = paste(minutes, "min")
+  )
 }
 
 # Seconds as hours or minutes: "3.4 hours", "45 minutes".

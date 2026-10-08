@@ -161,19 +161,20 @@ run_preflight_safety_check <- function(con, today = toronto_today(),
 
   record_check(
     "edition-numbers",
-    "Every edition must carry one number in its title, and no two the same",
+    "Every Signal Check must carry one number in its title, and no two the same",
     passed = length(unnumbered) == 0 && length(conflicting) == 0 &&
       length(shared) == 0,
     details = c(
-      glue("{nrow(editions)} editions numbered"),
+      glue("{nrow(editions)} Signal Checks numbered"),
       if (length(unnumbered) > 0) {
-        glue("No number in the title of the {edition_date(unnumbered)} edition")
+        glue("No number in the title of the Signal Check sent ",
+             "{edition_date(unnumbered)}")
       },
       if (length(conflicting) > 0) {
-        glue("More than one number in the titles of the ",
-             "{edition_date(conflicting)} edition")
+        glue("More than one number in the titles of the Signal Check sent ",
+             "{edition_date(conflicting)}")
       },
-      if (length(shared) > 0) glue("#{shared} is on more than one edition")
+      if (length(shared) > 0) glue("Signal Check #{shared} is in more than one title")
     )
   )
 

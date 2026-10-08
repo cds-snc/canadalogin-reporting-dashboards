@@ -76,9 +76,8 @@ cat(
 
 # Presentation ---------------------------------------------------------------
 
-# Chart colours, mirroring _theme.scss ("Marginalia"): the margin's red marks
-# the newest edition and our own links, sepia ink the rest of a series, and
-# paper the context behind it.
+# Chart colours from _theme.scss: margin red for the newest Signal Check and
+# our own links, sepia ink for the rest, paper behind.
 palette <- list(accent = "#A63A26", ink = "#3B2A20", quiet = "#D6CBB9")
 
 # One ink per Signal Check in the daily chart, cycled oldest first so
@@ -104,8 +103,8 @@ brand_figure <- function(p, height = 0.09) {
 
 dwell_breaks <- dwell_marks
 
-# One panel per page: its drop-off curve in the accent, every other page's in
-# the background, and a dashed line where half the views have left.
+# One panel per page: its curve in the accent over every other page's, a
+# dashed line at half, and its views and median read in the corner.
 dwell_panels <- function(curve, panel, ncol) {
   curve <- dplyr::mutate(curve, panel = .data[[panel]])
   others <- curve |>
@@ -113,8 +112,12 @@ dwell_panels <- function(curve, panel, ncol) {
     tidyr::crossing(panel = unique(curve$panel)) |>
     dplyr::filter(other != panel)
   counts <- curve |>
-    dplyr::distinct(panel, page_views) |>
-    dplyr::mutate(label = paste(comma(page_views), "views"))
+    dplyr::group_by(panel) |>
+    dplyr::summarise(
+      label = paste0(comma(dplyr::first(page_views)), " views\n",
+                     "median ", fmt_read(median_read(seconds, share))),
+      .groups = "drop"
+    )
 
   ggplot(curve, aes(seconds, share)) +
     geom_hline(yintercept = 0.5, linetype = "dashed", colour = "grey55",
@@ -125,7 +128,7 @@ dwell_panels <- function(curve, panel, ncol) {
     geom_point(colour = palette$accent, size = 1.4) +
     geom_text(data = counts, aes(x = 600, y = 1, label = label),
               inherit.aes = FALSE, hjust = 1, vjust = 1, size = 3,
-              colour = "grey35") +
+              lineheight = 0.9, colour = "grey35") +
     scale_x_log10(breaks = dwell_breaks, labels = fmt_mark_short(dwell_breaks)) +
     scale_y_continuous(labels = label_percent(), limits = c(0, 1),
                        breaks = c(0, 0.5, 1)) +
@@ -200,7 +203,7 @@ pooled_median <- edition_window_events(
 ) |>
   dplyr::mutate(all = "all") |>
   dwell_curve("all") |>
-  dplyr::summarise(m = median_dwell(seconds, share)) |>
+  dplyr::summarise(m = median_read(seconds, share)) |>
   dplyr::pull(m)
 
 so_far <- if (latest$days_seen < edition_window_days) {
@@ -236,14 +239,14 @@ daily_alt <- glue(
 ::: {.card title="Reading this dashboard"}
 
 This dashboard shows how much attention our own reporting gets: who opens
-each Signal Check edition and dashboard, how long they keep it open, and which
+each Signal Check and dashboard, how long they keep it open, and which
 link brought them. It reads the analytics tag on our pages, the same kind of
 tag that measures CanadaLogin itself. It is internal to Enterprise Digital
 Credentials and the link is unlisted.
 
-Editions are compared over **their first 14 days**, the fortnight before the
-next one arrives, so every edition is measured over the same span.
-Views before an edition is sent are our own review, and are left out.
+Signal Checks are compared over **their first 14 days**, the two weeks before
+the next one arrives, so every Signal Check is measured over the same span.
+Views before a Signal Check is sent are our own review, and are left out.
 
 :::
 
@@ -254,23 +257,23 @@ Views before an edition is sent are our own review, and are left out.
 
 `r nbsp(comma(latest_views))`
 
-`r if (is.na(typical_views)) "No earlier edition to compare" else glue("{comma(typical_views)} for a typical edition by day {latest$days_seen}")`
+`r if (is.na(typical_views)) "No earlier Signal Check to compare" else glue("{comma(typical_views)} for a typical Signal Check by day {latest$days_seen}")`
 :::
 
 ::: {.valuebox color="info"}
 `r latest$label` median read, `r so_far`
 
-`r nbsp(fmt_dwell(latest_dwell$median_seconds))`
+`r nbsp(fmt_read(latest_dwell$median_seconds))`
 
-`r glue("{fmt_dwell(pooled_median)} across earlier editions")`
+`r glue("{fmt_read(pooled_median)} across earlier Signal Checks")`
 :::
 
 ::: {.valuebox color="secondary"}
-Time spent reading `r latest$label`, at least
+Total reading time, `r latest$label`
 
 `r nbsp(fmt_reading(latest_dwell$reading_seconds))`
 
-`r if (is.na(typical_reading)) "No earlier edition to compare" else glue("{fmt_reading(typical_reading)} for a typical edition by day {latest$days_seen}")`
+`r if (is.na(typical_reading)) "No earlier Signal Check to compare" else glue("{fmt_reading(typical_reading)} for a typical Signal Check by day {latest$days_seen}")`
 :::
 
 ## Row {height="520px"}
@@ -327,23 +330,24 @@ brand_figure(p)
 
 ## Row {height="620px"}
 
-::: {.card title="How long readers keep each edition open, first 14 days"}
+::: {.card title="How long readers keep each Signal Check open, first 14 days"}
 
 ```{r edition-dwell-chart}
 #| fig-width: 10
 #| fig-height: 4.6
 #| fig-alt: |
-#|   Small multiples, one panel per Signal Check edition. Each shows the share
-#|   of the edition's page views still open after 1 second, 5, 15 and 30
-#|   seconds, and 1, 2, 5 and 10 minutes, with every other edition's curve in
-#|   the background and a dashed line at 50 percent.
+#|   Small multiples, one panel per Signal Check. Each shows the share of its
+#|   page views still open after 1 second, 5, 15 and 30 seconds, and 1, 2, 5
+#|   and 10 minutes, with every other Signal Check's curve in the background
+#|   and a dashed line at 50 percent.
 brand_figure(dwell_panels(window_curve, "panel", ncol = 3), height = 0.07)
 ```
 
 ::: {.figure-note}
 Each curve is the share of page views that stayed open, and visible, at
-least that long. Where it crosses the dashed line is the median read. A tab
-in the background does not count. Most editions have a few dozen views, so
+least that long. The pale lines behind it are the other Signal Checks, for
+comparison. Where it crosses the dashed line is the median read. A tab
+in the background does not count. Most Signal Checks have a few dozen views, so
 one reader can move a curve by several percentage points.
 :::
 
@@ -382,7 +386,7 @@ coverage |>
         glue("{comma(first)} ({days_seen} of 14 days)"),
       .default = comma(first)
     ),
-    median = ifelse(comparable, fmt_dwell(median_seconds), "-"),
+    median = ifelse(comparable, fmt_read(median_seconds), "-"),
     past_minute, past_five,
     reading = ifelse(comparable, fmt_reading(reading_seconds), "-"),
     all_time = dplyr::coalesce(all_time, 0),
@@ -393,19 +397,21 @@ coverage |>
   fmt_number(c(all_time, review), decimals = 0) |>
   sub_missing(missing_text = "-") |>
   cols_align("right", c(first, median, reading)) |>
-  cols_label(label = "Edition", sent = "Sent", first = "Views, first 14 days",
+  cols_label(label = "Signal Check", sent = "Sent", first = "Views, first 14 days",
              median = "Median read", past_minute = "Open 1 min+",
-             past_five = "Open 5 min+", reading = "Reading time, at least",
+             past_five = "Open 5 min+", reading = "Total reading time",
              all_time = "Views since sent", review = "Review views") |>
   table_options()
 ```
 
 ::: {.figure-note}
-Median read and the two *Open* columns cover the first 14 days. *Reading time*
-adds up each view's time, counted down to the last milestone it reached, so
-it is a floor. *Review views* came before the edition was sent, from our own
+Median read and the two *Open* columns cover the first 14 days. *Median read*
+is the time half the views were still open, estimated between the two time
+marks either side of it. *Total reading time* adds up the time of every view
+by every reader, each counted down to the last milestone it reached, so it is
+a floor. *Review views* came before the Signal Check was sent, from our own
 review link, and count nowhere else. Tracking began July 23, 2026, after
-editions #1 and #2 were sent.
+Signal Check #1 and Signal Check #2 were sent.
 :::
 
 :::
@@ -546,7 +552,7 @@ dashboard_dwell <- dwell_summary(dashboard_curve, "name")
 pooled_dashboard_median <- dashboard_events |>
   dplyr::mutate(all = "all") |>
   dwell_curve("all") |>
-  dplyr::summarise(m = median_dwell(seconds, share)) |>
+  dplyr::summarise(m = median_read(seconds, share)) |>
   dplyr::pull(m)
 
 weeks <- dashboard_rows |>
@@ -581,7 +587,7 @@ Most viewed, last 4 weeks
 ::: {.valuebox color="secondary"}
 Median read, last three months
 
-`r nbsp(fmt_dwell(pooled_dashboard_median))`
+`r nbsp(fmt_read(pooled_dashboard_median))`
 
 All dashboards together
 :::
@@ -649,7 +655,7 @@ per_dashboard |>
   dplyr::transmute(
     name, current, prior,
     direction = delta_direction(change), change = fmt_delta(change),
-    median = fmt_dwell(median_seconds), past_minute, past_five,
+    median = fmt_read(median_seconds), past_minute, past_five,
     first_seen = format_short_date(first_seen)
   ) |>
   gt() |>
