@@ -465,6 +465,18 @@ sms_week <- method_window(sms_rows, reported_through$sms, "sms_sent",
                           baseline_days = thresholds$baseline_days)
 sms_extra <- extra_on_flagged(sms_rows, chart_from, "sms_sent")
 sms_extra_cost <- extra_sms_cost(sms_rows, chart_from, sms_price_tiers)
+
+phone_rows <- sms_phone_days(con) |>
+  dplyr::filter(day >= chart_from, day <= through) |>
+  dplyr::mutate(fired = day %in% sms_rows$day[sms_rows$fired %in% TRUE])
+typical_per_phone <- stats::median(phone_rows$per_phone[!phone_rows$fired])
+busiest_phone <- dplyr::slice_max(phone_rows, top_phone, n = 1, with_ties = FALSE)
+phones_alt <- glue(
+  "Line chart of SMS codes sent per phone number each day for the last three ",
+  "months, about {number(typical_per_phone, accuracy = 0.1)} on a typical ",
+  "day, with days this method fired in amber. The most codes to one number ",
+  "in a day was {busiest_phone$top_phone}."
+)
 ```
 
 ## Row {height="auto"}
@@ -525,6 +537,46 @@ p <- method_figure(
 )
 brand_figure(p)
 ```
+
+:::
+
+## Row {height="470px"}
+
+::: {.card title="SMS codes per phone number each day (last three months)"}
+
+```{r sms-phones-chart}
+#| fig-width: 13
+#| fig-height: 3.2
+#| fig-alt: !expr phones_alt
+p <- ggplot(phone_rows, aes(day, per_phone)) +
+  geom_line(colour = robot$quiet, linewidth = 0.5) +
+  geom_point(aes(colour = fired, size = fired)) +
+  scale_colour_manual(values = c(`TRUE` = robot$accent, `FALSE` = "grey55"),
+                      guide = "none") +
+  scale_size_manual(values = c(`TRUE` = 2.2, `FALSE` = 0.8), guide = "none") +
+  scale_y_continuous(limits = c(0, NA), expand = expansion(mult = c(0, 0.06))) +
+  scale_x_date(limits = c(chart_from - 1L, through + 1L), expand = c(0, 0),
+               breaks = rev(seq(through, chart_from, by = "-2 weeks")),
+               date_labels = "%b %d") +
+  theme_cds() +
+  theme(panel.grid.minor = element_blank()) +
+  labs(
+    x = NULL, y = "Codes per number",
+    subtitle = glue(
+      "About {number(typical_per_phone, accuracy = 0.1)} on a typical day. ",
+      "The most to one number was {busiest_phone$top_phone}, on ",
+      "{format_short_date(busiest_phone$day)}."
+    )
+  )
+brand_figure(p, height = 0.13)
+```
+
+::: {.figure-note}
+Not part of the flag. A person rarely needs more than one or two codes a day.
+Many codes to the same numbers can be a sign of SMS fraud, where a bot runs up
+texts that are billed per code. Phone numbers are hashed before they reach us,
+so this counts numbers without seeing them.
+:::
 
 :::
 

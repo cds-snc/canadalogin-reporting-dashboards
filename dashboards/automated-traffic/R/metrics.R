@@ -106,6 +106,27 @@ sms_origin_days <- read_once(\(con) {
     dplyr::arrange(day)
 })
 
+# SMS codes sent per day by hashed phone number: numbers reached, codes per
+# number, and the most to one number.
+sms_phone_days <- read_once(\(con) {
+  dplyr::tbl(con, dbplyr::in_schema("ibm_verify_events_raw", "mfa_activity")) |>
+    dplyr::filter(mfamethod == "SMS OTP", result == "sent", !is.na(mfadevice),
+                  !mfadevice %in% c("", "UNKNOWN", "Unknown")) |>
+    dplyr::mutate(day = !!toronto_day_sql("time")) |>
+    dplyr::count(day, mfadevice, name = "codes") |>
+    dplyr::group_by(day) |>
+    dplyr::summarise(
+      phones = dplyr::n(),
+      sms_sent = sum(codes, na.rm = TRUE),
+      top_phone = max(codes, na.rm = TRUE),
+      .groups = "drop"
+    ) |>
+    dplyr::collect() |>
+    as_plain_numbers() |>
+    dplyr::mutate(day = as.Date(day), per_phone = sms_sent / phones) |>
+    dplyr::arrange(day)
+})
+
 # A Toronto day from the event stream's "2026-10-05 17:10:37 UTC".
 toronto_day_sql <- function(column) {
   dplyr::sql(glue::glue(
