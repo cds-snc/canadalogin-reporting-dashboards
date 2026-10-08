@@ -17,7 +17,8 @@ months. A method fires only when volume is well above a typical day and
 a ratio is unlike real use. The thresholds sit at the top of the qmd's setup
 chunk.
 
-The dashboard is rendered on Monday mornings, alongside Sign-In Activity, via the
+The dashboard is rendered on Monday mornings, five minutes before Sign-In
+Activity (which links here), via the
 [Signal Check Publishing](https://github.com/cds-snc/canadalogin-signal-check-publishing)
 repository to a single URL that does not change week to week. Each render also
 writes `traffic-summary.json`, the past week's flagged days, for the Slack post.
