@@ -356,7 +356,7 @@ daily_alt <- glue(
 
 `r nbsp(comma(latest_views))`
 
-`r if (is.na(typical_views)) "No earlier Signal Check to compare" else glue("{comma(typical_views)} for a typical Signal Check by day {latest$days_seen}")`
+`r if (is.na(typical_views)) "No earlier Signal Check to compare" else glue("{fmt_delta(relative_change(latest_views, typical_views))} vs typical by day {latest$days_seen}")`
 :::
 
 ::: {.valuebox color="info"}
@@ -364,7 +364,7 @@ daily_alt <- glue(
 
 `r nbsp(fmt_read(latest_dwell$median_seconds))`
 
-`r glue("{fmt_read(pooled_median)} across earlier Signal Checks")`
+`r fmt_delta(relative_change(latest_dwell$median_seconds, pooled_median))` vs typical
 :::
 
 ::: {.valuebox color="secondary"}
@@ -372,7 +372,7 @@ Total reading time, `r latest$label`
 
 `r nbsp(fmt_reading(latest_dwell$reading_seconds))`
 
-`r if (is.na(typical_reading)) "No earlier Signal Check to compare" else glue("{fmt_reading(typical_reading)} for a typical Signal Check by day {latest$days_seen}")`
+`r if (is.na(typical_reading)) "No earlier Signal Check to compare" else glue("{fmt_delta(relative_change(latest_dwell$reading_seconds, typical_reading))} vs typical by day {latest$days_seen}")`
 :::
 
 ## Row {height="520px"}
@@ -565,7 +565,6 @@ per_dashboard <- dashboard_rows |>
   }) |>
   dplyr::ungroup() |>
   dplyr::mutate(change = relative_change(current, prior))
-top <- dplyr::slice_max(per_dashboard, current, n = 1, with_ties = FALSE)
 
 dashboard_events <- events |>
   dplyr::filter(page_kind == "dashboard", day >= chart_from) |>
@@ -574,11 +573,18 @@ dashboard_events <- events |>
 dashboard_curve <- dwell_curve(dashboard_events, "name")
 dashboard_dwell <- dwell_summary(dashboard_curve, "name")
 
-pooled_dashboard_median <- dashboard_events |>
-  dplyr::mutate(all = "all") |>
-  dwell_curve("all") |>
-  dplyr::summarise(m = median_read(seconds, share)) |>
-  dplyr::pull(m)
+# Dwell over the last 4 weeks and the 4 before, all dashboards together.
+window_dwell_dashboards <- events |>
+  dplyr::filter(page_kind == "dashboard") |>
+  dplyr::mutate(file = dashboard_file(pagepath_redacted),
+                window = window_of(day, through)) |>
+  dplyr::filter(file %in% dashboards$file, !is.na(window)) |>
+  dwell_curve("window") |>
+  dwell_summary("window")
+window_median <- setNames(window_dwell_dashboards$median_seconds,
+                          window_dwell_dashboards$window)[c("current", "prior")]
+window_reading <- setNames(window_dwell_dashboards$reading_seconds,
+                           window_dwell_dashboards$window)[c("current", "prior")]
 
 weeks <- dashboard_recent |>
   dplyr::mutate(week = monday_of(day)) |>
@@ -601,19 +607,19 @@ Dashboard views, last 4 weeks
 :::
 
 ::: {.valuebox color="info"}
-Most viewed, last 4 weeks
+Median read, last 4 weeks
 
-`r nbsp(top$name)`
+`r nbsp(fmt_read(window_median[["current"]]))`
 
-`r glue("{comma(top$current)} views")`
+`r fmt_delta(relative_change(window_median[["current"]], window_median[["prior"]]))` on the 4 weeks before
 :::
 
 ::: {.valuebox color="secondary"}
-Median read, last three months
+Total reading time, last 4 weeks
 
-`r nbsp(fmt_read(pooled_dashboard_median))`
+`r nbsp(fmt_reading(window_reading[["current"]]))`
 
-All dashboards together
+`r fmt_delta(relative_change(window_reading[["current"]], window_reading[["prior"]]))` on the 4 weeks before
 :::
 
 ## Row {height="460px"}

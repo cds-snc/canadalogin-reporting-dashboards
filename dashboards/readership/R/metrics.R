@@ -315,11 +315,20 @@ dashboard_accent <- function(file, dashboards_dir = "..") {
 # Sign-In Activity.
 monday_of <- function(day) day - (as.integer(format(day, "%u")) - 1L)
 
+# "current" for the `days` days through `through`, "prior" for the same span
+# before, NA otherwise.
+window_of <- function(day, through, days = 28L) {
+  dplyr::case_when(
+    day > through - days & day <= through ~ "current",
+    day > through - 2L * days & day <= through - days ~ "prior"
+  )
+}
+
 # Window totals: the `days` days through `through`, and the same span before.
 window_totals <- function(rows, value, through, days = 28L) {
-  current <- rows$day > through - days & rows$day <= through
-  prior <- rows$day > through - 2L * days & rows$day <= through - days
-  c(current = sum(rows[[value]][current]), prior = sum(rows[[value]][prior]))
+  window <- window_of(rows$day, through, days)
+  c(current = sum(rows[[value]][window %in% "current"]),
+    prior = sum(rows[[value]][window %in% "prior"]))
 }
 
 # Change ----------------------------------------------------------------------

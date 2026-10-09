@@ -153,6 +153,14 @@ test_that("a dashboard's accent is the primary in its theme", {
                    c("#115740", NA))
 })
 
+test_that("a window is the last 28 days through the end, then the 28 before", {
+  through <- as.Date("2026-10-07")
+  expect_identical(
+    readership$window_of(through - c(0L, 27L, 28L, 55L, 56L), through),
+    c("current", "current", "prior", "prior", NA)
+  )
+})
+
 test_that("a renamed dashboard is counted under its new name", {
   traffic <- dplyr::bind_rows(
     readership_traffic(),
