@@ -300,20 +300,46 @@ psom_weekly <- function(life, from, through) {
   )
 }
 
+# Tickets open at the end of each day from `from` through `through`, counted as
+# psom_weekly() counts the queue at the end of a week.
+psom_daily_open <- function(life, from, through) {
+  days <- seq(as.Date(from), as.Date(through), by = "day")
+  tibble::tibble(
+    day = days,
+    open = vapply(days, \(d) {
+      sum(life$created <= d & (is.na(life$closed_on) | life$closed_on > d))
+    }, integer(1))
+  )
+}
+
 # PSOM SLAs ------------------------------------------------------------------
 
 # The first daily snapshot. Earlier ones are weekly backfills with no elapsed
 # time and no PSO clock, so nothing that stopped before its week is reported.
 psom_sla_from <- as.Date("2026-09-29")
 
-# The clocks on the scorecard, in the order a ticket meets them. Only PSO's is
-# reported as adherence; the others as the time itself.
+# The clocks on the scorecard, in the order a ticket meets them.
 sla_clocks <- c(
   first_response   = "Time to first response",
   pso_time_to_done = "PSO handling",
   time_to_done     = "Time to done, whole ticket"
 )
-sla_adherence_clocks <- "pso_time_to_done"
+
+# The scorecard's rows, grouped by clock: first response as its median time
+# only, the other two as the median time and then the share within target.
+sla_scorecard_rows <- tibble::tribble(
+  ~sla,               ~measure,
+  "first_response",   "time",
+  "pso_time_to_done", "time",
+  "pso_time_to_done", "adherence",
+  "time_to_done",     "time",
+  "time_to_done",     "adherence"
+)
+
+# Every SLA in jira.psom_sla, for the ticket download. `escalated_to_pt` is the
+# authentication team's clock, kept off the page.
+psom_sla_names <- c("first_response", "pso_time_to_done", "time_to_done",
+                    "escalated_to_pt")
 
 # Each ticket's clocks as last seen. An archived ticket leaves the snapshots,
 # so its last one stands rather than the newest.
@@ -340,24 +366,76 @@ sla_outcomes <- function(last, through) {
                   stopped_on <= as.Date(through))
 }
 
-# Clocks on the scorecard past target and still running or paused on the newest
-# snapshot, one row per ticket per clock: what sla_outcomes() leaves out.
-sla_overdue <- function(rows) {
+# The clocks on the scorecard for the tickets in `keys`, as of the newest
+# snapshot, one row per ticket per clock. Covers what sla_outcomes() leaves
+# out: clocks still running or paused, past target or not.
+sla_open_clocks <- function(rows, keys) {
   rows |>
-    dplyr::filter(snapshot == max(snapshot), sla %in% names(sla_clocks),
-                  breached %in% TRUE, !is.na(paused))
+    dplyr::filter(snapshot == max(snapshot), key %in% keys,
+                  sla %in% names(sla_clocks))
+}
+
+# Where a clock stands: "met" or "missed" once stopped, else "running" or
+# "paused", "past target" added when it has run over.
+sla_state <- function(breached, paused) {
+  over <- dplyr::if_else(breached %in% TRUE, ", past target", "")
+  dplyr::case_when(
+    is.na(breached) ~ "not started",
+    is.na(paused) ~ dplyr::if_else(breached, "missed", "met"),
+    paused ~ paste0("paused", over),
+    .default = paste0("running", over)
+  )
 }
 
 # Jira's page for a ticket
 psom_ticket_url <- function(key) paste0("https://jtickets.atlassian.net/browse/", key)
+
+# 157 for "PSOM-157", so tickets sort in the order they were opened
+psom_key_number <- function(key) as.integer(sub("^.*-", "", key))
+
+# One row per ticket open on the newest snapshot or closed on or after `from`,
+# oldest first, with where it stands on every SLA. An archived ticket leaves
+# the snapshots, so each ticket is read from its last one. SLA columns are
+# blank for a ticket last seen before `psom_sla_from`.
+psom_ticket_export <- function(snapshots, sla_snapshots, from) {
+  newest <- max(snapshots$snapshot)
+  tickets <- snapshots |>
+    dplyr::group_by(key) |>
+    dplyr::slice_max(snapshot, n = 1, with_ties = FALSE) |>
+    dplyr::ungroup() |>
+    dplyr::left_join(psom_closed_on(snapshots), by = "key") |>
+    dplyr::mutate(closed_on = dplyr::if_else(status %in% psom_closed_statuses,
+                                             closed_on, as.Date(NA))) |>
+    dplyr::filter((snapshot == newest & is.na(closed_on)) |
+                    closed_on >= as.Date(from))
+
+  clocks <- psom_sla_last(sla_snapshots) |>
+    dplyr::filter(key %in% tickets$key, sla %in% psom_sla_names) |>
+    dplyr::transmute(
+      key,
+      sla = factor(sla, levels = psom_sla_names),
+      state = sla_state(breached, paused),
+      hours = round(elapsed_hours, 1),
+      target_hours = goal_hours
+    ) |>
+    tidyr::pivot_wider(names_from = sla,
+                       values_from = c(state, hours, target_hours),
+                       names_glue = "{sla}_{.value}", names_vary = "slowest",
+                       names_expand = TRUE)
+
+  tickets |>
+    dplyr::arrange(psom_key_number(key)) |>
+    dplyr::select(ticket = key, status, opened = created, closed = closed_on) |>
+    dplyr::left_join(clocks, by = c(ticket = "key"))
+}
 
 # Monday of every reported week, from the first daily snapshot's week
 sla_weeks <- function(through) {
   seq(week_of(psom_sla_from), week_of(through), by = "7 days")
 }
 
-# Met and stopped clocks, the share met and the median working hours, per
-# group. Pass grouped rows.
+# Met and stopped clocks, the share met and the median and range of working
+# hours, per group. Pass grouped rows.
 sla_tally <- function(outcomes) {
   outcomes |>
     dplyr::summarise(
@@ -365,12 +443,14 @@ sla_tally <- function(outcomes) {
       stopped = dplyr::n(),
       share = met / stopped,
       median_hours = stats::median(elapsed_hours),
+      min_hours = min(elapsed_hours),
+      max_hours = max(elapsed_hours),
       .groups = "drop"
     )
 }
 
 # sla_tally() per clock per week, every week present even when empty. `share`
-# and `median_hours` are NA where nothing stopped.
+# and the hours are NA where nothing stopped.
 sla_weekly <- function(outcomes, weeks) {
   tidyr::expand_grid(sla = names(sla_clocks), week = weeks) |>
     dplyr::left_join(

@@ -213,6 +213,19 @@ test_that("psom_weekly's open count is the running total of opened less closed",
   expect_identical(weekly$open, cumsum(weekly$opened - weekly$closed))
 })
 
+test_that("psom_daily_open matches the weekly queue at each week's end", {
+  life <- tibble::tibble(
+    created = as.Date(c("2026-08-31", "2026-09-02", "2026-09-09")),
+    closed_on = as.Date(c("2026-09-03", NA, "2026-09-09"))
+  )
+  daily <- support$psom_daily_open(life, as.Date("2026-08-31"), as.Date("2026-09-13"))
+  expect_identical(daily$open[daily$day %in% as.Date(c("2026-09-02", "2026-09-03",
+                                                       "2026-09-09"))],
+                   c(2L, 1L, 1L))
+  weekly <- support$psom_weekly(life, as.Date("2026-08-31"), as.Date("2026-09-13"))
+  expect_identical(daily$open[daily$day %in% weekly$week_end], weekly$open)
+})
+
 # PSOM SLAs -------------------------------------------------------------------
 
 # One clock row per ticket; `snapshot` defaults to the first daily snapshot.
@@ -272,16 +285,78 @@ test_that("sla_outcomes drops a clock that stopped before the first daily week",
   expect_identical(outcomes$key, "first-day")
 })
 
-test_that("sla_overdue lists open clocks past target on the newest snapshot", {
+test_that("sla_open_clocks keeps scorecard clocks on open tickets, newest snapshot", {
   rows <- dplyr::bind_rows(
     sla_clock("late-running", breached = TRUE, paused = FALSE),
-    sla_clock("late-paused", breached = TRUE, paused = TRUE),
-    sla_clock("late-stopped", breached = TRUE),
     sla_clock("on-time", paused = FALSE),
-    sla_clock("auth-team", sla = "escalated_to_pt", breached = TRUE, paused = FALSE),
-    sla_clock("archived", breached = TRUE, paused = FALSE, snapshot = "2026-09-30")
+    sla_clock("stopped"),
+    sla_clock("closed"),
+    sla_clock("auth-team", sla = "escalated_to_pt", paused = FALSE),
+    sla_clock("on-time", paused = TRUE, snapshot = "2026-09-30")
   )
-  expect_identical(support$sla_overdue(rows)$key, c("late-running", "late-paused"))
+  open <- c("late-running", "on-time", "stopped", "auth-team")
+  expect_identical(support$sla_open_clocks(rows, open)$key,
+                   c("late-running", "on-time", "stopped"))
+})
+
+test_that("sla_state reads stopped, running, paused and unstarted clocks", {
+  expect_identical(
+    support$sla_state(c(FALSE, TRUE, FALSE, TRUE, TRUE, NA),
+                      c(NA, NA, FALSE, FALSE, TRUE, NA)),
+    c("met", "missed", "running", "running, past target", "paused, past target",
+      "not started")
+  )
+})
+
+test_that("psom_key_number sorts PSOM-99 before PSOM-100", {
+  keys <- c("PSOM-100", "PSOM-99", "PSOM-7")
+  expect_identical(keys[order(support$psom_key_number(keys))],
+                   c("PSOM-7", "PSOM-99", "PSOM-100"))
+})
+
+# Board rows for psom_ticket_export(): one per ticket per snapshot
+export_ticket <- function(key, status, snapshot = "2026-10-01",
+                          status_changed = "2026-09-30", created = "2026-09-01") {
+  tibble::tibble(snapshot = as.Date(snapshot), key, status,
+                 created = as.Date(created), status_changed = as.Date(status_changed))
+}
+
+test_that("psom_ticket_export keeps open tickets and recent closes, oldest first", {
+  snapshots <- dplyr::bind_rows(
+    export_ticket("PSOM-100", "In Progress"),
+    export_ticket("PSOM-99", "Done", status_changed = "2026-09-20"),
+    export_ticket("PSOM-98", "Done", status_changed = "2026-07-01"),
+    # Archived: last seen closed on an earlier snapshot
+    export_ticket("PSOM-97", "Ready to archive", snapshot = "2026-09-29",
+                  status_changed = "2026-09-25"),
+    # Deleted while open: neither open now nor closed
+    export_ticket("PSOM-96", "In Progress", snapshot = "2026-09-29")
+  )
+  export <- support$psom_ticket_export(snapshots, sla_clock("none")[0, ],
+                                       as.Date("2026-08-01"))
+  expect_identical(export$ticket, c("PSOM-97", "PSOM-99", "PSOM-100"))
+  expect_identical(export$closed, as.Date(c("2026-09-25", "2026-09-20", NA)))
+})
+
+test_that("psom_ticket_export gives every SLA a state, hours and target", {
+  snapshots <- dplyr::bind_rows(export_ticket("PSOM-1", "In Progress"),
+                                export_ticket("PSOM-2", "Done"))
+  clocks <- dplyr::bind_rows(
+    sla_clock("PSOM-1", breached = TRUE, paused = FALSE, elapsed_hours = 79.04),
+    sla_clock("PSOM-1", sla = "first_response", goal_hours = 4, elapsed_hours = 0.2)
+  )
+  export <- support$psom_ticket_export(snapshots, clocks, as.Date("2026-08-01")) |>
+    dplyr::filter(ticket == "PSOM-1")
+  expect_identical(
+    names(export),
+    c("ticket", "status", "opened", "closed",
+      paste0(rep(support$psom_sla_names, each = 3),
+             c("_state", "_hours", "_target_hours")))
+  )
+  expect_identical(export$pso_time_to_done_state, "running, past target")
+  expect_identical(export$pso_time_to_done_hours, 79)
+  expect_identical(export$first_response_state, "met")
+  expect_true(is.na(export$time_to_done_state))
 })
 
 test_that("sla_weekly counts stopped clocks and leaves an empty week NA", {
@@ -308,6 +383,8 @@ test_that("sla_weekly takes the median over the week's stopped clocks", {
   weekly <- support$sla_weekly(support$sla_outcomes(rows, as.Date("2026-10-01")),
                                as.Date("2026-09-28"))
   expect_identical(weekly$median_hours[weekly$sla == "pso_time_to_done"], 2)
+  expect_identical(weekly$min_hours[weekly$sla == "pso_time_to_done"], 1)
+  expect_identical(weekly$max_hours[weekly$sla == "pso_time_to_done"], 30)
   expect_true(is.na(weekly$median_hours[weekly$sla == "first_response"]))
 })
 

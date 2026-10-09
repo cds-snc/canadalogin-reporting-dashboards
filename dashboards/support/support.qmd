@@ -528,8 +528,16 @@ panels <- c(opened = "Tickets opened", closed = "Tickets completed",
             open = "Tickets awaiting handling")
 
 charted_psom <- weekly |>
-  pivot_longer(all_of(names(panels)), names_to = "measure", values_to = "tickets") |>
+  pivot_longer(c(opened, closed), names_to = "measure", values_to = "tickets") |>
   mutate(panel = factor(panels[measure], levels = panels))
+
+# The queue at the end of each day, held across that day as a step from `day`
+# to the next, so the line spans the same days as the weekly bars above it.
+queue_daily <- psom_daily_open(board, min(weekly$week), psom_through) |>
+  transmute(x = day, tickets = open,
+            panel = factor(panels[["open"]], levels = panels))
+queue_steps <- bind_rows(queue_daily,
+                         mutate(slice_tail(queue_daily, n = 1), x = x + 1L))
 
 # Counts are whole tickets, so a half-ticket break would be nonsense.
 whole_breaks <- function(x) {
@@ -596,18 +604,21 @@ cell_headline <- function(x) {
 cell_line <- function(x) glue("<div style='font-size:12px'>{x}</div>")
 empty_cell <- "<div style='color:#767676'>-</div>"
 
-# An adherence clock leads with its share within target; any other with its
+# An adherence row leads with its share within target; a time row with its
 # median time
-sla_cell <- function(sla, share, met, stopped, median_hours) {
+sla_cell <- function(measure, share, met, stopped, median_hours, min_hours,
+                     max_hours) {
   case_when(
-    sla %in% sla_adherence_clocks & stopped > 0 ~
+    stopped == 0 ~ empty_cell,
+    measure == "adherence" ~
       paste0(cell_headline(fmt_pct(share)),
              cell_line(glue("{met} of {stopped} within target"))),
-    stopped > 0 ~
+    stopped == 1 ~
+      paste0(cell_headline(fmt_work_time(median_hours)), cell_line("one ticket")),
+    .default =
       paste0(cell_headline(fmt_work_time(median_hours)),
-             cell_line(glue("median of {stopped} ",
-                            "{if_else(stopped == 1, 'ticket', 'tickets')}"))),
-    .default = empty_cell
+             cell_line(glue("range: {fmt_work_time(min_hours)} - ",
+                            "{fmt_work_time(max_hours)}")))
   )
 }
 
@@ -618,32 +629,42 @@ sla_overall <- outcomes |>
   right_join(tibble(sla = names(sla_clocks)), by = "sla") |>
   mutate(across(c(met, stopped), \(x) coalesce(x, 0L)))
 
+row_ids <- paste(sla_scorecard_rows$sla, sla_scorecard_rows$measure)
 sla_cells <- bind_rows(mutate(sla_by_week, week = as.character(week)),
                        mutate(sla_overall, week = "all")) |>
+  inner_join(sla_scorecard_rows, by = "sla", relationship = "many-to-many") |>
   mutate(
-    cell = sla_cell(sla, share, met, stopped, median_hours),
-    band = if_else(sla %in% sla_adherence_clocks, band_of(share), NA_character_),
-    target = if_else(
-      sla %in% sla_adherence_clocks,
-      purrr::map_chr(sla, \(s) sla_target_label(outcomes, s)),
-      "Median"
-    ),
-    name = glue("<b>{sla_clocks[sla]}</b><br>",
-                "<span style='font-size:12px;color:#555'>{target}</span>")
+    row = paste(sla, measure),
+    clock = sla_clocks[sla],
+    cell = sla_cell(measure, share, met, stopped, median_hours, min_hours,
+                    max_hours),
+    band = if_else(measure == "adherence", band_of(share), NA_character_),
+    target = purrr::map_chr(sla, \(s) sla_target_label(outcomes, s)),
+    name = if_else(
+      measure == "adherence",
+      glue("<b>Within target</b><br>",
+           "<span style='font-size:12px;color:#555'>{target}</span>"),
+      "<b>Median time</b>"
+    )
   )
 
 week_cols <- as.character(sla_week_starts)
 scorecard <- sla_cells |>
-  select(sla, name, week, cell) |>
+  select(row, clock, name, week, cell) |>
   pivot_wider(names_from = week, values_from = cell) |>
-  mutate(sla = factor(sla, levels = names(sla_clocks))) |>
-  arrange(sla) |>
-  select(sla, name, all_of(week_cols), all)
+  mutate(row = factor(row, levels = row_ids)) |>
+  arrange(row) |>
+  select(row, clock, name, all_of(week_cols), all)
 
+# One row group per clock: its shaded heading and rule separate the clocks.
+# Quarto stripes every table, counting group headings as rows, so a clock's
+# median row could land on either stripe; unbanded cells stay plain instead.
 scorecard_table <- scorecard |>
-  gt() |>
-  cols_hide(sla) |>
-  fmt_passthrough(columns = -sla, escape = FALSE) |>
+  gt(groupname_col = "clock", id = "sla-scorecard") |>
+  opt_css(paste("#sla-scorecard table > tbody > tr > *",
+                "{ --bs-table-bg-type: transparent; }")) |>
+  cols_hide(row) |>
+  fmt_passthrough(columns = -row, escape = FALSE) |>
   cols_label(.list = c(
     list(name = "", all = md(glue("**{sla_since_label}**"))),
     setNames(as.list(sla_week_label(sla_week_starts)), week_cols)
@@ -651,7 +672,11 @@ scorecard_table <- scorecard |>
   cols_align("center", columns = -name) |>
   cols_align("left", columns = name) |>
   tab_spanner("Week ending", columns = all_of(week_cols)) |>
-  table_options()
+  table_options() |>
+  tab_options(row_group.font.weight = "bold",
+              row_group.background.color = "#EEF0F2",
+              row_group.border.top.width = px(2),
+              row_group.border.top.color = "#5C6670")
 
 # Fill each cell by its share's band
 banded <- sla_cells |> filter(!is.na(band))
@@ -661,7 +686,7 @@ for (i in seq_len(nrow(banded))) {
     list(cell_fill(band_fill[[banded$band[i]]]),
          cell_text(color = band_text[[banded$band[i]]])),
     cells_body(columns = all_of(banded$week[i]),
-               rows = which(scorecard$sla == banded$sla[i]))
+               rows = row == banded$row[i])
   )
 }
 
@@ -672,11 +697,13 @@ scorecard_table |>
 
 ::: {.figure-note}
 - **Time to first response:** how long a partner waits for PSO's first reply.
-- **PSO handling:** the share of tickets PSO finishes within its target. The clock pauses
-  while a ticket is with the authentication team.
-- **Time to done:** how long the whole ticket takes, from opened to done.
+- **PSO handling:** PSO's time on a ticket. The clock keeps running while a ticket waits
+  on the authentication team or the partner.
+- **Time to done:** how long the whole ticket takes, from opened to done, against a
+  target set on each ticket.
 
-Each ticket counts in the week its clock stopped, as in Jira's SLA reports. Times count
+*Within target* is the share of tickets whose clock stopped inside its target. Each
+ticket counts in the week its clock stopped, as in Jira's SLA reports. Times count
 working hours only, 9 to 5 on weekdays.
 :::
 
@@ -773,33 +800,35 @@ shown until they stop.
 #| fig-alt: |
 #|   Three stacked charts sharing a weekly axis. Tickets opened per week and
 #|   tickets closed per week are bars, each running from zero to a handful.
-#|   Open tickets at the end of each week is a line, mostly in the low single
-#|   digits with a bump to eight in August.
-
-is_queue <- function(d) d$panel == panels[["open"]]
+#|   Open tickets at the end of each day is a step line, with the latest
+#|   count labelled at its end.
 
 p <- ggplot(charted_psom, aes(week + week_offset, tickets)) +
-  geom_col(data = \(d) d[!is_queue(d), ], width = 7, fill = accent,
-           colour = "white", linewidth = 0.25) +
-  geom_line(data = \(d) d[is_queue(d), ], colour = accent, linewidth = 0.9) +
-  geom_point(data = \(d) d[is_queue(d), ], colour = accent, size = 1.8) +
+  geom_col(width = 7, fill = accent, colour = "white", linewidth = 0.25) +
   geom_text(aes(label = ifelse(tickets > 0, tickets, "")), vjust = -0.7,
             size = 3, colour = "grey30") +
-  facet_wrap(~panel, ncol = 1, scales = "free_y", strip.position = "top") +
+  geom_step(data = queue_steps, aes(x, tickets), direction = "hv",
+            colour = accent, linewidth = 0.9) +
+  geom_text(data = slice_tail(queue_daily, n = 1),
+            aes(x + 1.4, tickets, label = tickets),
+            hjust = 0, size = 3, colour = "grey30") +
+  facet_wrap(~panel, ncol = 1, scales = "free_y", strip.position = "top",
+             drop = FALSE) +
   scale_y_continuous(breaks = whole_breaks, limits = c(0, NA),
                      expand = expansion(mult = c(0, 0.15))) +
   week_axis(weekly$week) +
   theme_cds() +
   theme(panel.grid.major.x = element_blank()) +
   labs(x = week_axis_title, y = "Tickets",
-       subtitle = "Tickets opened and closed in a week (Mo-Su)")
+       subtitle = paste("Tickets opened and closed in a week (Mo-Su),",
+                        "open at the end of each day"))
 
 brand_figure(p, date = psom_through)
 ```
 
 ::: {.figure-note}
-Counted off the current board, test tickets included, so a ticket opened and closed in
-one week never reaches the queue. Closed means first seen at *Done*, *Canceled* or
+Counted off the current board, test tickets included, so a ticket opened and closed on
+the same day never reaches the queue. Closed means first seen at *Done*, *Canceled* or
 *Ready to archive*.
 :::
 
@@ -807,37 +836,54 @@ one week never reaches the queue. Closed means first seen at *Done*, *Canceled* 
 
 ## Row {height="auto"}
 
-::: {.card title="Past target and still open"}
+::: {.card title="Open tickets"}
 
-```{r sla-overdue}
-overdue <- sla_overdue(psom_sla_snapshots(con))
+```{r sla-open}
+open_tickets <- psom_open(psom_latest(con))
+open_clocks <- sla_open_clocks(psom_sla_snapshots(con), open_tickets$key)
 
-if (nrow(overdue) == 0) {
-  cat("No open ticket is past a target.")
+# Bold red past target, so it does not rest on colour alone
+past_target_style <- glue("color:{colors$brand[['red']]};font-weight:700")
+
+if (nrow(open_tickets) == 0) {
+  cat("No tickets are open.")
 } else {
-  # "79 hrs (target 40)"; a clock within target or stopped is a dash
-  overdue_table <- overdue |>
+  # Working time so far; a clock not yet started is a dash
+  clock_cells <- open_clocks |>
     mutate(
-      cell = glue("{fmt_work_time(elapsed_hours)} <span style='color:#767676'>",
-                  "(target {format(goal_hours)})</span>"),
+      cell = case_when(
+        is.na(breached) ~ "-",
+        breached ~ glue("<span style='{past_target_style}'>",
+                        "{fmt_work_time(elapsed_hours)}</span>"),
+        .default = fmt_work_time(elapsed_hours)
+      ),
       sla = factor(sla, levels = names(sla_clocks))
     ) |>
     select(key, sla, cell) |>
     pivot_wider(names_from = sla, values_from = cell, names_expand = TRUE,
-                values_fill = "-") |>
-    left_join(select(psom_latest(con), key, status, created), by = "key") |>
-    arrange(created) |>
+                values_fill = "-")
+
+  # "PSO handling" in bold over "Target: 40 working hours"
+  clock_labels <- purrr::map(names(sla_clocks), \(s) {
+    html(glue("<b>{sla_clocks[[s]]}</b><br><span style='font-weight:400'>",
+              "{sla_target_label(open_clocks, s)}</span>"))
+  }) |>
+    setNames(names(sla_clocks))
+
+  open_tickets |>
+    select(key, status, created) |>
+    left_join(clock_cells, by = "key") |>
+    mutate(across(all_of(names(sla_clocks)), \(x) coalesce(x, "-"))) |>
+    arrange(psom_key_number(key)) |>
     mutate(
       ticket = glue("<a href='{psom_ticket_url(key)}'>{key}</a>"),
       opened = format_short_date(created)
-    )
-
-  overdue_table |>
+    ) |>
     select(ticket, status, opened, all_of(names(sla_clocks))) |>
     gt() |>
     fmt_passthrough(columns = c(ticket, all_of(names(sla_clocks))), escape = FALSE) |>
     cols_label(.list = c(list(ticket = "Ticket", status = "Status", opened = "Opened"),
-                         as.list(sla_clocks))) |>
+                         clock_labels)) |>
     tab_spanner("Working time so far", columns = all_of(names(sla_clocks))) |>
     cols_align("left") |>
     table_options() |>
@@ -846,12 +892,24 @@ if (nrow(overdue) == 0) {
                 data_row.padding = px(2), column_labels.padding = px(2),
                 table.font.color = "#555555")
 }
+
+# The download is embedded in the page: publishing copies only the HTML file.
+export_from <- chart_from
+ticket_export <- psom_ticket_export(psom_snapshots(con), psom_sla_snapshots(con),
+                                    export_from)
+export_file <- tempfile(fileext = ".csv")
+utils::write.csv(ticket_export, export_file, row.names = FALSE, na = "")
+export_href <- paste0("data:text/csv;base64,", base64enc::base64encode(export_file))
+export_name <- glue("psom-tickets-{psom_through}.csv")
 ```
 
 ::: {.figure-note}
-Open tickets that have gone past at least one target. They are not yet in the service
-levels or the handling time chart above, because a ticket only shows up there once its
-clock stops. A dash is a clock within its target or already stopped.
+Every open ticket, oldest first, with its working time so far on each clock. **Bold red**
+is past its target. A dash is a clock not yet started. Open tickets are not in the
+service levels or the handling time chart above until their clocks stop.
+
+[Download](`r export_href`){download="`r export_name`"} the last three months of tickets
+as a CSV.
 :::
 
 :::
