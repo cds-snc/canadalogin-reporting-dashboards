@@ -234,10 +234,8 @@ This page is republished in place every week.
 
 The **Signal Check** page follows each Signal Check over **its first 14
 days**, the two weeks before the next one arrives, so every Signal Check is
-measured over the same span. Views before a Signal Check is sent come from our
-own review link and are left out of its first 14 days. The page shows views
-each day, how long readers keep each Signal Check open, and which link started
-each session.
+measured over the same span. The page shows views each day, how long readers
+keep each Signal Check open, and which link started each session.
 
 The **Dashboards** page covers each published dashboard over the last three
 months, and compares the last four weeks with the four before them.
