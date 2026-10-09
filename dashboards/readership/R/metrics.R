@@ -25,9 +25,8 @@ dashboard_renames <- c(
   "task-success-monitoring" = "experience-monitoring"
 )
 
-# How a session started, from its utm_source or referrer, in legend order.
-# The announcement posts tag their links; our own pages tag links between
-# them; anything else untagged is the referrer GA saw, if any.
+# How a session started, in legend order: the announcement posts and our own
+# pages tag their links; anything else is the referrer GA saw, if any.
 source_groups <- tibble::tribble(
   ~group,        ~label,
   "slack",       "Slack",
@@ -99,9 +98,8 @@ page_events <- read_once(\(con) {
     dplyr::arrange(day)
 })
 
-# The newest day the export landed for the CanadaLogin property. Same Lambda
-# and run as the meta tables, but never empty: a day nobody read our pages
-# leaves no meta rows, so the meta tables alone cannot say the export ran.
+# The newest day exported for the CanadaLogin property, in the same run as the
+# meta tables but never empty: a day nobody reads our pages leaves no meta rows.
 export_through <- read_once(\(con) {
   dplyr::tbl(con, dbplyr::in_schema("google_analytics", "property_traffic")) |>
     dplyr::summarise(day = max(date, na.rm = TRUE)) |>
@@ -110,26 +108,11 @@ export_through <- read_once(\(con) {
     as.Date()
 })
 
-# Swaps the three reads above for a saved snapshot, a list of `traffic`,
-# `events` and `export_through`, for a render without AWS. The live-data
-# preflight check fails on one, so such a render always carries the banner.
-use_snapshot <- function(path, envir = parent.frame()) {
-  snapshot <- readRDS(path)
-  assign("page_traffic", function(con) snapshot$traffic, envir = envir)
-  assign("page_events", function(con) snapshot$events, envir = envir)
-  assign("export_through", function(con) snapshot$export_through,
-         envir = envir)
-  invisible(snapshot)
-}
-
 # Editions --------------------------------------------------------------------
 
 # "CanadaLogin Signal Check #6" to 6; NA for a title with no number.
 edition_number <- function(title) {
-  found <- regmatches(title, regexpr("#[0-9]+", title))
-  number <- rep(NA_integer_, length(title))
-  number[grepl("#[0-9]+", title)] <- as.integer(sub("#", "", found))
-  number
+  as.integer(stringr::str_match(title, "#([0-9]+)")[, 2])
 }
 
 # Every number an edition's titles carry, one row per page and number. More
@@ -224,8 +207,7 @@ edition_dwell <- function(events, editions, days = edition_window_days) {
 # Dwell ------------------------------------------------------------------------
 
 # The share of page views that reached each milestone, per group of `by`
-# columns. Page views are the denominator; `totalusers` cannot be summed
-# across days.
+# columns. Page views, not `totalusers`, since users cannot be summed.
 dwell_curve <- function(events, by) {
   totals <- events |>
     dplyr::group_by(dplyr::across(dplyr::all_of(c(by, "eventname")))) |>
@@ -291,14 +273,15 @@ dwell_summary <- function(curve, by) {
 
 # Dashboards ------------------------------------------------------------------
 
-# One row per published dashboard file, named for its newest page title less
-# "Dashboard". A renamed file is read as the file it became.
+# The dashboard file a path belongs to; a renamed file reads as its new name.
 dashboard_file <- function(path) {
   file <- sub(dashboard_pattern, "\\1", path)
   renamed <- dashboard_renames[file]
   ifelse(is.na(renamed), file, renamed)
 }
 
+# One row per dashboard: file, name (its newest title less "Dashboard") and
+# first view.
 dashboard_list <- function(traffic) {
   traffic |>
     dplyr::filter(page_kind == "dashboard") |>
@@ -313,9 +296,8 @@ dashboard_list <- function(traffic) {
     dplyr::select(file, name, first_seen)
 }
 
-# A dashboard's accent, the `$primary` in its folder's _theme.scss, so its bars
-# here match its own navbar. A published file shares its folder's name. NA
-# when there is no such folder or line.
+# The `$primary` in a dashboard folder's _theme.scss, named like its published
+# file, so its bars match its navbar. NA when there is no such file or line.
 dashboard_accent <- function(file, dashboards_dir = "..") {
   vapply(file, \(f) {
     path <- file.path(dashboards_dir, f, "_theme.scss")
@@ -352,9 +334,8 @@ delta_direction <- function(delta) {
   )
 }
 
-# Direction is carried by the arrow and the sign, not by colour alone; a change
-# with nothing to compare against is a dash, deliberately distinct from a
-# measured "no change".
+# The arrow and sign carry direction, not colour alone. Nothing to compare
+# against is a dash, distinct from a measured "no change".
 fmt_delta <- function(delta) {
   direction <- delta_direction(delta)
   dplyr::case_when(

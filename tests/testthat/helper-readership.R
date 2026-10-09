@@ -67,8 +67,6 @@ readership_with_data <- function(traffic = readership_traffic(),
   )
 }
 
-run_readership_preflight <- function(env, today = readership_today,
-                                     snapshot = NULL) {
-  run_quietly(env$run_preflight_safety_check(NULL, today = today,
-                                             snapshot = snapshot))
+run_readership_preflight <- function(env, today = readership_today) {
+  run_quietly(env$run_preflight_safety_check(NULL, today = today))
 }

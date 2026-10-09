@@ -1,5 +1,5 @@
 ---
-title: "CanadaLogin Readership"
+title: "CanadaLogin Reporting Readership"
 author: "EDCP Data and Research Team"  # colin.douglas@cds-snc.ca
 slug: readership
 format:
@@ -8,10 +8,7 @@ format:
     include-before-body: page-header.html
     include-after-body: analytics-tag.html # see _analytics.qmd
 params:
-  ga_page_title: "Readership Dashboard"
-  # A saved snapshot to read instead of Athena, e.g. notes/snapshot.rds. The
-  # live-data check fails on one, so the page carries the banner.
-  snapshot: ""
+  ga_page_title: "Reporting Readership Dashboard"
 ---
 
 ```{r setup}
@@ -23,16 +20,10 @@ source("../../common/setup.R")
 source("R/metrics.R")
 source("R/preflight.R")
 
-snapshot <- if (nzchar(params$snapshot)) params$snapshot else NULL
-if (is.null(snapshot)) {
-  con <- connect_athena()
-} else {
-  con <- NULL
-  use_snapshot(snapshot)
-}
+con <- connect_athena()
 
 # A failed check adds a banner. See R/preflight.R.
-preflight <- run_preflight_safety_check(con, snapshot = snapshot)
+preflight <- run_preflight_safety_check(con)
 write_preflight_status(preflight)
 
 traffic <- page_traffic(con)
@@ -94,15 +85,26 @@ source_colours <- c(
   other = "#D3D7DB"
 )
 
+# A one-row legend above the plot, flush left.
+legend_top <- theme(legend.position = "top", legend.justification = "left",
+                    legend.key.size = unit(0.35, "cm"),
+                    legend.text = element_text(margin = margin(r = 12)),
+                    legend.margin = margin(0, 0, 0, 0))
+
+# Weekly bars sit mid-week (Monday + 3). A tick under every second bar,
+# counting back from the newest, labelled with the Sunday the week ends.
+week_axis <- function(weeks) {
+  scale_x_date(breaks = seq(max(weeks), min(weeks), by = "-2 weeks") + 3L,
+               labels = \(x) format_short_date(x + 3L))
+}
+
 brand_figure <- function(p, height = 0.09) {
   add_cds_logo(
-    add_watermark(p, report_name = "CanadaLogin Analytics Readership dashboard",
+    add_watermark(p, report_name = "CanadaLogin Reporting Readership",
                   date = through),
     height = height
   )
 }
-
-dwell_breaks <- dwell_marks
 
 # One panel per page: its curve over the others', a dashed line at half, and
 # its views and median read in the corner. `colours`, by panel, overrides accent.
@@ -135,7 +137,7 @@ dwell_panels <- function(curve, panel, ncol, colours = NULL) {
                                      unique(as.character(curve$panel))),
       guide = "none"
     ) +
-    scale_x_log10(breaks = dwell_breaks, labels = fmt_mark_short(dwell_breaks)) +
+    scale_x_log10(breaks = dwell_marks, labels = fmt_mark_short(dwell_marks)) +
     scale_y_continuous(labels = label_percent(), limits = c(0, 1),
                        breaks = c(0, 0.5, 1)) +
     facet_wrap(~panel, ncol = ncol) +
@@ -170,17 +172,15 @@ source_bars <- function(rows, group, levels) {
     guides(fill = guide_legend(nrow = 1)) +
     theme_cds() +
     theme(panel.grid.minor = element_blank(),
-          panel.grid.major.y = element_blank(),
-          legend.position = "top", legend.justification = "left",
-          legend.key.size = unit(0.35, "cm"),
-          legend.text = element_text(margin = margin(r = 12)),
-          legend.margin = margin(0, 0, 0, 0)) +
+          panel.grid.major.y = element_blank()) +
+    legend_top +
     labs(x = "Sessions", y = NULL)
 }
 
 table_options <- function(gt_table) {
   tab_options(gt_table, table.width = pct(100), table.font.size = px(14),
-              data_row.padding = px(3), table.border.top.style = "none")
+              data_row.padding = px(3), table.border.top.style = "none",
+              column_labels.font.weight = "bold")
 }
 ```
 
@@ -201,28 +201,26 @@ weekly_all <- traffic |>
   dplyr::summarise(views = sum(views), .groups = "drop") |>
   tidyr::complete(week = seq(year_from, monday_of(through), by = "week"),
                   page_kind = names(products), fill = list(views = 0)) |>
-  dplyr::mutate(
-    product = factor(products[page_kind], levels = rev(products)),
-    # The week tracking began on a Thursday, and this week so far.
-    partial = week < tracking_from | week + 6L > through
-  )
+  dplyr::mutate(product = factor(products[page_kind], levels = rev(products)),
+                partial = week + 6L > through)
 
-year_note <- if (year_from > monday_of(tracking_from)) {
-  "Monday-to-Sunday weeks over the last year. The lighter bar is this week so far."
-} else {
-  glue("Monday-to-Sunday weeks since tracking began on ",
-       "{format_long_date(tracking_from)}. Lighter bars are part weeks.")
-}
+year_note <- glue(
+  "Monday-to-Sunday weeks ",
+  if (year_from > monday_of(tracking_from)) "over the last year" else
+    "since tracking began on {format_long_date(tracking_from)}",
+  ". The lighter bar is this week so far."
+)
 ```
 
 ## Row {height="auto"}
 
 ::: {.card title="About this dashboard"}
 
-This dashboard reports **how much attention our own reporting gets**: who
-opens each Signal Check and dashboard, how long they keep it open, and which
-link brought them. It reads the analytics tag on our published pages, the same
-kind of tag that measures CanadaLogin itself. It is internal to Enterprise
+This dashboard reports **how much attention our own analytics products
+get**: Signal Check, the dashboards and the Metrics Cookbook. It does not
+measure CanadaLogin. It shows who opens each product, how long they keep it
+open, and which link brought them. It reads the analytics tag on our published
+pages, the same kind of tag that measures CanadaLogin itself. It is internal to Enterprise
 Digital Credentials and the link is unlisted. For anything that leaves EDCP,
 please reach out to the
 [Data and Research team](https://gcdigital.slack.com/archives/C0A6S9F7KV4).
@@ -234,17 +232,12 @@ How long a page stays open is defined in the
 [metrics cookbook](https://cds-snc.github.io/canadalogin-metrics-cookbook/cookbook/google_analytics/dwell-time.html).
 This page is republished in place every week.
 
-:::
-
-## Row {height="auto"}
-
-::: {.card title="About the pages"}
-
 The **Signal Check** page follows each Signal Check over **its first 14
 days**, the two weeks before the next one arrives, so every Signal Check is
 measured over the same span. Views before a Signal Check is sent come from our
-own review link and are left out. The page shows views each day, how long
-readers keep each Signal Check open, and which link started each session.
+own review link and are left out of its first 14 days. The page shows views
+each day, how long readers keep each Signal Check open, and which link started
+each session.
 
 The **Dashboards** page covers each published dashboard over the last three
 months, and compares the last four weeks with the four before them.
@@ -269,8 +262,8 @@ twice counts twice.
 #| fig-alt: |
 #|   Stacked bar chart of page views each week, split into Signal Checks,
 #|   dashboards and the Metrics Cookbook, from the start of tracking or the
-#|   last year, whichever is shorter. Part weeks are lighter.
-product_colours <- setNames(c(palette$accent, palette$ink, "#B98A2E"),
+#|   last year, whichever is shorter. This week so far is lighter.
+product_colours <- setNames(c(palette$accent, palette$ink, inks[[3]]),
                             unname(products))
 
 p <- ggplot(weekly_all, aes(week + 3, views, fill = product)) +
@@ -278,15 +271,13 @@ p <- ggplot(weekly_all, aes(week + 3, views, fill = product)) +
   scale_fill_manual(values = product_colours, breaks = unname(products),
                     name = NULL) +
   scale_alpha_manual(values = c(`FALSE` = 1, `TRUE` = 0.4), guide = "none") +
-  scale_x_date(date_breaks = "1 month", date_labels = "%b") +
+  week_axis(weekly_all$week) +
   scale_y_continuous(labels = label_comma(), limits = c(0, NA),
                      expand = expansion(mult = c(0, 0.08))) +
   theme_cds() +
-  theme(panel.grid.minor = element_blank(), legend.position = "top",
-        legend.justification = "left", legend.key.size = unit(0.35, "cm"),
-        legend.text = element_text(margin = margin(r = 12)),
-        legend.margin = margin(0, 0, 0, 0)) +
-  labs(x = NULL, y = "Views", subtitle = year_note)
+  theme(panel.grid.minor = element_blank()) +
+  legend_top +
+  labs(x = "Week ending", y = "Views", subtitle = year_note)
 brand_figure(p)
 ```
 
@@ -338,7 +329,7 @@ window_curve <- edition_window_events(
 window_dwell <- edition_dwell(events, editions)
 
 daily <- days |>
-  dplyr::filter(age >= 0, day >= chart_from, day <= through)
+  dplyr::filter(day >= chart_from, day <= through)
 
 window_sessions <- traffic |>
   dplyr::inner_join(dplyr::filter(coverage, comparable),
@@ -396,9 +387,14 @@ shown <- sort(unique(daily$number))
 check_colours <- setNames(rep_len(inks, length(shown)), shown)
 check_colours[as.character(latest$number)] <- palette$accent
 
-# Each Signal Check is named over its busiest day, the day it was sent unless
-# that was before the chart; at the edges the label leans inward. One with
-# only a few views here is left unnamed.
+# A tick on the Monday of each send week, even when a Signal Check went out
+# later in the week.
+send_mondays <- monday_of(coverage$published)
+send_mondays <- send_mondays[send_mondays >= chart_from - 1L &
+                               send_mondays <= through + 1L]
+
+# Each Signal Check is named over its busiest day, leaning inward at the edges;
+# one with under five views in the chart is left unnamed.
 totals <- daily |>
   dplyr::group_by(day) |>
   dplyr::summarise(total = sum(views), .groups = "drop")
@@ -422,15 +418,13 @@ p <- ggplot(daily, aes(day, views, fill = factor(number))) +
   scale_fill_manual(values = check_colours, guide = "none") +
   scale_colour_manual(values = check_colours, guide = "none") +
   scale_x_date(limits = c(chart_from - 1L, through + 1L), expand = c(0, 0),
-               breaks = rev(seq(through, chart_from, by = "-2 weeks")),
+               breaks = send_mondays,
                date_labels = "%b %d") +
   scale_y_continuous(labels = label_comma(), limits = c(0, NA),
                      expand = expansion(mult = c(0, 0.15))) +
   theme_cds() +
   theme(panel.grid.minor = element_blank()) +
-  labs(x = NULL, y = "Views",
-       subtitle = glue("Each Signal Check in its own colour, {latest$label} ",
-                       "in red. Views before sending are left out."))
+  labs(x = NULL, y = "Views")
 brand_figure(p)
 ```
 
@@ -444,10 +438,9 @@ brand_figure(p)
 #| fig-width: 10
 #| fig-height: 4.6
 #| fig-alt: |
-#|   Small multiples, one panel per Signal Check. Each shows the share of its
-#|   page views still open after 1 second, 5, 15 and 30 seconds, and 1, 2, 5
-#|   and 10 minutes, with every other Signal Check's curve in the background
-#|   and a dashed line at 50 percent.
+#|   Small multiples, one panel per Signal Check, each showing the share of
+#|   its page views still open from 1 second to 10 minutes, with the other
+#|   Signal Checks' curves behind it and a dashed line at 50 percent.
 brand_figure(dwell_panels(window_curve, "panel", ncol = 3), height = 0.07)
 ```
 
@@ -495,10 +488,6 @@ it opened.
 ::: {.card title="Every Signal Check"}
 
 ```{r edition-table}
-review <- days |>
-  dplyr::filter(age < 0) |>
-  dplyr::group_by(number) |>
-  dplyr::summarise(review = sum(views), .groups = "drop")
 since <- days |>
   dplyr::filter(age >= 0) |>
   dplyr::group_by(number) |>
@@ -512,7 +501,6 @@ coverage |>
   dplyr::left_join(dplyr::filter(window_dwell, number %in% comparable$number),
                    by = c("number", "label")) |>
   dplyr::left_join(since, by = "number") |>
-  dplyr::left_join(review, by = "number") |>
   dplyr::arrange(dplyr::desc(published)) |>
   dplyr::transmute(
     label,
@@ -526,18 +514,17 @@ coverage |>
     median = ifelse(comparable, fmt_read(median_seconds), "-"),
     past_minute, past_five,
     reading = ifelse(comparable, fmt_reading(reading_seconds), "-"),
-    all_time = dplyr::coalesce(all_time, 0),
-    review = dplyr::coalesce(review, 0)
+    all_time = dplyr::coalesce(all_time, 0)
   ) |>
   gt() |>
   fmt_percent(c(past_minute, past_five), decimals = 0) |>
-  fmt_number(c(all_time, review), decimals = 0) |>
+  fmt_number(all_time, decimals = 0) |>
   sub_missing(missing_text = "-") |>
   cols_align("right", c(first, median, reading)) |>
   cols_label(label = "Signal Check", sent = "Sent", first = "Views, first 14 days",
              median = "Median read", past_minute = "Open 1 min+",
              past_five = "Open 5 min+", reading = "Total reading time",
-             all_time = "Views since sent", review = "Review views") |>
+             all_time = "Views since published") |>
   table_options()
 ```
 
@@ -546,9 +533,8 @@ Median read and the two *Open* columns cover the first 14 days. *Median read*
 is the time half the views were still open, estimated between the two time
 marks either side of it. *Total reading time* adds up the time of every view
 by every reader, each counted down to the last milestone it reached, so it is
-a floor. *Review views* came before the Signal Check was sent, from our own
-review link, and count nowhere else. Tracking began July 23, 2026, after
-Signal Check #1 and Signal Check #2 were sent.
+a floor. Tracking began July 23, 2026, after Signal Check #1 and Signal
+Check #2 were sent.
 :::
 
 :::
@@ -562,7 +548,7 @@ dashboard_rows <- traffic |>
   dplyr::mutate(file = dashboard_file(pagepath_redacted)) |>
   dplyr::inner_join(dashboards, by = "file")
 
-dashboard_sessions <- dplyr::filter(dashboard_rows, day >= chart_from)
+dashboard_recent <- dplyr::filter(dashboard_rows, day >= chart_from)
 
 # Each dashboard in its own accent; one with no theme found falls back to ink.
 accents <- dashboard_accent(dashboards$file)
@@ -594,8 +580,7 @@ pooled_dashboard_median <- dashboard_events |>
   dplyr::summarise(m = median_read(seconds, share)) |>
   dplyr::pull(m)
 
-weeks <- dashboard_rows |>
-  dplyr::filter(day >= chart_from) |>
+weeks <- dashboard_recent |>
   dplyr::mutate(week = monday_of(day)) |>
   dplyr::group_by(name, week) |>
   dplyr::summarise(views = sum(views), .groups = "drop") |>
@@ -648,14 +633,13 @@ p <- ggplot(weeks, aes(week + 3, views)) +
   scale_alpha_manual(values = c(`FALSE` = 1, `TRUE` = 0.35), guide = "none") +
   scale_y_continuous(labels = label_comma(), limits = c(0, NA),
                      expand = expansion(mult = c(0, 0.08))) +
-  scale_x_date(date_labels = "%b %d",
-               breaks = rev(seq(monday_of(through), chart_from, by = "-4 weeks"))) +
+  week_axis(weeks$week) +
   facet_wrap(~name, nrow = 1) +
   theme_cds() +
   theme(panel.grid.minor = element_blank(),
         strip.background = element_blank(),
         strip.text = element_text(face = "bold", hjust = 0, size = 11)) +
-  labs(x = NULL, y = "Views",
+  labs(x = "Week ending", y = "Views",
        subtitle = "Weeks run Monday to Sunday. The lighter bar is this week so far.")
 brand_figure(p)
 ```
@@ -691,7 +675,7 @@ brand_figure(dwell_panels(dashboard_curve, "name", ncol = nrow(dashboards),
 #|   Horizontal stacked bars, one per dashboard, splitting its sessions over
 #|   the last three months by where they started: Slack, Teams, email, our own
 #|   links, no link recorded and other sites.
-p <- source_bars(dashboard_sessions, "name", sort(dashboards$name))
+p <- source_bars(dashboard_recent, "name", sort(dashboards$name))
 brand_figure(p, height = 0.11)
 ```
 
@@ -743,24 +727,32 @@ counts its own readers too.
 
 ```{r cookbook-summary}
 #| include: false
-cookbook <- dplyr::filter(traffic, page_kind == "cookbook")
-
-cookbook_weeks <- cookbook |>
-  dplyr::mutate(week = monday_of(day)) |>
-  dplyr::group_by(week) |>
-  dplyr::summarise(views = sum(views), .groups = "drop") |>
-  tidyr::complete(week = seq(monday_of(tracking_from), monday_of(through),
-                             by = "week"),
-                  fill = list(views = 0)) |>
-  dplyr::mutate(partial = week + 6L > through)
-
-# Two pages share a title (a recipe and its table), so the section names them.
-cookbook_pages <- cookbook |>
+cookbook_colours <- c(Cookbook = inks[[1]], `Data catalog` = inks[[2]],
+                      Other = inks[[6]])
+cookbook <- traffic |>
+  dplyr::filter(page_kind == "cookbook") |>
   dplyr::mutate(
     section = sub("^/canadalogin-metrics-cookbook/([^/]*).*$", "\\1",
                   pagepath_redacted),
     section = ifelse(grepl("\\.html$", section) | section == "", "home",
                      section),
+    part = factor(dplyr::case_match(section, "cookbook" ~ "Cookbook",
+                                    "catalog" ~ "Data catalog",
+                                    .default = "Other"),
+                  levels = names(cookbook_colours))
+  )
+
+cookbook_weeks <- cookbook |>
+  dplyr::mutate(week = monday_of(day)) |>
+  dplyr::group_by(week, part) |>
+  dplyr::summarise(views = sum(views), .groups = "drop") |>
+  tidyr::complete(week = seq(monday_of(tracking_from), monday_of(through),
+                             by = "week"),
+                  part, fill = list(views = 0)) |>
+  dplyr::mutate(partial = week + 6L > through)
+
+cookbook_pages <- cookbook |>
+  dplyr::mutate(
     title = sub("\\s*\u2013 CanadaLogin Metrics Cookbook$", "", pagetitle),
     title = dplyr::case_when(
       section == "home" ~ "Front page",
@@ -769,10 +761,14 @@ cookbook_pages <- cookbook |>
     )
   ) |>
   dplyr::group_by(pagepath_redacted) |>
-  dplyr::summarise(title = dplyr::last(title), section = dplyr::first(section),
+  dplyr::summarise(title = dplyr::last(title), part = dplyr::first(part),
                    views = sum(views), .groups = "drop") |>
-  dplyr::mutate(page = ifelse(section == "home" | grepl(" index$", title),
-                              title, glue("{title} ({section})"))) |>
+  dplyr::mutate(
+    # Cut a long title at the last whole word that fits.
+    page = ifelse(nchar(title) > 28,
+                  paste0(sub("\\s+\\S*$", "", substr(title, 1, 28)), "..."),
+                  title)
+  ) |>
   dplyr::slice_max(views, n = 12, with_ties = FALSE)
 ```
 
@@ -784,18 +780,21 @@ cookbook_pages <- cookbook |>
 #| fig-width: 6.5
 #| fig-height: 4.4
 #| fig-alt: |
-#|   Bar chart of Metrics Cookbook page views each Monday-to-Sunday week since
-#|   tracking began in July 2026. The newest week, not yet over, is lighter.
-p <- ggplot(cookbook_weeks, aes(week + 3, views)) +
-  geom_col(aes(fill = partial), width = 5.5) +
-  scale_fill_manual(values = c(`FALSE` = palette$ink, `TRUE` = palette$quiet),
-                    guide = "none") +
+#|   Stacked bar chart of Metrics Cookbook page views each Monday-to-Sunday
+#|   week since tracking began in July 2026, split into Cookbook, data catalog
+#|   and other pages. This week so far is lighter.
+p <- ggplot(cookbook_weeks, aes(week + 3, views, fill = part)) +
+  geom_col(aes(alpha = partial), width = 5.5,
+           position = position_stack(reverse = TRUE)) +
+  scale_fill_manual(values = cookbook_colours, name = NULL) +
+  scale_alpha_manual(values = c(`FALSE` = 1, `TRUE` = 0.4), guide = "none") +
   scale_y_continuous(labels = label_comma(), limits = c(0, NA),
                      expand = expansion(mult = c(0, 0.08))) +
-  scale_x_date(date_labels = "%b %d") +
+  week_axis(cookbook_weeks$week) +
   theme_cds() +
   theme(panel.grid.minor = element_blank()) +
-  labs(x = NULL, y = "Views")
+  legend_top +
+  labs(x = "Week ending", y = "Views")
 brand_figure(p)
 ```
 
@@ -808,17 +807,23 @@ brand_figure(p)
 #| fig-height: 4.4
 #| fig-alt: |
 #|   Horizontal bar chart of the twelve most viewed Metrics Cookbook pages
-#|   since tracking began, most viewed at the top, each bar labelled with its
-#|   views.
-p <- ggplot(cookbook_pages, aes(views, stats::reorder(page, views))) +
-  geom_col(fill = palette$ink, width = 0.7) +
+#|   since tracking began, most viewed at the top, coloured as Cookbook, data
+#|   catalog or other, each labelled with its views.
+# Keyed on the path: a recipe and its catalog entry can share a title.
+p <- ggplot(cookbook_pages,
+            aes(views, stats::reorder(pagepath_redacted, views), fill = part)) +
+  geom_col(width = 0.7) +
   geom_text(aes(label = comma(views)), hjust = -0.3, size = 3.2,
             colour = "grey30") +
+  scale_fill_manual(values = cookbook_colours, name = NULL, drop = FALSE) +
+  scale_y_discrete(labels = setNames(cookbook_pages$page,
+                                     cookbook_pages$pagepath_redacted)) +
   # Room on the right, so the longest bar and its label clear the logo.
   scale_x_continuous(expand = expansion(mult = c(0, 0.2))) +
   theme_cds() +
   theme(panel.grid.minor = element_blank(),
         panel.grid.major.y = element_blank()) +
+  legend_top +
   labs(x = "Views", y = NULL)
 brand_figure(p)
 ```
@@ -829,7 +834,7 @@ brand_figure(p)
 #| include: false
 # include: false matters for layout: this chunk sits in the last Row, where
 # anything visible becomes a card and takes width from the chart.
-if (!is.null(con)) DBI::dbDisconnect(con)
+DBI::dbDisconnect(con)
 ```
 
 {{< include ../../_analytics.qmd >}}

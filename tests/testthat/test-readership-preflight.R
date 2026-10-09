@@ -12,17 +12,9 @@ test_that("every check keeps its slug", {
   result <- run_readership_preflight(readership_with_data())
   expect_identical(
     purrr::map_chr(result$checks, "slug"),
-    c("live-data", "freshness", "tables-agree", "known-pages", "no-tokens",
+    c("freshness", "tables-agree", "known-pages", "no-tokens",
       "edition-numbers")
   )
-})
-
-# live-data -------------------------------------------------------------------
-
-test_that("a snapshot render never passes", {
-  result <- run_readership_preflight(readership_with_data(),
-                                     snapshot = "notes/snapshot.rds")
-  expect_identical(failed_slugs(result), "live-data")
 })
 
 # freshness -------------------------------------------------------------------

@@ -1,9 +1,8 @@
 #' Preflight data-source validation: prints a checklist and returns the
 #' result. A failed check raises a banner instead of stopping the render.
 #'
-#' The checks guard against a quiet failure: an export stops and readership
-#' looks like a slow week, or a page drops out of the counts. Needs
-#' R/metrics.R and an open `con`.
+#' Guards against quiet failures: an export stops and readership looks like a
+#' slow week, or a page drops out of the counts. Needs R/metrics.R.
 
 # GA is exported on a two-day lag, by 07:00 ET.
 export_lag_days <- 3L
@@ -15,8 +14,7 @@ quiet_days_allowed <- 7L
 # A publishing path that still holds a token segment: /r/<token>/<file>.
 token_pattern <- "^/canadalogin-signal-check-publishing/r/[^/]+/"
 
-run_preflight_safety_check <- function(con, today = toronto_today(),
-                                       snapshot = NULL) {
+run_preflight_safety_check <- function(con, today = toronto_today()) {
 
   # Helpers --------------------------------------------------------------------
 
@@ -41,20 +39,7 @@ run_preflight_safety_check <- function(con, today = toronto_today(),
   traffic <- page_traffic(con)
   events <- page_events(con)
 
-  # Check 1 - live data ---------------------------------------------------------
-
-  record_check(
-    "live-data",
-    "The dashboard must read the warehouse, not a saved snapshot",
-    passed = is.null(snapshot),
-    details = if (is.null(snapshot)) {
-      "Read from Athena"
-    } else {
-      glue("Read from {snapshot}")
-    }
-  )
-
-  # Check 2 - freshness ---------------------------------------------------------
+  # Check 1 - freshness ---------------------------------------------------------
 
   exported <- export_through(con)
   newest <- suppressWarnings(max(traffic$day))
@@ -71,7 +56,7 @@ run_preflight_safety_check <- function(con, today = toronto_today(),
     )
   )
 
-  # Check 3 - the tables agree --------------------------------------------------
+  # Check 2 - the tables agree --------------------------------------------------
   #
   # Both come from one run; a day where they differ was half loaded.
 
@@ -99,7 +84,7 @@ run_preflight_safety_check <- function(con, today = toronto_today(),
     }
   )
 
-  # Check 4 - every page known ---------------------------------------------------
+  # Check 3 - every page known ---------------------------------------------------
   #
   # An unrecognized path is a page the dashboard cannot place, so its views
   # drop out of every count.
@@ -121,15 +106,13 @@ run_preflight_safety_check <- function(con, today = toronto_today(),
     }
   )
 
-  # Check 5 - no tokens ----------------------------------------------------------
+  # Check 4 - no tokens ----------------------------------------------------------
   #
   # The page never shows a path, but a token in the redacted column means the
   # ETL's redaction broke, and a published link could follow.
 
-  tokens <- unique(c(traffic$pagepath_redacted[grepl(token_pattern,
-                                                     traffic$pagepath_redacted)],
-                     events$pagepath_redacted[grepl(token_pattern,
-                                                    events$pagepath_redacted)]))
+  paths <- unique(c(traffic$pagepath_redacted, events$pagepath_redacted))
+  tokens <- paths[grepl(token_pattern, paths)]
 
   record_check(
     "no-tokens",
@@ -143,7 +126,7 @@ run_preflight_safety_check <- function(con, today = toronto_today(),
     }
   )
 
-  # Check 6 - edition numbers ----------------------------------------------------
+  # Check 5 - edition numbers ----------------------------------------------------
 
   titles <- edition_titles(traffic)
   numbers <- titles |>

@@ -1,7 +1,8 @@
-# CanadaLogin Readership
+# CanadaLogin Reporting Readership
 
-An internal-only dashboard of how much attention our own reporting gets, from
-the meta-analytics GA4 property. It has three pages:
+An internal-only dashboard of how much attention our own analytics products
+get (not CanadaLogin itself), from the meta-analytics GA4 property. It has
+three pages:
 
 - **Signal Check**: views each day, how long readers keep each Signal Check
   open over its first 14 days (a drop-off curve per Signal Check), where its
@@ -17,8 +18,6 @@ It reads `google_analytics.meta_page_traffic` and `meta_page_events`, and
 token and is never read.
 
 Render with `quarto render dashboards/readership` from the repo root, or
-`quarto render readership.qmd` from inside this folder. To render without AWS,
-pass a saved snapshot: `quarto render readership.qmd -P snapshot:notes/snapshot.rds`.
-A snapshot render always fails the `live-data` check, so it carries the red
-banner and must not be published. See `R/metrics.R` for the reads and
+`quarto render readership.qmd` from inside this folder, after
+`aws sso login --profile cl-data-admin`. See `R/metrics.R` for the reads and
 measures, and `R/preflight.R` for the data-quality checks.
