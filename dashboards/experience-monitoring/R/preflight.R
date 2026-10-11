@@ -7,11 +7,44 @@
 #' Source common/setup.R and this dashboard's R/metrics.R first, and define the
 #' help_stream_* constants. Expects an open `con`, dplyr/dbplyr/tidyr and glue.
 
+# Unattributed share of one window's entry-step starters. `starters` has
+# breakdown_value and activeusers. The denominator is GA's own RESERVED_TOTAL
+# row, not the sum of the parties: activeUsers de-duplicate within a breakdown,
+# so a user seen under two rp_names counts in both and the parties can sum a
+# little over the total (about 1% for sign_in). NA when there is no total.
+unattributed_share <- function(starters) {
+  total <- starters$activeusers[starters$breakdown_value == "RESERVED_TOTAL"]
+  if (length(total) != 1 || is.na(total) || total == 0) return(NA_real_)
+  lost <- starters$activeusers[starters$breakdown_value %in% ga_excluded_rp_names]
+  sum(lost) / total
+}
+
+# The attributed parties whose starters fell most from `previous` to `current`
+# (same columns as above), largest fall first. A party absent from `current`
+# fell by all of its previous starters.
+largest_starter_drops <- function(current, previous, n = 3L) {
+  not_party <- c("RESERVED_TOTAL", ga_excluded_rp_names)
+  is_party <- \(d) d[!d$breakdown_value %in% not_party, ]
+  dplyr::full_join(
+    is_party(previous), is_party(current),
+    by = "breakdown_value", suffix = c("_previous", "_current")
+  ) |>
+    dplyr::mutate(
+      activeusers_previous = dplyr::coalesce(activeusers_previous, 0),
+      activeusers_current = dplyr::coalesce(activeusers_current, 0),
+      drop = activeusers_previous - activeusers_current
+    ) |>
+    dplyr::filter(drop > 0) |>
+    dplyr::arrange(dplyr::desc(drop), breakdown_value) |>
+    utils::head(n)
+}
+
 run_preflight_safety_check <- function(con,
                                        today = Sys.Date(),
                                        ga_export_lag_days = 2L,
                                        lookback_days = 14L,
-                                       min_task_success_rate = 0.02) {
+                                       min_task_success_rate = 0.02,
+                                       max_unattributed_share = 0.10) {
 
   # Helpers --------------------------------------------------------------------
 
@@ -369,6 +402,84 @@ run_preflight_safety_check <- function(con,
            "{glue_collapse(required_funnels, sep = ', ')}")
     } else {
       rate_problems
+    }
+  )
+
+  # Check 9 - starters with no relying party ------------------------------------
+  #
+  # From 2026-09-22 GA stopped recording rp_name for two services and their
+  # traffic moved to "(not set)". Every check passed and the table showed them
+  # at 0%. Before that the share never passed 2.1% on any 7-day window of any
+  # required funnel (July to Sep 21, max sign_up on Jul 23), and it has been
+  # 68% or more since Sep 28, so 10% sits well clear of both. The entry step,
+  # because the per-party rates divide by it.
+  prior_end <- as_of - 7L
+  entry_steps <- unname(vapply(
+    required_funnels, \(f) funnel_ratio_steps[[f]][["denominator"]], character(1)
+  ))
+  entry_counts <- tbl(con, in_schema("google_analytics", "funnels_current")) |>
+    filter(
+      funnel_id %in% !!required_funnels,
+      funnelstepname %in% !!unique(entry_steps),
+      window_days == "7",
+      !window_incomplete,
+      as.Date(window_end) >= as.Date(!!as.character(prior_end)),
+      as.Date(window_end) <= as.Date(!!as.character(as_of))
+    ) |>
+    select(funnel_id, funnelstepname, window_end, breakdown_value, activeusers) |>
+    collect() |>
+    mutate(window_end = as.Date(window_end),
+           activeusers = as.numeric(activeusers))
+
+  attribution_problems <- character()
+  attribution_shares <- numeric()
+  for (funnel in required_funnels) {
+    entry <- funnel_ratio_steps[[funnel]][["denominator"]]
+    in_window <- \(end) {
+      entry_counts[entry_counts$funnel_id == funnel &
+                     entry_counts$funnelstepname == entry &
+                     entry_counts$window_end == end, ]
+    }
+    current <- in_window(as_of)
+    share <- unattributed_share(current)
+    attribution_shares[[funnel]] <- share
+
+    if (is.na(share)) {
+      attribution_problems <- c(
+        attribution_problems,
+        glue("{funnel}: no 7-day '{entry}' total ending {format_date(as_of)}")
+      )
+    } else if (share > max_unattributed_share) {
+      drops <- largest_starter_drops(current, in_window(prior_end))
+      fell <- if (nrow(drops) == 0) {
+        "no relying party lost starters"
+      } else {
+        glue("starters fell most for ",
+             "{glue_collapse(glue('{drops$breakdown_value} ",
+             "({drops$activeusers_previous} to {drops$activeusers_current})'), ",
+             "sep = ', ')}")
+      }
+      attribution_problems <- c(
+        attribution_problems,
+        glue("{funnel}: {as_percent(share)} of 7-day '{entry}' starters ending ",
+             "{format_date(as_of)} have no rp_name; against the 7 days ending ",
+             "{format_date(prior_end)}, {fell}; per-service rates are unreliable ",
+             "until attribution is restored")
+      )
+    }
+  }
+
+  record_check(
+    "rp-attribution",
+    glue("No more than {as_percent(max_unattributed_share)} of starters may ",
+         "lack a relying party"),
+    passed = length(attribution_problems) == 0,
+    details = if (length(attribution_problems) == 0) {
+      glue("7-day starters ending {format_date(as_of)} with no rp_name: ",
+           "{glue_collapse(paste0(names(attribution_shares), ' ', ",
+           "as_percent(attribution_shares)), sep = ', ')}")
+    } else {
+      attribution_problems
     }
   )
 

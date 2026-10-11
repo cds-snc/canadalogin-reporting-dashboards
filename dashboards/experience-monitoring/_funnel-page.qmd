@@ -83,12 +83,11 @@ add_cds_logo(add_watermark(p, date = data_through), height = 0.09)
 exit_label <- exit_step_label(fid)
 compare <- prior_period_complete(fid)
 
+# The one stored window ending on data_through, like the overall row, so a
+# service missing from it reads n/a rather than its last window from earlier.
 latest_7d <- party_step_counts(
-  con, fid, "7", trailing_start, data_through
+  con, fid, "7", data_through, data_through
 ) |>
-  group_by(breakdown_value) |>
-  slice_max(window_end, n = 1, with_ties = FALSE) |>
-  ungroup() |>
   mutate(rp = rp_display_name(breakdown_value)) |>
   as_task_success(rp) |>
   select(rp, rate_7d = value)
