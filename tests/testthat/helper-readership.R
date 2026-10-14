@@ -43,6 +43,20 @@ readership_traffic <- function(through = readership_through) {
                   sessionmedium = "(not set)", sessions = views)
 }
 
+# The usual traffic plus one view of each published dashboard file given, on
+# its day and under its title.
+readership_with_dashboards <- function(file, title, day) {
+  dplyr::bind_rows(
+    readership_traffic(),
+    tibble::tibble(
+      day = as.Date(day), page_kind = "dashboard",
+      pagepath_redacted = paste0(readership_prefix, file, ".html"),
+      pagetitle = title, views = 1, streamname = "Signal Check",
+      sessionsource = "slack", sessionmedium = "(not set)", sessions = 1
+    )
+  )
+}
+
 # Page views as in the traffic, and half of them reaching each milestone up to
 # a minute.
 readership_events <- function(traffic = readership_traffic()) {

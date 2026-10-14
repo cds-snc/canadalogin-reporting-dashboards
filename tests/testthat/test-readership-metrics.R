@@ -183,6 +183,78 @@ test_that("a renamed dashboard is counted under its new name", {
   )
 })
 
+test_that("an aliased test copy is counted under the file it copies", {
+  traffic <- readership_with_dashboards(
+    c("support", "support-test"), "Support Dashboard",
+    c("2026-09-04", "2026-10-09")
+  )
+  dashboards <- readership$dashboard_list(traffic)
+  expect_setequal(dashboards$file, c("ibm-verify", "support"))
+})
+
+test_that("an aliased file takes its target's title, not its own", {
+  traffic <- readership_with_dashboards(
+    c("support", "support-test"), c("Support Dashboard", "Support Test"),
+    c("2026-09-04", "2026-10-09")
+  )
+  dashboards <- readership$dashboard_list(traffic)
+  expect_identical(dashboards$name[dashboards$file == "support"], "Support")
+})
+
+test_that("unaliased files sharing a title are one dashboard by name", {
+  traffic <- readership_with_dashboards(
+    c("support", "support-copy"), "Support Dashboard",
+    c("2026-09-04", "2026-10-09")
+  )
+  files <- readership$dashboard_list(traffic)
+  dashboards <- readership$dashboard_names(files, withr::local_tempdir())
+  expect_identical(sum(files$name == "Support"), 2L)
+  expect_identical(sum(dashboards$name == "Support"), 1L)
+})
+
+test_that("a dashboard merged by name keeps its earliest first view", {
+  traffic <- readership_with_dashboards(
+    c("support", "support-copy"), "Support Dashboard",
+    c("2026-09-04", "2026-10-09")
+  )
+  files <- readership$dashboard_list(traffic)
+  dashboards <- readership$dashboard_names(files, withr::local_tempdir())
+  expect_identical(dashboards$first_seen[dashboards$name == "Support"],
+                   as.Date("2026-09-04"))
+})
+
+test_that("a dashboard with its own title stays its own dashboard", {
+  traffic <- readership_with_dashboards("support", "Support Dashboard",
+                                        "2026-09-04")
+  files <- readership$dashboard_list(traffic)
+  dashboards <- readership$dashboard_names(files, withr::local_tempdir())
+  expect_setequal(dashboards$name, c("Sign-In Activity", "Support"))
+})
+
+test_that("a dashboard merged by name takes the accent any of its files has", {
+  dir <- withr::local_tempdir()
+  # On the file that sorts second, so the first's missing theme is skipped.
+  dir.create(file.path(dir, "support-copy"))
+  writeLines("$primary: #115740;",
+             file.path(dir, "support-copy", "_theme.scss"))
+  traffic <- readership_with_dashboards(
+    c("support", "support-copy"), "Support Dashboard",
+    c("2026-09-04", "2026-10-09")
+  )
+  files <- readership$dashboard_list(traffic)
+  dashboards <- readership$dashboard_names(files, dir)
+  expect_identical(dashboards$accent[dashboards$name == "Support"], "#115740")
+})
+
+test_that("a dashboard with no theme in any of its files has no accent", {
+  traffic <- readership_with_dashboards("support", "Support Dashboard",
+                                        "2026-09-04")
+  files <- readership$dashboard_list(traffic)
+  dashboards <- readership$dashboard_names(files, withr::local_tempdir())
+  expect_identical(dashboards$accent[dashboards$name == "Support"],
+                   NA_character_)
+})
+
 test_that("sources fall into their groups", {
   expect_identical(
     readership$source_group(c("slack", "teams", "teams.public.onecdn.static.microsoft",

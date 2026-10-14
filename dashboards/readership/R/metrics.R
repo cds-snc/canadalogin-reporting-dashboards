@@ -20,9 +20,11 @@ edition_pattern <-
   "^/canadalogin-signal-check-publishing/r/([0-9]{8})_signal-check\\.html$"
 dashboard_pattern <- "^/canadalogin-signal-check-publishing/r/([^/]+)\\.html$"
 
-# A published file renamed since, read as the file it became.
-dashboard_renames <- c(
-  "task-success-monitoring" = "experience-monitoring"
+# A published file read as another dashboard's: renamed since, or a test copy.
+# Only needed when the titles differ; files sharing a title merge by name.
+dashboard_aliases <- c(
+  "task-success-monitoring" = "experience-monitoring",
+  "support-test" = "support"
 )
 
 # How a session started, in legend order: the announcement posts and our own
@@ -273,15 +275,15 @@ dwell_summary <- function(curve, by) {
 
 # Dashboards ------------------------------------------------------------------
 
-# The dashboard file a path belongs to; a renamed file reads as its new name.
+# The dashboard file a path belongs to; an aliased file reads as its target.
 dashboard_file <- function(path) {
   file <- sub(dashboard_pattern, "\\1", path)
-  renamed <- dashboard_renames[file]
-  ifelse(is.na(renamed), file, renamed)
+  aliased <- dashboard_aliases[file]
+  ifelse(is.na(aliased), file, aliased)
 }
 
-# One row per dashboard: file, name (its newest title less "Dashboard") and
-# first view.
+# One row per dashboard file: file, name (its newest title less "Dashboard")
+# and first view. Files can share a name; see dashboard_names().
 dashboard_list <- function(traffic) {
   traffic |>
     dplyr::filter(page_kind == "dashboard") |>
@@ -294,6 +296,17 @@ dashboard_list <- function(traffic) {
                      .groups = "drop") |>
     dplyr::mutate(name = sub("\\s*Dashboard$", "", title)) |>
     dplyr::select(file, name, first_seen)
+}
+
+# One row per dashboard name, from dashboard_list(): files sharing a title are
+# one dashboard, so a copy published under another file adds to the original.
+# Its accent is the first theme any of its files has.
+dashboard_names <- function(files, dashboards_dir = "..") {
+  files |>
+    dplyr::mutate(accent = dashboard_accent(file, dashboards_dir)) |>
+    dplyr::group_by(name) |>
+    dplyr::summarise(first_seen = min(first_seen),
+                     accent = accent[!is.na(accent)][1], .groups = "drop")
 }
 
 # The `$primary` in a dashboard folder's _theme.scss, named like its published

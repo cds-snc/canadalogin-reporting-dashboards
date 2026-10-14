@@ -44,7 +44,8 @@ comparable <- dplyr::filter(coverage, comparable, days_seen > 0)
 latest <- dplyr::slice_tail(comparable, n = 1)
 complete <- dplyr::filter(coverage, complete, number != latest$number)
 
-dashboards <- dashboard_list(traffic)
+dashboard_files <- dashboard_list(traffic)
+dashboards <- dashboard_names(dashboard_files)
 
 # Three months, as whole Monday-to-Sunday weeks, for every daily or weekly
 # chart.
@@ -544,13 +545,13 @@ Check #2 were sent.
 dashboard_rows <- traffic |>
   dplyr::filter(page_kind == "dashboard") |>
   dplyr::mutate(file = dashboard_file(pagepath_redacted)) |>
-  dplyr::inner_join(dashboards, by = "file")
+  dplyr::inner_join(dashboard_files, by = "file")
 
 dashboard_recent <- dplyr::filter(dashboard_rows, day >= chart_from)
 
 # Each dashboard in its own accent; one with no theme found falls back to ink.
-accents <- dashboard_accent(dashboards$file)
-accents <- setNames(dplyr::coalesce(accents, palette$ink), dashboards$name)
+accents <- setNames(dplyr::coalesce(dashboards$accent, palette$ink),
+                    dashboards$name)
 
 all_window <- window_totals(dashboard_rows, "views", through)
 all_change <- relative_change(all_window[["current"]], all_window[["prior"]])
@@ -567,7 +568,7 @@ per_dashboard <- dashboard_rows |>
 dashboard_events <- events |>
   dplyr::filter(page_kind == "dashboard", day >= chart_from) |>
   dplyr::mutate(file = dashboard_file(pagepath_redacted)) |>
-  dplyr::inner_join(dashboards, by = "file")
+  dplyr::inner_join(dashboard_files, by = "file")
 dashboard_curve <- dwell_curve(dashboard_events, "name")
 dashboard_dwell <- dwell_summary(dashboard_curve, "name")
 
@@ -576,7 +577,7 @@ window_dwell_dashboards <- events |>
   dplyr::filter(page_kind == "dashboard") |>
   dplyr::mutate(file = dashboard_file(pagepath_redacted),
                 window = window_of(day, through)) |>
-  dplyr::filter(file %in% dashboards$file, !is.na(window)) |>
+  dplyr::filter(file %in% dashboard_files$file, !is.na(window)) |>
   dwell_curve("window") |>
   dwell_summary("window")
 window_median <- setNames(window_dwell_dashboards$median_seconds,
@@ -620,13 +621,13 @@ Total reading time, last 4 weeks
 `r fmt_delta(relative_change(window_reading[["current"]], window_reading[["prior"]]))` on the 4 weeks before
 :::
 
-## Row {height="460px"}
+## Row {height="620px"}
 
 ::: {.card title="Views each week, last three months"}
 
 ```{r dashboard-weeks-chart}
 #| fig-width: 10
-#| fig-height: 3.1
+#| fig-height: 4.6
 #| fig-alt: |
 #|   Small multiples of weekly bar charts, one panel per dashboard, showing
 #|   page views each Monday-to-Sunday week over the last three months, each in
@@ -638,32 +639,33 @@ p <- ggplot(weeks, aes(week + 3, views)) +
   scale_y_continuous(labels = label_comma(), limits = c(0, NA),
                      expand = expansion(mult = c(0, 0.08))) +
   week_axis(weeks$week) +
-  facet_wrap(~name, nrow = 1) +
+  facet_wrap(~name, ncol = 3) +
   theme_cds() +
   theme(panel.grid.minor = element_blank(),
         strip.background = element_blank(),
         strip.text = element_text(face = "bold", hjust = 0, size = 11)) +
   labs(x = "Week ending", y = "Views",
        subtitle = "Weeks run Monday to Sunday. The lighter bar is this week so far.")
-brand_figure(p)
+brand_figure(p, height = 0.07)
 ```
 
 :::
 
-## Row {height="460px"}
+## Row {height="620px"}
 
 ::: {.card title="How long readers keep each dashboard open, last three months"}
 
 ```{r dashboard-dwell-chart}
 #| fig-width: 10
-#| fig-height: 3.1
+#| fig-height: 4.6
 #| fig-alt: |
 #|   Small multiples, one panel per dashboard, each showing the share of its
 #|   page views still open after 1 second up to 10 minutes in the dashboard's
 #|   own colour, with the other dashboards' curves in the background and a
 #|   dashed line at 50 percent.
-brand_figure(dwell_panels(dashboard_curve, "name", ncol = nrow(dashboards),
-                          colours = accents))
+brand_figure(dwell_panels(dashboard_curve, "name", ncol = 3,
+                          colours = accents),
+             height = 0.07)
 ```
 
 :::
