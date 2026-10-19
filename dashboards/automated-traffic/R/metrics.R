@@ -5,7 +5,7 @@
 # The day CanadaLogin launched, and the first day the IBM Verify sources cover.
 canadalogin_launch <- as.Date("2026-04-22")
 
-# Every day is a Toronto day. mfa_activity and GA already are; the event
+# Every day is a Toronto day. events_mfa_activity and GA already are; the event
 # stream's time is a UTC string, converted on read.
 local_tz <- "America/Toronto"
 
@@ -71,7 +71,9 @@ with_columns <- function(df, columns) {
 
 # SMS codes sent and entered correctly, one row per day.
 sms_days <- read_once(\(con) {
-  dplyr::tbl(con, dbplyr::in_schema("ibm_verify", "mfa_activity")) |>
+  dplyr::tbl(
+    con, dbplyr::in_schema("ibm_verify_events_transformed", "events_mfa_activity")
+  ) |>
     dplyr::filter(mfa_type == "sms_otp", result %in% c("sent", "success")) |>
     dplyr::group_by(date, result) |>
     dplyr::summarise(n = sum(count, na.rm = TRUE), .groups = "drop") |>
@@ -134,7 +136,10 @@ sms_phone_days <- read_once(\(con) {
 # Monthly active users, one row per month. A month not yet over holds its
 # users so far.
 active_users_by_month <- read_once(\(con) {
-  dplyr::tbl(con, dbplyr::in_schema("ibm_verify", "auth_total_logins")) |>
+  dplyr::tbl(
+    con,
+    dbplyr::in_schema("ibm_verify_events_transformed", "events_auth_total_logins")
+  ) |>
     dplyr::select(date, mtd_unique_users) |>
     dplyr::collect() |>
     as_plain_numbers() |>
