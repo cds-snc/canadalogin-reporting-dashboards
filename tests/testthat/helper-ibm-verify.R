@@ -10,8 +10,7 @@ ibm_auth <- function(days = ibm_days, successful = 800, failed = 200) {
     successful_logins = successful,
     failed_logins = failed,
     mtd_unique_users = 5000,
-    ytd_unique_users = 20000,
-    rolling_365d_unique_users = 20000
+    ytd_unique_users = 20000
   )
 }
 
@@ -25,13 +24,13 @@ ibm_lookup <- tibble::tribble(
 ibm_apps <- function(days = ibm_days, applications = ibm_lookup$application_name) {
   tidyr::expand_grid(date = days, application_name = applications) |>
     dplyr::mutate(
+      application_id = paste0("id-", application_name),
       total_logins = 50,
       unique_users = 40,
       successful_logins = 45,
       failed_logins = 5,
       mtd_unique_users = 400,
-      ytd_unique_users = 1000,
-      rolling_365d_unique_users = 1000
+      ytd_unique_users = 1000
     )
 }
 

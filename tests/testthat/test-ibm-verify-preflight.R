@@ -10,7 +10,8 @@ test_that("every check keeps its slug", {
   result <- run_ibm_preflight(ibm_with_data())
   expect_identical(
     purrr::map_chr(result$checks, "slug"),
-    c("verify-freshness", "service-coverage", "rp-resolution", "plausibility")
+    c("verify-freshness", "service-coverage", "rp-resolution", "application-ids",
+      "plausibility")
   )
 })
 
@@ -27,7 +28,7 @@ test_that("freshness names the table that missed a day", {
   result <- run_ibm_preflight(ibm_with_data(mfa = mfa))
   details <- check_named(result, "verify-freshness")$details
   expect_length(details, 1)
-  expect_match(details, "^mfa_activity: no rows for 1 day")
+  expect_match(details, "^events_mfa_activity: no rows for 1 day")
 })
 
 test_that("freshness fails when every table stops before yesterday", {
@@ -68,6 +69,19 @@ test_that("relying-party resolution fails on an unlabelled application", {
   result <- run_ibm_preflight(ibm_with_data(apps = apps))
   expect_identical(failed_slugs(result), "rp-resolution")
   expect_match(check_named(result, "rp-resolution")$details, "new-app", fixed = TRUE)
+})
+
+# application-ids -------------------------------------------------------------
+
+test_that("application ids fail when one name spans two ids", {
+  apps <- ibm_apps() |>
+    dplyr::mutate(application_id = dplyr::if_else(
+      application_name == "app-a" & date > as.Date("2026-09-01"), "id-new",
+      application_id
+    ))
+  result <- run_ibm_preflight(ibm_with_data(apps = apps))
+  expect_identical(failed_slugs(result), "application-ids")
+  expect_match(check_named(result, "application-ids")$details, "app-a", fixed = TRUE)
 })
 
 # plausibility ----------------------------------------------------------------

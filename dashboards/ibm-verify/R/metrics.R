@@ -1,4 +1,5 @@
-# Sign-in activity metric layer, over the three ibm_verify tables.
+# Sign-in activity metric layer, over three ibm_verify_events_transformed tables,
+# built nightly from the IBM Verify event stream.
 
 # The day CanadaLogin launched, and the first day any of these tables covers.
 ibm_verify_launch <- as.Date("2026-04-22")
@@ -13,7 +14,7 @@ ibm_verify_lag_days <- 1L
 
 # Reads ----------------------------------------------------------------------
 
-# Read a whole ibm_verify table once and cache it for the session. Every page
+# Read a whole derived table once and cache it for the session. Every page
 # reads the same rows, and the data cannot change mid-render.
 read_once <- function(name, prepare) {
   cache <- new.env(parent = emptyenv())
@@ -21,7 +22,7 @@ read_once <- function(name, prepare) {
     if (!is.null(cache$value)) {
       return(cache$value)
     }
-    raw <- dplyr::tbl(con, dbplyr::in_schema("ibm_verify", name)) |>
+    raw <- dplyr::tbl(con, dbplyr::in_schema("ibm_verify_events_transformed", name)) |>
       dplyr::collect()
     # BIGINT arrives as integer64, which does not survive arithmetic with
     # doubles cleanly.
@@ -37,24 +38,26 @@ read_once <- function(name, prepare) {
 }
 
 # CanadaLogin-wide daily totals
-auth_totals <- read_once("auth_total_logins", \(x) {
+auth_totals <- read_once("events_auth_total_logins", \(x) {
   dplyr::select(
     x, date, unique_users, successful_logins, failed_logins,
-    mtd_unique_users, ytd_unique_users, rolling_365d_unique_users
+    mtd_unique_users, ytd_unique_users
   )
 })
 
-# Daily counts per application
-app_logins <- read_once("app_login_counts", \(x) {
+# Daily counts per application. A row is one application_id, and the
+# application_name on it is the newest name seen for that id. The
+# `application-ids` preflight check fails if a name ever spans two ids, since
+# everything here groups on the name.
+app_logins <- read_once("events_app_login_counts", \(x) {
   dplyr::select(
-    x, date, application_name, total_logins, unique_users,
-    successful_logins, failed_logins,
-    mtd_unique_users, ytd_unique_users, rolling_365d_unique_users
+    x, date, application_id, application_name, total_logins, unique_users,
+    successful_logins, failed_logins, mtd_unique_users, ytd_unique_users
   )
 })
 
 # Daily MFA attempts, one row per factor per outcome.
-mfa_activity <- read_once("mfa_activity", \(x) {
+mfa_activity <- read_once("events_mfa_activity", \(x) {
   dplyr::select(x, date, mfa_type, result, count)
 })
 
@@ -164,9 +167,17 @@ all_services <- function(con) {
   services_by_volume(labelled_app_logins(con))
 }
 
-# What the Services page lists. Excludes internal services.
-external_services <- function(con) {
-  services_by_volume(dplyr::filter(labelled_app_logins(con), !is_internal))
+# What the Services page lists. Excludes internal services, and with
+# `active_since`, any service with no SSO events on or after that day.
+external_services <- function(con, active_since = NULL) {
+  rows <- dplyr::filter(labelled_app_logins(con), !is_internal)
+  if (!is.null(active_since)) {
+    active <- rows |>
+      dplyr::filter(date >= as.Date(active_since), total_logins > 0) |>
+      dplyr::distinct(service_name)
+    rows <- dplyr::semi_join(rows, active, by = "service_name")
+  }
+  services_by_volume(rows)
 }
 
 # Daily rows for one service, where `unit` is the application name its chart
@@ -176,8 +187,7 @@ service_daily <- function(con, service) {
     dplyr::filter(service_name == service) |>
     dplyr::mutate(unit = application_name) |>
     dplyr::select(date, unit, total_logins, unique_users, successful_logins,
-                  failed_logins, mtd_unique_users, ytd_unique_users,
-                  rolling_365d_unique_users)
+                  failed_logins, mtd_unique_users, ytd_unique_users)
 }
 
 # The first day a service's rows carry any traffic, which is when it came onto
