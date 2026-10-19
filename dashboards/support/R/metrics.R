@@ -66,11 +66,14 @@ call_topics <- read_once("call_centre", "weekly_topic_dump", \(x) {
 })
 
 # Daily CanadaLogin-wide active users, the denominator of the call rate
-daily_active_users <- read_once("ibm_verify", "auth_total_logins", \(x) {
-  x |>
-    dplyr::transmute(date = as.Date(date), unique_users) |>
-    dplyr::arrange(date)
-})
+daily_active_users <- read_once(
+  "ibm_verify_events_transformed", "events_auth_total_logins",
+  \(x) {
+    x |>
+      dplyr::transmute(date = as.Date(date), unique_users) |>
+      dplyr::arrange(date)
+  }
+)
 
 # Every weekly snapshot of the board. `key` recurs once per snapshot.
 psom_snapshots <- read_once("jira", "psom", \(x) {
