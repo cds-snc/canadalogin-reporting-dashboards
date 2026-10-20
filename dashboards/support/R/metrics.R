@@ -268,7 +268,8 @@ closed_in_window <- function(rows, as_of, days = summary_window_days) {
 psom_ages <- function(board, as_of, days = summary_window_days) {
   as_of <- as.Date(as_of)
   board |>
-    dplyr::filter(is.na(closed_on) | closed_on > as_of - days) |>
+    # A ticket opened after as_of did not exist yet, and would read a negative age
+    dplyr::filter(created <= as_of, is.na(closed_on) | closed_on > as_of - days) |>
     dplyr::mutate(age = as.integer(dplyr::coalesce(closed_on, as_of) - created))
 }
 

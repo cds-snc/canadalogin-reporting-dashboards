@@ -193,6 +193,16 @@ test_that("psom_ages keeps open tickets and tickets closed in the window", {
   expect_identical(ages$key, c("open", "closed-recently"))
 })
 
+test_that("psom_ages leaves out a ticket opened after as_of", {
+  board <- tibble::tibble(
+    key = c("before", "after"),
+    created = as.Date(c("2026-09-10", "2026-09-18")),
+    closed_on = as.Date(c(NA, NA))
+  )
+  ages <- support$psom_ages(board, as.Date("2026-09-17"))
+  expect_identical(ages$key, "before")
+})
+
 test_that("psom_ages measures an open ticket to as_of and a closed one to its close", {
   board <- tibble::tibble(
     created = as.Date(c("2026-09-01", "2026-09-01")),
