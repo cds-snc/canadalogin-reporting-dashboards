@@ -81,6 +81,32 @@ run_preflight_safety_check <- function(con,
     }
   )
 
+  # Check 1b - average daily users coverage -------------------------------------
+  #
+  # average_daily_users() divides by the days in the window, not the rows, so a
+  # missing day reads as a day with no users. Covers both windows the value box
+  # compares, which reach past the freshness lookback. Nothing exists before
+  # launch, so the span starts there at the earliest.
+  coverage_start <- max(as_of - (2L * summary_window_days - 1L),
+                        ibm_verify_launch)
+  coverage_days <- seq(coverage_start, as_of, by = "day")
+  uncovered_days <- coverage_days[!coverage_days %in% unique(auth_totals(con)$date)]
+
+  record_check(
+    "daily-users-coverage",
+    glue("Daily users must cover every day of the two ",
+         "{summary_window_days}-day windows ending {format_date(as_of)}"),
+    passed = length(uncovered_days) == 0,
+    details = if (length(uncovered_days) == 0) {
+      glue("events_auth_total_logins has all {length(coverage_days)} days from ",
+           "{format_date(coverage_start)} through {format_date(as_of)}")
+    } else {
+      glue("events_auth_total_logins: no rows for {length(uncovered_days)} ",
+           "day(s), including ",
+           "{glue_collapse(format_date(utils::head(uncovered_days, 5)), sep = ', ')}")
+    }
+  )
+
   # Check 2 - service coverage ---------------------------------------------------
   #
   # An application that quietly stops reporting while the tables stay current

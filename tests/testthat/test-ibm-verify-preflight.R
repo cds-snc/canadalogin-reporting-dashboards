@@ -10,8 +10,8 @@ test_that("every check keeps its slug", {
   result <- run_ibm_preflight(ibm_with_data())
   expect_identical(
     purrr::map_chr(result$checks, "slug"),
-    c("verify-freshness", "service-coverage", "rp-resolution", "application-ids",
-      "plausibility")
+    c("verify-freshness", "daily-users-coverage", "service-coverage",
+      "rp-resolution", "application-ids", "plausibility")
   )
 })
 
@@ -40,9 +40,40 @@ test_that("freshness fails when every table stops before yesterday", {
 })
 
 test_that("freshness ignores a gap older than the lookback", {
-  auth <- dplyr::filter(ibm_auth(), date != as.Date("2026-08-01"))
+  auth <- dplyr::filter(ibm_auth(), date != as.Date("2026-07-10"))
   result <- run_ibm_preflight(ibm_with_data(auth = auth))
   expect_true(result$passed)
+})
+
+# daily-users-coverage --------------------------------------------------------
+
+test_that("daily users coverage fails on a gap in the current window", {
+  auth <- dplyr::filter(ibm_auth(), date != as.Date("2026-08-30"))
+  result <- run_ibm_preflight(ibm_with_data(auth = auth))
+  expect_identical(failed_slugs(result), "daily-users-coverage")
+})
+
+test_that("daily users coverage fails on a gap in the prior window", {
+  auth <- dplyr::filter(ibm_auth(), date != as.Date("2026-07-25"))
+  result <- run_ibm_preflight(ibm_with_data(auth = auth))
+  expect_identical(failed_slugs(result), "daily-users-coverage")
+  expect_match(check_named(result, "daily-users-coverage")$details,
+               "no rows for 1 day")
+})
+
+test_that("daily users coverage ignores a gap before both windows", {
+  auth <- dplyr::filter(ibm_auth(), date != as.Date("2026-07-21"))
+  result <- run_ibm_preflight(ibm_with_data(auth = auth))
+  expect_true(result$passed)
+})
+
+test_that("daily users coverage starts no earlier than launch", {
+  # Data through May 19: the two windows would reach back to Mar 25.
+  days <- seq(as.Date("2026-04-22"), as.Date("2026-05-19"), by = "day")
+  env <- ibm_with_data(auth = ibm_auth(days), apps = ibm_apps(days),
+                       mfa = ibm_mfa(days))
+  result <- run_ibm_preflight(env, today = as.Date("2026-05-20"))
+  expect_true(check_named(result, "daily-users-coverage")$passed)
 })
 
 # service-coverage ------------------------------------------------------------
