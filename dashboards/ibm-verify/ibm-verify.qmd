@@ -970,7 +970,7 @@ rp_detail <- function(key) {
   month_columns <- list(
     sso_events = colDef(name = "SSO events", format = colFormat(separators = TRUE),
                         na = "-"),
-    users = colDef(name = "Active users",
+    users = colDef(name = "Active users, summed",
                    format = colFormat(separators = TRUE), na = "-")
   )
 
@@ -1009,7 +1009,8 @@ rp_detail <- function(key) {
       class = "figure-note",
       glue(
         "Whole calendar months, where everything above is a rolling window. ",
-        "Active users are running totals, so that column cannot be added up, ",
+        "Active users are running totals summed across the service's ",
+        "applications, so that column cannot be added up, ",
         "and a dash is a month before the service existed, not a zero."
       )
     )
@@ -1124,13 +1125,13 @@ reactable(
         list(color = delta_colours[[rp_rows$direction[index]]])
       }
     ),
-    mtd = colDef(name = glue("Active users ({month_label}{to_date_suffix})"),
-                 header = stacked_header("Active users",
+    mtd = colDef(name = glue("Active users, summed ({month_label}{to_date_suffix})"),
+                 header = stacked_header("Active users, summed",
                                          glue("{month_label}{to_date_suffix}")),
                  format = colFormat(separators = TRUE), maxWidth = 130,
                  defaultSortOrder = "desc"),
-    ytd = colDef(name = glue("Active users ({year_label})"),
-                 header = stacked_header("Active users", year_label),
+    ytd = colDef(name = glue("Active users, summed ({year_label})"),
+                 header = stacked_header("Active users, summed", year_label),
                  format = colFormat(separators = TRUE), maxWidth = 130,
                  defaultSortOrder = "desc"),
     # Hidden, but searched: the operator is printed under the service name, so
@@ -1151,6 +1152,10 @@ relying party, and the *applications* inside it are the names IBM Verify knows i
 by. One service can have several applications. CanadaLogin's own internal
 applications are left out, although they still count towards the CanadaLogin-wide
 figures on the Authentication tab.
+
+**Active users are summed across a service's applications.** IBM Verify counts
+users per application, so a user of two applications in one service counts
+twice. For a service with one application, the figure is exact.
 
 **These are not sign-ins.** An *SSO event* is a user reaching a service on the
 CanadaLogin session they already have, so no password and no second factor are
