@@ -162,7 +162,9 @@ email_code_seconds <- read_once(\(con) {
                   !mfadevice %in% c("", "UNKNOWN", "Unknown")) |>
     dplyr::mutate(at = !!utc_seconds_sql("time")) |>
     dplyr::group_by(mfadevice) |>
-    dbplyr::window_order(at) |>
+    # Times are whole seconds, so a code sent and entered in one second tie;
+    # result breaks it, since "sent" sorts before "success".
+    dbplyr::window_order(at, result) |>
     dplyr::mutate(prev_result = dplyr::lag(result), prev_at = dplyr::lag(at)) |>
     dplyr::ungroup() |>
     dplyr::filter(result == "success", prev_result == "sent") |>
