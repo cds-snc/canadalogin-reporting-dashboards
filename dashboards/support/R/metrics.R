@@ -11,9 +11,9 @@ summary_window_days <- summary_window_weeks * 7L
 # after, so that week is due once this many days have passed since it ended.
 call_centre_report_due_days <- 5L
 
-# The snapshot lands early Monday, so the newest partition to expect is within a
-# week of today.
-psom_lag_days <- 8L
+# The snapshot runs nightly (weekly on Mondays until 2026-09-28), so the newest
+# partition is today's or, before tonight's run, yesterday's.
+psom_lag_days <- 1L
 
 # Reads ----------------------------------------------------------------------
 
@@ -66,13 +66,16 @@ call_topics <- read_once("call_centre", "weekly_topic_dump", \(x) {
 })
 
 # Daily CanadaLogin-wide active users, the denominator of the call rate
-daily_active_users <- read_once("ibm_verify", "auth_total_logins", \(x) {
-  x |>
-    dplyr::transmute(date = as.Date(date), unique_users) |>
-    dplyr::arrange(date)
-})
+daily_active_users <- read_once(
+  "ibm_verify_events_transformed", "events_auth_total_logins",
+  \(x) {
+    x |>
+      dplyr::transmute(date = as.Date(date), unique_users) |>
+      dplyr::arrange(date)
+  }
+)
 
-# Every weekly snapshot of the board. `key` recurs once per snapshot.
+# Every snapshot of the board. `key` recurs once per snapshot.
 psom_snapshots <- read_once("jira", "psom", \(x) {
   x |>
     dplyr::transmute(
@@ -244,13 +247,16 @@ psom_closed_on <- function(rows) {
     dplyr::summarise(closed_on = min(status_changed), .groups = "drop")
 }
 
-# The board as it stands, one row per ticket, with the day it closed attached.
+# Every ticket ever on the board, each from its own last snapshot, with the day
+# it closed attached. Not the newest snapshot alone: a ticket archived out of
+# Jira leaves it, and would drop out of the opened and closed history.
 psom_board <- function(rows) {
   rows |>
-    dplyr::filter(snapshot == max(snapshot)) |>
+    dplyr::group_by(key) |>
+    dplyr::slice_max(snapshot, n = 1, with_ties = FALSE) |>
+    dplyr::ungroup() |>
     dplyr::left_join(psom_closed_on(rows), by = "key")
 }
-
 # Tickets closed in the `days` days ending on `as_of` inclusive.
 closed_in_window <- function(rows, as_of, days = summary_window_days) {
   as_of <- as.Date(as_of)
@@ -262,7 +268,8 @@ closed_in_window <- function(rows, as_of, days = summary_window_days) {
 psom_ages <- function(board, as_of, days = summary_window_days) {
   as_of <- as.Date(as_of)
   board |>
-    dplyr::filter(is.na(closed_on) | closed_on > as_of - days) |>
+    # A ticket opened after as_of did not exist yet, and would read a negative age
+    dplyr::filter(created <= as_of, is.na(closed_on) | closed_on > as_of - days) |>
     dplyr::mutate(age = as.integer(dplyr::coalesce(closed_on, as_of) - created))
 }
 

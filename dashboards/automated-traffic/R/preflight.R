@@ -4,8 +4,8 @@
 #' The checks guard against a quiet failure: a source goes empty and the
 #' calendar shows a calm quarter. Needs R/metrics.R and an open `con`.
 
-# How far behind today each source may be. mfa_activity and the event stream
-# land yesterday's day by about 06:00 ET; GA is exported on a two-day lag.
+# How far behind today each source may be. events_mfa_activity and the event
+# stream land yesterday's day by about 06:00 ET; GA is exported on a two-day lag.
 source_lag_days <- c(sms = 2L, location = 2L, idle = 2L, speed = 2L, errors = 3L)
 
 run_preflight_safety_check <- function(con, thresholds, known_bot_days,
@@ -42,7 +42,7 @@ run_preflight_safety_check <- function(con, thresholds, known_bot_days,
     speed = speed_days(dplyr::filter(email_code_seconds(con), day <= through)),
     errors = dplyr::filter(error_days(error_codes(con)), day <= through)
   )
-  sources <- c(sms = "ibm_verify.mfa_activity",
+  sources <- c(sms = "ibm_verify_events_transformed.events_mfa_activity",
                location = "ibm_verify_events_raw.mfa_activity",
                idle = "ibm_verify_events_raw",
                speed = "ibm_verify_events_raw.mfa_activity",

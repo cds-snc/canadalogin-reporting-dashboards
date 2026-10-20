@@ -10,7 +10,8 @@ test_that("every check keeps its slug", {
   result <- run_ibm_preflight(ibm_with_data())
   expect_identical(
     purrr::map_chr(result$checks, "slug"),
-    c("verify-freshness", "service-coverage", "rp-resolution", "plausibility")
+    c("verify-freshness", "daily-users-coverage", "service-coverage",
+      "rp-resolution", "application-ids", "plausibility")
   )
 })
 
@@ -27,7 +28,7 @@ test_that("freshness names the table that missed a day", {
   result <- run_ibm_preflight(ibm_with_data(mfa = mfa))
   details <- check_named(result, "verify-freshness")$details
   expect_length(details, 1)
-  expect_match(details, "^mfa_activity: no rows for 1 day")
+  expect_match(details, "^events_mfa_activity: no rows for 1 day")
 })
 
 test_that("freshness fails when every table stops before yesterday", {
@@ -39,9 +40,40 @@ test_that("freshness fails when every table stops before yesterday", {
 })
 
 test_that("freshness ignores a gap older than the lookback", {
-  auth <- dplyr::filter(ibm_auth(), date != as.Date("2026-08-01"))
+  auth <- dplyr::filter(ibm_auth(), date != as.Date("2026-07-10"))
   result <- run_ibm_preflight(ibm_with_data(auth = auth))
   expect_true(result$passed)
+})
+
+# daily-users-coverage --------------------------------------------------------
+
+test_that("daily users coverage fails on a gap in the current window", {
+  auth <- dplyr::filter(ibm_auth(), date != as.Date("2026-08-30"))
+  result <- run_ibm_preflight(ibm_with_data(auth = auth))
+  expect_identical(failed_slugs(result), "daily-users-coverage")
+})
+
+test_that("daily users coverage fails on a gap in the prior window", {
+  auth <- dplyr::filter(ibm_auth(), date != as.Date("2026-07-25"))
+  result <- run_ibm_preflight(ibm_with_data(auth = auth))
+  expect_identical(failed_slugs(result), "daily-users-coverage")
+  expect_match(check_named(result, "daily-users-coverage")$details,
+               "no rows for 1 day")
+})
+
+test_that("daily users coverage ignores a gap before both windows", {
+  auth <- dplyr::filter(ibm_auth(), date != as.Date("2026-07-21"))
+  result <- run_ibm_preflight(ibm_with_data(auth = auth))
+  expect_true(result$passed)
+})
+
+test_that("daily users coverage starts no earlier than launch", {
+  # Data through May 19: the two windows would reach back to Mar 25.
+  days <- seq(as.Date("2026-04-22"), as.Date("2026-05-19"), by = "day")
+  env <- ibm_with_data(auth = ibm_auth(days), apps = ibm_apps(days),
+                       mfa = ibm_mfa(days))
+  result <- run_ibm_preflight(env, today = as.Date("2026-05-20"))
+  expect_true(check_named(result, "daily-users-coverage")$passed)
 })
 
 # service-coverage ------------------------------------------------------------
@@ -68,6 +100,19 @@ test_that("relying-party resolution fails on an unlabelled application", {
   result <- run_ibm_preflight(ibm_with_data(apps = apps))
   expect_identical(failed_slugs(result), "rp-resolution")
   expect_match(check_named(result, "rp-resolution")$details, "new-app", fixed = TRUE)
+})
+
+# application-ids -------------------------------------------------------------
+
+test_that("application ids fail when one name spans two ids", {
+  apps <- ibm_apps() |>
+    dplyr::mutate(application_id = dplyr::if_else(
+      application_name == "app-a" & date > as.Date("2026-09-01"), "id-new",
+      application_id
+    ))
+  result <- run_ibm_preflight(ibm_with_data(apps = apps))
+  expect_identical(failed_slugs(result), "application-ids")
+  expect_match(check_named(result, "application-ids")$details, "app-a", fixed = TRUE)
 })
 
 # plausibility ----------------------------------------------------------------

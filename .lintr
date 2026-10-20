@@ -5,8 +5,9 @@ linters: linters_with_defaults(
     # Dashboard files are sourced together, making isolated usage checks noisy.
     object_usage_linter = NULL
   )
-exclusions: as.list(c(
-    # Untracked scratch scripts; CI never sees them.
-    "notes",
-    Sys.glob("dashboards/*/notes")
+exclusions: as.list(Filter(
+    # Untracked scratch scripts; CI never sees them. Only folders with files in
+    # them: lintr errors on an excluded folder that is empty, as each is in CI.
+    \(d) length(list.files(d, recursive = TRUE)) > 0L,
+    c("notes", Sys.glob("dashboards/*/notes"))
   ))

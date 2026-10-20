@@ -46,9 +46,9 @@ run_preflight_safety_check <- function(con,
   # Check 1 - freshness (daily rows through yesterday, no gaps) -----------------
 
   tables <- list(
-    auth_total_logins = auth_totals(con),
-    app_login_counts  = app_logins(con),
-    mfa_activity      = mfa_activity(con)
+    events_auth_total_logins = auth_totals(con),
+    events_app_login_counts  = app_logins(con),
+    events_mfa_activity      = mfa_activity(con)
   )
 
   freshness_problems <- character()
@@ -78,6 +78,32 @@ run_preflight_safety_check <- function(con,
            "through {format_date(newest_expected)}")
     } else {
       freshness_problems
+    }
+  )
+
+  # Check 1b - average daily users coverage -------------------------------------
+  #
+  # average_daily_users() divides by the days in the window, not the rows, so a
+  # missing day reads as a day with no users. Covers both windows the value box
+  # compares, which reach past the freshness lookback. Nothing exists before
+  # launch, so the span starts there at the earliest.
+  coverage_start <- max(as_of - (2L * summary_window_days - 1L),
+                        ibm_verify_launch)
+  coverage_days <- seq(coverage_start, as_of, by = "day")
+  uncovered_days <- coverage_days[!coverage_days %in% unique(auth_totals(con)$date)]
+
+  record_check(
+    "daily-users-coverage",
+    glue("Daily users must cover every day of the two ",
+         "{summary_window_days}-day windows ending {format_date(as_of)}"),
+    passed = length(uncovered_days) == 0,
+    details = if (length(uncovered_days) == 0) {
+      glue("events_auth_total_logins has all {length(coverage_days)} days from ",
+           "{format_date(coverage_start)} through {format_date(as_of)}")
+    } else {
+      glue("events_auth_total_logins: no rows for {length(uncovered_days)} ",
+           "day(s), including ",
+           "{glue_collapse(format_date(utils::head(uncovered_days, 5)), sep = ', ')}")
     }
   )
 
@@ -132,7 +158,7 @@ run_preflight_safety_check <- function(con,
     "Every application name must be labelled",
     passed = length(unmapped) == 0,
     details = if (length(unmapped) == 0) {
-      glue("{length(applications)} application name(s) in app_login_counts, ",
+      glue("{length(applications)} application name(s) in events_app_login_counts, ",
            "all resolved through rp.alias to ",
            "{length(all_services(con))} service(s)")
     } else {
@@ -142,7 +168,30 @@ run_preflight_safety_check <- function(con,
     }
   )
 
-  # Check 4 - plausibility --------------------------------------------------------
+  # Check 4 - one application id per name ---------------------------------------
+  #
+  # A row is one application_id, but every page groups on application_name. A
+  # name on two ids would sum their unique users and double-count anyone who
+  # used both, and latest_per_unit() would keep only one id's running total.
+  shared_names <- app_logins(con) |>
+    distinct(application_name, application_id) |>
+    count(application_name, name = "ids") |>
+    filter(ids > 1)
+
+  record_check(
+    "application-ids",
+    "Every application name must belong to one application ID",
+    passed = nrow(shared_names) == 0,
+    details = if (nrow(shared_names) == 0) {
+      glue("{length(applications)} application name(s), each on one ",
+           "application ID")
+    } else {
+      glue("{shared_names$application_name}: {shared_names$ids} application ",
+           "IDs; group on application_id before counting unique users")
+    }
+  )
+
+  # Check 5 - plausibility --------------------------------------------------------
   #
   # We don't display success rate, because folks tend to confuse it with task success
   # rate. But we do confirm that it looks about right, because it can indicate a data

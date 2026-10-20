@@ -143,7 +143,7 @@ test_that("a ticket's close date is the first day it reached a closed status", {
   expect_identical(support$psom_closed_on(rows)$closed_on, as.Date("2026-09-05"))
 })
 
-test_that("the board is the newest snapshot with close dates from every snapshot", {
+test_that("the board takes each ticket from its last snapshot", {
   rows <- tibble::tibble(
     snapshot = as.Date(c("2026-09-07", "2026-09-14")),
     key = "PSOM-1",
@@ -154,6 +154,18 @@ test_that("the board is the newest snapshot with close dates from every snapshot
   expect_identical(nrow(board), 1L)
   expect_identical(board$snapshot, as.Date("2026-09-14"))
   expect_identical(board$closed_on, as.Date("2026-09-05"))
+})
+
+test_that("the board keeps a ticket archived out of the newest snapshot", {
+  rows <- tibble::tibble(
+    snapshot = as.Date(c("2026-09-07", "2026-09-14")),
+    key = c("archived", "current"),
+    status = c("Ready to archive", "In Progress"),
+    status_changed = as.Date(c("2026-09-05", "2026-09-10"))
+  )
+  board <- support$psom_board(rows)
+  expect_setequal(board$key, c("archived", "current"))
+  expect_identical(board$closed_on[board$key == "archived"], as.Date("2026-09-05"))
 })
 
 test_that("an open ticket has no close date on the board", {
@@ -179,6 +191,16 @@ test_that("psom_ages keeps open tickets and tickets closed in the window", {
   )
   ages <- support$psom_ages(board, as.Date("2026-09-17"), days = 28)
   expect_identical(ages$key, c("open", "closed-recently"))
+})
+
+test_that("psom_ages leaves out a ticket opened after as_of", {
+  board <- tibble::tibble(
+    key = c("before", "after"),
+    created = as.Date(c("2026-09-10", "2026-09-18")),
+    closed_on = as.Date(c(NA, NA))
+  )
+  ages <- support$psom_ages(board, as.Date("2026-09-17"))
+  expect_identical(ages$key, "before")
 })
 
 test_that("psom_ages measures an open ticket to as_of and a closed one to its close", {

@@ -112,6 +112,18 @@ test_that("external services leave out internal ones", {
   expect_setequal(env$all_services(NULL), c("Service A", "Service B", "Admin"))
 })
 
+test_that("external services drop a service idle since active_since", {
+  apps <- ibm_apps() |>
+    dplyr::mutate(total_logins = dplyr::if_else(
+      application_name == "app-b" & date >= as.Date("2026-08-01"), 0, total_logins
+    ))
+  env <- ibm_with_data(apps = apps)
+  expect_setequal(env$external_services(NULL, active_since = as.Date("2026-08-01")),
+                  "Service A")
+  expect_setequal(env$external_services(NULL, active_since = as.Date("2026-07-31")),
+                  c("Service A", "Service B"))
+})
+
 test_that("service_daily keeps one service's applications as units", {
   env <- ibm_with_data()
   rows <- env$service_daily(NULL, "Service A")

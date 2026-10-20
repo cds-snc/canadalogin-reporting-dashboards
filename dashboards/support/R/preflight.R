@@ -179,7 +179,7 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
          "reported weeks"),
     passed = nrow(uncovered) == 0,
     details = if (nrow(uncovered) == 0) {
-      glue("ibm_verify.auth_total_logins covers all {summary_window_weeks * 7} ",
+      glue("events_auth_total_logins covers all {summary_window_weeks * 7} ",
            "days through {format_date(newest_week_end)}")
     } else {
       glue("no calls-per-100-active-users rate for the week(s) starting ",
