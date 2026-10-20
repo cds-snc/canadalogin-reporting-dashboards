@@ -48,11 +48,11 @@ test_that("the banner escapes HTML in a check's title", {
   expect_no_match(html, "<check>", fixed = TRUE)
 })
 
-test_that("the banner joins a check's details with semicolons", {
+test_that("the banner leaves a check's details out", {
   path <- withr::local_tempfile(fileext = ".html")
   write_preflight_banner(failing_result(), path)
-  expect_match(paste(readLines(path), collapse = "\n"),
-               "first problem; second problem", fixed = TRUE)
+  expect_no_match(paste(readLines(path), collapse = "\n"),
+                  "first problem", fixed = TRUE)
 })
 
 # Status file -----------------------------------------------------------------

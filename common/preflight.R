@@ -12,7 +12,9 @@
 # Writes the failure banner from a preflight result. A file, not chunk output,
 # which a dashboard would turn into a card. Written on every render, empty when
 # the checks pass, and pulled in with include-before-body. Each dashboard
-# appends its context strip to the same file.
+# appends its context strip to the same file. Names each failed check by slug
+# and title only: the details are for an analyst, and live in the status file
+# and the render log.
 write_preflight_banner <- function(result, path = "page-header.html") {
   if (result$passed) {
     writeLines(character(), path)
@@ -22,15 +24,15 @@ write_preflight_banner <- function(result, path = "page-header.html") {
   items <- purrr::map_chr(result$failed, \(check) {
     slug <- htmltools::htmlEscape(check$slug)
     title <- htmltools::htmlEscape(check$title)
-    details <- htmltools::htmlEscape(glue::glue_collapse(check$details, sep = "; "))
-    glue::glue("<li><strong><code>{slug}</code> - {title}.</strong> {details}</li>")
+    glue::glue("<li><strong><code>{slug}</code> - {title}.</strong></li>")
   })
 
   writeLines(c(
     '<div class="preflight-banner" role="alert">',
     '  <p class="preflight-banner-title">Data quality checks failed.</p>',
     paste("  <p>The numbers below may be wrong or incomplete.",
-          "Do not quote them until this clears.</p>"),
+          "Do not quote them until this clears. The Data and Research team",
+          "has the details.</p>"),
     paste0("  <ul>", paste(items, collapse = ""), "</ul>"),
     "</div>"
   ), path)
