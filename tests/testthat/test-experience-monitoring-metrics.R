@@ -172,3 +172,25 @@ test_that("largest starter drops keep at most n services", {
   current <- starters(RESERVED_TOTAL = 0)
   expect_equal(nrow(expmon$largest_starter_drops(current, previous, n = 2)), 2)
 })
+
+test_that("attribution under the threshold is clear", {
+  expect_identical(expmon$attribution_status(0.05, 0.5, 0.1), "clear")
+  expect_identical(expmon$attribution_status(0.1, NA, 0.1), "clear")
+})
+
+test_that("attribution over the threshold for the first week is an onset", {
+  expect_identical(expmon$attribution_status(0.7, 0.01, 0.1), "onset")
+  expect_identical(expmon$attribution_status(0.7, 0.1, 0.1), "onset")
+})
+
+test_that("attribution with no prior window is an onset", {
+  expect_identical(expmon$attribution_status(0.7, NA, 0.1), "onset")
+})
+
+test_that("attribution over the threshold a second week is ongoing", {
+  expect_identical(expmon$attribution_status(0.8, 0.7, 0.1), "ongoing")
+})
+
+test_that("attribution without a current total has no status", {
+  expect_true(is.na(expmon$attribution_status(NA, 0.7, 0.1)))
+})

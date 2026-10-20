@@ -19,6 +19,15 @@ unattributed_share <- function(starters) {
   sum(lost) / total
 }
 
+# One funnel's attribution against `threshold`: "clear" at or under it, "onset"
+# when over it and the window a week earlier was not (or is missing), "ongoing"
+# when both are over it. NA when the current window has no total.
+attribution_status <- function(share, prior_share, threshold) {
+  if (is.na(share)) return(NA_character_)
+  if (share <= threshold) return("clear")
+  if (!is.na(prior_share) && prior_share > threshold) "ongoing" else "onset"
+}
+
 # The attributed parties whose starters fell most from `previous` to `current`
 # (same columns as above), largest fall first. A party absent from `current`
 # fell by all of its previous starters.
@@ -413,6 +422,11 @@ run_preflight_safety_check <- function(con,
   # required funnel (July to Sep 21, max sign_up on Jul 23), and it has been
   # 68% or more since Sep 28, so 10% sits well clear of both. The entry step,
   # because the per-party rates divide by it.
+  #
+  # Fails only in the week the share crosses the threshold. The lost rp_names
+  # cannot be restored, so an outage that is still over it a week later is
+  # reported in the details without failing again. A second loss that starts
+  # during an ongoing one is not raised.
   prior_end <- as_of - 7L
   entry_steps <- unname(vapply(
     required_funnels, \(f) funnel_ratio_steps[[f]][["denominator"]], character(1)
@@ -431,56 +445,95 @@ run_preflight_safety_check <- function(con,
     mutate(window_end = as.Date(window_end),
            activeusers = as.numeric(activeusers))
 
-  attribution_problems <- character()
+  windows <- list()
   attribution_shares <- numeric()
+  statuses <- character()
+  crossed_on <- as.Date(character())
   for (funnel in required_funnels) {
     entry <- funnel_ratio_steps[[funnel]][["denominator"]]
-    in_window <- \(end) {
-      entry_counts[entry_counts$funnel_id == funnel &
-                     entry_counts$funnelstepname == entry &
-                     entry_counts$window_end == end, ]
-    }
-    current <- in_window(as_of)
-    share <- unattributed_share(current)
-    attribution_shares[[funnel]] <- share
+    funnel_counts <- entry_counts[entry_counts$funnel_id == funnel &
+                                    entry_counts$funnelstepname == entry, ]
+    window_shares <- vapply(
+      split(funnel_counts, funnel_counts$window_end), unattributed_share,
+      numeric(1)
+    )
+    share_on <- \(end) unname(window_shares[as.character(end)])
+    windows[[funnel]] <- list(
+      current = funnel_counts[funnel_counts$window_end == as_of, ],
+      previous = funnel_counts[funnel_counts$window_end == prior_end, ]
+    )
+    attribution_shares[[funnel]] <- share_on(as_of)
+    statuses[[funnel]] <- attribution_status(
+      share_on(as_of), share_on(prior_end), max_unattributed_share
+    )
+    over <- as.Date(names(window_shares))[window_shares > max_unattributed_share]
+    crossed_on[funnel] <- min(over[over > prior_end], as_of)
+  }
 
-    if (is.na(share)) {
-      attribution_problems <- c(
-        attribution_problems,
-        glue("{funnel}: no 7-day '{entry}' total ending {format_date(as_of)}")
-      )
-    } else if (share > max_unattributed_share) {
-      drops <- largest_starter_drops(current, in_window(prior_end))
-      fell <- if (nrow(drops) == 0) {
-        "no relying party lost starters"
-      } else {
-        glue("starters fell most for ",
-             "{glue_collapse(glue('{drops$breakdown_value} ",
-             "({drops$activeusers_previous} to {drops$activeusers_current})'), ",
-             "sep = ', ')}")
-      }
-      attribution_problems <- c(
-        attribution_problems,
-        glue("{funnel}: {as_percent(share)} of 7-day '{entry}' starters ending ",
-             "{format_date(as_of)} have no rp_name; against the 7 days ending ",
-             "{format_date(prior_end)}, {fell}; per-service rates are unreliable ",
-             "until attribution is restored")
-      )
+  shares_of <- \(funnels) {
+    glue_collapse(glue("{funnels} {as_percent(attribution_shares[funnels])}"),
+                  sep = ", ")
+  }
+  no_total <- names(statuses)[is.na(statuses)]
+  onset <- names(statuses)[statuses %in% "onset"]
+  ongoing <- names(statuses)[statuses %in% "ongoing"]
+
+  no_total_entries <- vapply(
+    no_total, \(f) funnel_ratio_steps[[f]][["denominator"]], character(1)
+  )
+  attribution_problems <- as.character(glue(
+    "{no_total}: no 7-day '{no_total_entries}' total ending ",
+    "{format_date(as_of)}"
+  ))
+  if (length(onset) > 0) {
+    # The services that fell are named from the largest crossing funnel only;
+    # the others lose the same services.
+    totals <- vapply(onset, \(f) {
+      current <- windows[[f]]$current
+      sum(current$activeusers[current$breakdown_value == "RESERVED_TOTAL"])
+    }, numeric(1))
+    lead <- onset[which.max(totals)]
+    drops <- largest_starter_drops(windows[[lead]]$current,
+                                   windows[[lead]]$previous)
+    fell <- if (nrow(drops) == 0) {
+      "no relying party lost starters"
+    } else {
+      glue("{lead} starters fell most for ",
+           "{glue_collapse(glue('{drops$breakdown_value} ",
+           "({drops$activeusers_previous} to {drops$activeusers_current})'), ",
+           "sep = ', ')}")
     }
+    attribution_problems <- c(
+      attribution_problems,
+      glue("7-day starters with no rp_name first passed ",
+           "{as_percent(max_unattributed_share)} in the window ending ",
+           "{format_date(min(crossed_on[onset]))}, and by ",
+           "{format_date(as_of)} reached {shares_of(onset)}; against the 7 days ",
+           "ending {format_date(prior_end)}, {fell}; per-service rates are ",
+           "unreliable until attribution is restored")
+    )
+  }
+
+  attribution_details <- if (length(ongoing) > 0) {
+    glue("not raised again: 7-day starters ending {format_date(as_of)} with no ",
+         "rp_name were {shares_of(ongoing)}, already over ",
+         "{as_percent(max_unattributed_share)} in the 7 days ending ",
+         "{format_date(prior_end)}; per-service rates stay unreliable until ",
+         "attribution is restored")
+  }
+  if (length(attribution_problems) == 0 && length(ongoing) == 0) {
+    attribution_details <- glue(
+      "7-day starters ending {format_date(as_of)} with no rp_name: ",
+      "{shares_of(names(attribution_shares))}"
+    )
   }
 
   record_check(
     "rp-attribution",
     glue("No more than {as_percent(max_unattributed_share)} of starters may ",
-         "lack a relying party"),
+         "newly lack a relying party"),
     passed = length(attribution_problems) == 0,
-    details = if (length(attribution_problems) == 0) {
-      glue("7-day starters ending {format_date(as_of)} with no rp_name: ",
-           "{glue_collapse(paste0(names(attribution_shares), ' ', ",
-           "as_percent(attribution_shares)), sep = ', ')}")
-    } else {
-      attribution_problems
-    }
+    details = c(attribution_problems, attribution_details)
   )
 
   for (i in seq_along(checks)) {
