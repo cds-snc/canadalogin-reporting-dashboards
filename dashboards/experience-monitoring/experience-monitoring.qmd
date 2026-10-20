@@ -375,8 +375,8 @@ help_all <- tbl(con, in_schema("google_analytics", "page_traffic")) |>
     path = ifelse(path == "/", "/en", path),
     # Strip the site name every title ends in.
     title = sub(" - (CanadaLogin|ConnexionCanada)$", "", pagetitle),
-    # Anything outside /en and /fr is vulnerability-scanner traffic
-    # (oast.live callbacks, /swagger-ui, /login.php), not a page anyone wrote.
+    # A path outside /en and /fr has no language. It is still a view, and
+    # counts in every total; it just cannot rank in a language's table.
     lang = case_when(
       path == "/en" | startsWith(path, "/en/") ~ "en",
       path == "/fr" | startsWith(path, "/fr/") ~ "fr"
@@ -416,20 +416,17 @@ help_ranked <- bind_rows(
 help_7d <- filter(help_window, date > data_through - 7L)
 help_long <- filter(help_window, date > data_through - long_window_days)
 
-# Language share over the long window. Scanner traffic has no language, so it
-# is out of the denominator.
+# Language share over the long window, out of every view.
 help_split <- help_long |>
-  filter(!is.na(lang)) |>
   count(lang, wt = views, name = "views") |>
   mutate(share = round(100 * views / sum(views)))
 
 # One token, no spaces, or Quarto renders it at body size.
-help_split_label <- paste0(help_split$share[help_split$lang == "fr"], "%")
+help_split_label <- paste0(help_split$share[help_split$lang %in% "fr"], "%")
 
 help_section_levels <- c("Users", "Partners")
 
 help_sections <- help_all |>
-  filter(!is.na(lang)) |>
   mutate(
     segment = sub("/.*$", "", sub("^/(en|fr)/?", "", path)),
     section = case_when(
