@@ -134,14 +134,14 @@ test_that("call rate coverage ignores a gap older than the summary window", {
 
 test_that("PSOM freshness fails on a snapshot older than the lag", {
   result <- run_support_preflight(
-    support_with_data(psom = support_psom(support_today - 9L))
+    support_with_data(psom = support_psom(support_today - 2L))
   )
   expect_identical(failed_slugs(result), "psom-freshness")
 })
 
 test_that("PSOM freshness passes a snapshot exactly at the lag", {
   result <- run_support_preflight(
-    support_with_data(psom = support_psom(support_today - 8L))
+    support_with_data(psom = support_psom(support_today - 1L))
   )
   expect_true(result$passed)
 })

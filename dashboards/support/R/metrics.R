@@ -11,9 +11,9 @@ summary_window_days <- summary_window_weeks * 7L
 # after, so that week is due once this many days have passed since it ended.
 call_centre_report_due_days <- 5L
 
-# The snapshot lands early Monday, so the newest partition to expect is within a
-# week of today.
-psom_lag_days <- 8L
+# The snapshot runs nightly (weekly on Mondays until 2026-09-28), so the newest
+# partition is today's or, before tonight's run, yesterday's.
+psom_lag_days <- 1L
 
 # Reads ----------------------------------------------------------------------
 
@@ -75,7 +75,7 @@ daily_active_users <- read_once(
   }
 )
 
-# Every weekly snapshot of the board. `key` recurs once per snapshot.
+# Every snapshot of the board. `key` recurs once per snapshot.
 psom_snapshots <- read_once("jira", "psom", \(x) {
   x |>
     dplyr::transmute(

@@ -38,7 +38,7 @@ support_users <- function(weeks, unique_users = 1000) {
   )
 }
 
-support_psom <- function(snapshot = as.Date("2026-09-14")) {
+support_psom <- function(snapshot = support_today - 1L) {
   tibble::tibble(
     snapshot = snapshot,
     key = "PSOM-1",
