@@ -3,7 +3,7 @@
 # Derived from "CDS Brand Guide 1.0" (April 2019). This file is the machine-
 # readable source of brand truth for Quarto/Shiny and supersedes any colour or
 # font values noted elsewhere in the repo
-# Note: graphs are branded separately via R/branding.R + R/colours.R; this file
+# Note: graphs are branded separately via common/branding.R + common/colours.R; this file
 # governs document/theme styling (HTML report chrome, fonts, links).
 
 meta:
@@ -52,7 +52,7 @@ color:
 typography:
   # The guide uses a single, open-source family: Source Sans Pro (Google/Adobe),
   # now published as "Source Sans 3". That is the name used throughout, so the
-  # CSS, _fonts.scss and R/branding.R all match.
+  # CSS, _fonts.scss and common/branding.R all match.
   fonts:
     # Declared "system" so Quarto names the family without fetching it; the
     # faces are self-hosted in fonts/ and inlined by _fonts.scss.

@@ -5,3 +5,8 @@ linters: linters_with_defaults(
     # Dashboard files are sourced together, making isolated usage checks noisy.
     object_usage_linter = NULL
   )
+exclusions: as.list(c(
+    # Untracked scratch scripts; CI never sees them.
+    "notes",
+    Sys.glob("dashboards/*/notes")
+  ))
