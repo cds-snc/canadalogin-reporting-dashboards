@@ -104,8 +104,7 @@ number_words <- c(
   "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen"
 )
 
-# Resolves GA's rp_name to the lookup's service name, pooling a service GA
-# knows by more than one name into one row.
+# Resolves GA's rp_name to the lookup's service name.
 #
 # replace(), not ifelse(): ifelse() on an empty frame returns logical(0), which
 # breaks on type when an empty period is joined to a full one.
@@ -116,17 +115,13 @@ rp_display_name <- function(rp_name) {
   replace(out, is_internal_rp(con, rp_name), internal_rp_label)
 }
 
-# Read once per funnel, for the exit step named in the table headings.
-step_labels <- lapply(required_funnels, \(f) funnel_step_names(con, f))
+# Read once per funnel, for the entry step named in labels.
+step_labels <- lapply(required_funnels, \(f) funnel_entry_step(con, f))
 names(step_labels) <- required_funnels
 
 # Step names are slugs; open the underscores up for display.
 format_step_name <- function(step) {
   if (is.na(step)) "unknown step" else paste0("'", gsub("_", " ", step), "'")
-}
-
-exit_step_label <- function(funnel_id) {
-  format_step_name(step_labels[[funnel_id]]$exit_step)
 }
 
 entry_step_label <- function(funnel_id) {
@@ -143,7 +138,7 @@ denominator_is_entry <- function(funnel_id) {
 # Quarto renders it at body size.
 funnel_starts <- function(funnel_id) {
   format(
-    task_success_long_window(con, funnel_id, data_through)$denominator,
+    task_success_long_window(con, funnel_id, data_through)$starters,
     big.mark = ","
   )
 }
@@ -229,6 +224,11 @@ points_note <- paste(
   "day's denominator."
 )
 
+# Shown under every table: Finished is derived, not read.
+finished_note <- paste(
+  "Finished is worked out from the rate and the number who started."
+)
+
 # Shown under every chart and on the Overview: what the numbers cover.
 internal_note <- glue(
   "The headline figures and the top row are Google Analytics' own total across ",
@@ -293,10 +293,11 @@ them. The rows do not add up to the total, because the total includes every
 service and the table is only a top `r number_words[party_rows]`.
 
 **Sign-in and sign-up are not comparable to each other.** Sign-up's exit is a
-real confirmation page, so it is a true completion rate. Sign-in's exit is only
-reaching MFA selection, the last thing Google Analytics can see before the
-redirect to IBM Verify, so it reads lower by construction. Do not present the
-gap between them as a performance difference.
+real confirmation page, so it is a true completion rate. Sign-in's exit is
+submitting the second factor, the last thing Google Analytics can see before
+the redirect to IBM Verify, and a wrong code still counts as a submit. The two
+measure different things. Do not present the gap between them as a performance
+difference.
 
 :::
 

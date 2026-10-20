@@ -226,11 +226,11 @@ run_preflight_safety_check <- function(con,
     }
   )
 
-  # Check 5 - ratio steps present in funnels_current -----------------------------
+  # Check 5 - entry steps present in funnels_current -----------------------------
   #
-  # Counts are read by step name, so a step renamed upstream returns no rows
-  # rather than an error, and reads as a true zero. Checked over all history:
-  # an exit step nobody reached in the current span is legitimately absent.
+  # Starters are read by step name, so a step renamed upstream returns no rows
+  # rather than an error, and the table's counts go blank. The rate itself is
+  # the stored value and does not depend on this.
   steps_seen <- tbl(
     con, in_schema("google_analytics", "funnels_current")
   ) |>
@@ -240,32 +240,30 @@ run_preflight_safety_check <- function(con,
 
   step_problems <- character()
   for (funnel in required_funnels) {
-    declared <- funnel_ratio_steps[[funnel]]
+    declared <- funnel_entry_steps[[funnel]]
     if (is.null(declared)) {
       step_problems <- c(
         step_problems,
-        glue("{funnel}: no ratio steps declared in funnel_ratio_steps")
+        glue("{funnel}: no entry step declared in funnel_entry_steps")
       )
       next
     }
     present <- steps_seen$funnelstepname[steps_seen$funnel_id == funnel]
-    missing_steps <- setdiff(unname(declared), present)
-    if (length(missing_steps) > 0) {
+    if (!declared %in% present) {
       step_problems <- c(
         step_problems,
-        glue("{funnel}: step(s) not found in funnels_current: ",
-             "{glue_collapse(missing_steps, sep = ', ')}; ",
-             "check the funnel YAML against funnel_ratio_steps in R/metrics.R")
+        glue("{funnel}: entry step '{declared}' not found in funnels_current; ",
+             "check the funnel YAML against funnel_entry_steps in R/metrics.R")
       )
     }
   }
 
   record_check(
-    "ratio-steps",
-    "Task success numerator and denominator must be readable",
+    "entry-steps",
+    "Every funnel's entry step must be readable",
     passed = length(step_problems) == 0,
     details = if (length(step_problems) == 0) {
-      glue("entry and exit steps found for ",
+      glue("entry steps found for ",
            "{glue_collapse(required_funnels, sep = ', ')}")
     } else {
       step_problems
@@ -334,11 +332,10 @@ run_preflight_safety_check <- function(con,
 
   # Check 8 - task success rate implausibly low ---------------------------------
   #
-  # An exit step that stops reporting reads as 0%, not as missing, since
-  # funnel_step_counts() coalesces an absent numerator to zero. A floor rather
-  # than a zero test, because one stray event lifts a broken funnel off zero.
-  # The 28-day window is tested in its own right: activeUsers de-duplicate
-  # within a window, so it is not a blend of the 7-day ones.
+  # An exit step that stops reporting reads as 0%, not as missing. A floor
+  # rather than a zero test, because one stray event lifts a broken funnel off
+  # zero. The 28-day window is tested in its own right: activeUsers
+  # de-duplicate within a window, so it is not a blend of the 7-day ones.
   low_rates <- raw |>
     filter(
       breakdown_value == "RESERVED_TOTAL",
@@ -346,31 +343,6 @@ run_preflight_safety_check <- function(con,
       value < min_task_success_rate,
       window_days == "7" | (window_days == long_window & window_end == as_of)
     )
-
-  # Run only for a funnel that failed, so a passing render adds no query.
-  step_coverage <- function(funnel) {
-    steps <- funnel_ratio_steps[[funnel]]
-    days <- tbl(
-      con, in_schema("google_analytics", "funnels_current")
-    ) |>
-      filter(
-        funnel_id == !!funnel,
-        window_days == "1",
-        breakdown_value == "RESERVED_TOTAL",
-        !window_incomplete,
-        funnelstepname %in% !!unname(steps),
-        as.Date(window_end) >= as.Date(!!as.character(lookup_start)),
-        as.Date(window_end) <= as.Date(!!as.character(as_of))
-      ) |>
-      distinct(funnelstepname, window_end) |>
-      collect()
-
-    vapply(
-      steps,
-      \(step) length(unique(days$window_end[days$funnelstepname == step])),
-      integer(1)
-    )
-  }
 
   as_percent <- function(x) sprintf("%.2f%%", x * 100)
 
@@ -381,8 +353,6 @@ run_preflight_safety_check <- function(con,
     hits <- low_rates[low_rates$funnel_id == funnel, ] |>
       arrange(value, window_end)
     worst <- hits[1, ]
-    steps <- funnel_ratio_steps[[funnel]]
-    days_seen <- step_coverage(funnel)
 
     rate_problems <- c(
       rate_problems,
@@ -390,11 +360,8 @@ run_preflight_safety_check <- function(con,
         "{funnel}: {nrow(hits)} window(s) below ",
         "{as_percent(min_task_success_rate)}, worst {as_percent(worst$value)} ",
         "on the {worst$window_days}-day window ending ",
-        "{format_date(worst$window_end)}; over the last {long_window_days} days ",
-        "'{steps[['numerator']]}' reports on {days_seen[['numerator']]} day(s) ",
-        "against {days_seen[['denominator']]} for '{steps[['denominator']]}'; ",
-        "a rate this low means the funnel stopped reporting, not that users ",
-        "stopped succeeding"
+        "{format_date(worst$window_end)}; a rate this low means the funnel's ",
+        "exit step stopped reporting, not that users stopped succeeding"
       )
     )
   }
@@ -429,7 +396,7 @@ run_preflight_safety_check <- function(con,
   # during an ongoing one is not raised.
   prior_end <- as_of - 7L
   entry_steps <- unname(vapply(
-    required_funnels, \(f) funnel_ratio_steps[[f]][["denominator"]], character(1)
+    required_funnels, \(f) funnel_entry_steps[[f]], character(1)
   ))
   entry_counts <- tbl(con, in_schema("google_analytics", "funnels_current")) |>
     filter(
@@ -450,7 +417,7 @@ run_preflight_safety_check <- function(con,
   statuses <- character()
   crossed_on <- as.Date(character())
   for (funnel in required_funnels) {
-    entry <- funnel_ratio_steps[[funnel]][["denominator"]]
+    entry <- funnel_entry_steps[[funnel]]
     funnel_counts <- entry_counts[entry_counts$funnel_id == funnel &
                                     entry_counts$funnelstepname == entry, ]
     window_shares <- vapply(
@@ -479,7 +446,7 @@ run_preflight_safety_check <- function(con,
   ongoing <- names(statuses)[statuses %in% "ongoing"]
 
   no_total_entries <- vapply(
-    no_total, \(f) funnel_ratio_steps[[f]][["denominator"]], character(1)
+    no_total, \(f) funnel_entry_steps[[f]], character(1)
   )
   attribution_problems <- as.character(glue(
     "{no_total}: no 7-day '{no_total_entries}' total ending ",

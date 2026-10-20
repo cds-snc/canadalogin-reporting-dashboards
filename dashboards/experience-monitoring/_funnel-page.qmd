@@ -46,10 +46,10 @@ s7 <- task_success_series(con, fid, "7", series_start, data_through)
 s1 <- task_success_series(con, fid, "1", series_start, data_through)
 
 p <- ggplot() +
-  # Sized by denominator, so a low-volume day draws small. No log transform:
+  # Sized by starters, so a low-volume day draws small. No log transform:
   # the size scale already square-roots the value on its way to an area.
   geom_point(
-    data = s1, aes(window_end, value, size = denominator),
+    data = s1, aes(window_end, value, size = starters),
     colour = "grey70", alpha = 0.6
   ) +
   scale_size(range = c(0.4, 2.4), guide = "none") +
@@ -80,45 +80,40 @@ add_cds_logo(add_watermark(p, date = data_through), height = 0.09)
 ::: {.card title="By relying party (latest values)"}
 
 ```{r}
-exit_label <- exit_step_label(fid)
 compare <- prior_period_complete(fid)
 
 # The one stored window ending on data_through, like the overall row, so a
 # service missing from it reads n/a rather than its last window from earlier.
-latest_7d <- party_step_counts(
-  con, fid, "7", data_through, data_through
+# One row per GA rp_name: stored rates cannot be pooled.
+latest_7d <- party_task_success(con, fid, "7", data_through, data_through) |>
+  select(breakdown_value, rate_7d = value)
+
+# Both periods are stored windows; they never share a day.
+counts_long <- party_task_success_long_window(con, fid, data_through) |>
+  select(breakdown_value, rate_long = value, entered = starters, finished)
+prior_long <- party_task_success_long_window(
+  con, fid, data_through - long_window_days
 ) |>
-  mutate(rp = rp_display_name(breakdown_value)) |>
-  as_task_success(rp) |>
-  select(rp, rate_7d = value)
+  select(breakdown_value, prior_long = value)
 
-# Both periods use task_success_long_window(); they never share a day.
-by_rp_long <- function(as_of) {
-  task_success_long_window(con, fid, as_of, breakdown_value,
-                           counts = party_step_counts) |>
-    mutate(rp = rp_display_name(breakdown_value)) |>
-    as_task_success(rp)
-}
+merged <- reduce(list(latest_7d, counts_long, prior_long), full_join,
+                 by = "breakdown_value")
 
-counts_long <- by_rp_long(data_through) |>
-  select(rp, rate_long = value, entered = denominator, finished = numerator)
-prior_long <- by_rp_long(data_through - long_window_days) |>
-  select(rp, prior_long = value)
-
-merged <- reduce(list(latest_7d, counts_long, prior_long), full_join, by = "rp")
-
-# rp is already the service name, so the operator is looked up by that.
 per_rp <- merged |>
-  mutate(Operator = coalesce(service_operators(con, rp), "")) |>
-  transmute(
-    Service = rp, Operator,
-    rate_7d, rate_long, prior_long, entered, finished
-  ) |>
-  # The pooled rows are not services, and the tail of the list shuffles from
+  mutate(Service = rp_display_name(breakdown_value)) |>
+  # The pooled labels are not services, and the tail of the list shuffles from
   # day to day.
   filter(!Service %in% pooled_rp_labels) |>
   arrange(desc(entered)) |>
-  slice_head(n = party_rows)
+  slice_head(n = party_rows) |>
+  mutate(
+    Operator = coalesce(service_operators(con, Service), ""),
+    # Two GA names on one service would otherwise share a label.
+    shared = duplicated(Service) | duplicated(Service, fromLast = TRUE),
+    Service = if_else(shared, paste0(Service, " (", breakdown_value, ")"),
+                      Service)
+  ) |>
+  select(Service, Operator, rate_7d, rate_long, prior_long, entered, finished)
 
 overall <- task_success_long_window(con, fid, data_through) |>
   transmute(
@@ -131,7 +126,7 @@ overall <- task_success_long_window(con, fid, data_through) |>
     prior_long = task_success_long_window(
       con, fid, data_through - long_window_days
     )$value,
-    entered = denominator, finished = numerator
+    entered = starters, finished
   )
 
 rows <- bind_rows(overall, per_rp) |>
@@ -157,7 +152,7 @@ gt(rows) |>
     rate_long = glue("{long_window_label} rate"),
     change = glue("vs. previous {long_window_days} days"),
     entered = html(glue("{starts_column_label(fid)}<br>({long_window_label})")),
-    finished = html(glue("Reached {exit_label}<br>({long_window_label})"))
+    finished = html(glue("Finished<br>({long_window_label})"))
   ) |>
   tab_style(cell_text(weight = "bold"), cells_body(rows = 1)) |>
   tab_style(
@@ -183,7 +178,7 @@ gt(rows) |>
 ::: {.figure-note}
 `r funnel_note(fid)`
 
-`r points_note` `r internal_note`
+`r points_note` `r internal_note` `r finished_note`
 
 `r comparison_note(fid)`
 :::
