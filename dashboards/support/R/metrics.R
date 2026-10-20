@@ -247,13 +247,16 @@ psom_closed_on <- function(rows) {
     dplyr::summarise(closed_on = min(status_changed), .groups = "drop")
 }
 
-# The board as it stands, one row per ticket, with the day it closed attached.
+# Every ticket ever on the board, each from its own last snapshot, with the day
+# it closed attached. Not the newest snapshot alone: a ticket archived out of
+# Jira leaves it, and would drop out of the opened and closed history.
 psom_board <- function(rows) {
   rows |>
-    dplyr::filter(snapshot == max(snapshot)) |>
+    dplyr::group_by(key) |>
+    dplyr::slice_max(snapshot, n = 1, with_ties = FALSE) |>
+    dplyr::ungroup() |>
     dplyr::left_join(psom_closed_on(rows), by = "key")
 }
-
 # Tickets closed in the `days` days ending on `as_of` inclusive.
 closed_in_window <- function(rows, as_of, days = summary_window_days) {
   as_of <- as.Date(as_of)
