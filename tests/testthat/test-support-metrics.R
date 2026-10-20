@@ -215,35 +215,6 @@ test_that("psom_weekly's open count is the running total of opened less closed",
 
 # Change ----------------------------------------------------------------------
 
-test_that("a change within half a percent is flat", {
-  expect_identical(support$delta_direction(c(0.005, -0.005, 0)), rep("flat", 3))
-})
-
-test_that("an uncalculable change is flat", {
-  expect_identical(support$delta_direction(NA_real_), "flat")
-})
-
-test_that("a change beyond half a percent has a direction", {
-  expect_identical(support$delta_direction(c(0.006, -0.006)), c("up", "down"))
-})
-
-test_that("fmt_delta shows a rise with an up arrow and a sign", {
-  expect_identical(support$fmt_delta(0.25), "▲ +25%")
-})
-
-test_that("fmt_delta shows a fall with a down arrow and a sign", {
-  expect_identical(support$fmt_delta(-0.3), "▼ -30%")
-})
-
-test_that("fmt_delta tells no change apart from an uncalculable one", {
-  expect_identical(support$fmt_delta(0.001), "no change")
-  expect_identical(support$fmt_delta(NA_real_), "-")
-})
-
-test_that("every direction has a colour", {
-  expect_setequal(names(support$delta_colours), c("up", "down", "flat"))
-})
-
 test_that("relative_change is the change over the base", {
   expect_equal(support$relative_change(15, 10), 0.5)
 })

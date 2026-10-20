@@ -289,31 +289,6 @@ mfa_successes <- function(con, types = NULL) {
 
 # Change ----------------------------------------------------------------------
 
-# "up" / "down" / "flat"; a change under half a percent of the base reads as
-# none, and an uncalculable one is flat so it formats as a dash.
-delta_direction <- function(delta) {
-  dplyr::case_when(
-    is.na(delta) | abs(delta) <= 0.005 ~ "flat",
-    delta > 0 ~ "up",
-    .default = "down"
-  )
-}
-
-# Direction is carried by the arrow and the sign, not by colour alone; a change
-# with nothing to compare against is a dash, deliberately distinct from a
-# measured "no change". gt colours it, see delta_colours.
-fmt_delta <- function(delta) {
-  direction <- delta_direction(delta)
-  dplyr::case_when(
-    is.na(delta) ~ "-",
-    direction == "up" ~ sprintf("\u25b2 %+.0f%%", delta * 100),
-    direction == "down" ~ sprintf("\u25bc %+.0f%%", delta * 100),
-    .default = "no change"
-  )
-}
-
-delta_colours <- c(up = "#115740", down = "#AB2328", flat = "#5C6670")
-
 # Relative change from `before` to `after`. Undefined against a zero base,
 # which is a new arrival rather than a percentage rise.
 relative_change <- function(after, before) {

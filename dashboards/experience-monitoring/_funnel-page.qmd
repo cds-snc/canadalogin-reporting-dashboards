@@ -139,11 +139,12 @@ rows <- bind_rows(overall, per_rp) |>
   # a dash and comparison_note() explains it.
   mutate(
     delta = if (compare) rate_long - prior_long else NA_real_,
-    direction = delta_direction(delta)
+    direction = delta_direction(delta, points = TRUE)
   ) |>
   transmute(
     Service, Operator, rate_7d, rate_long,
-    change = fmt_delta(delta), entered, finished, delta, direction
+    change = fmt_delta(delta, points = TRUE),
+    entered, finished, delta, direction
   )
 
 gt(rows) |>

@@ -210,30 +210,6 @@ prior_period_complete <- function(funnel_id) {
   nrow(prior) > 0 && !is.na(prior$value)
 }
 
-# "up" / "down" / "flat"; a change under half a tenth of a point reads as none.
-delta_direction <- function(delta) {
-  case_when(
-    is.na(delta) | abs(delta) <= 0.0005 ~ "flat",
-    delta > 0 ~ "up",
-    .default = "down"
-  )
-}
-
-# Direction is carried by the arrow and the sign, not colour alone; an
-# uncalculable change is a dash, not a zero. gt colours it, see delta_colours.
-fmt_delta <- function(delta) {
-  direction <- delta_direction(delta)
-  case_when(
-    is.na(delta) ~ "-",
-    direction == "up" ~ sprintf("\u25b2 %+.1f pts", delta * 100),
-    direction == "down" ~ sprintf("\u25bc %+.1f pts", delta * 100),
-    .default = "no change"
-  )
-}
-
-# Change colours: forest rather than brand green, too light to pass contrast.
-delta_colours <- c(up = "#115740", down = "#AB2328", flat = "#5C6670")
-
 # Shown when the comparison column is all dashes, so it reads as too early
 # rather than broken.
 comparison_note <- function(funnel_id) {

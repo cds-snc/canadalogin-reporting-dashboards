@@ -167,22 +167,6 @@ test_that("mfa_successes keeps every factor when none are asked for", {
 
 # Change ----------------------------------------------------------------------
 
-test_that("a change within half a percent is flat", {
-  expect_identical(ibm$delta_direction(c(0.005, -0.005, 0)), rep("flat", 3))
-})
-
-test_that("a change beyond half a percent has a direction", {
-  expect_identical(ibm$delta_direction(c(0.006, -0.006)), c("up", "down"))
-})
-
-test_that("fmt_delta shows direction with an arrow and a sign", {
-  expect_identical(ibm$fmt_delta(c(0.25, -0.3)), c("▲ +25%", "▼ -30%"))
-})
-
-test_that("fmt_delta tells no change apart from an uncalculable one", {
-  expect_identical(ibm$fmt_delta(c(0.001, NA)), c("no change", "-"))
-})
-
 test_that("relative_change is undefined against a zero or missing base", {
   expect_equal(ibm$relative_change(15, 10), 0.5)
   expect_true(is.na(ibm$relative_change(5, 0)))
