@@ -521,7 +521,13 @@ closed_delta <- fmt_delta(relative_change(closed_now, closed_prior))
 ages <- psom_ages(board, psom_through)
 median_age <- fmt_days(median(ages$age))
 
-weekly <- psom_weekly(board, chart_from, psom_through)
+# The queue spans a year, but bars start at the first snapshot: tickets
+# archived before it were never recorded, so earlier weeks would read short.
+# The newest complete week, as in psom_weekly()
+psom_queue_weeks <- seq(week_of(psom_through + 1L) - 7L, by = "-7 days",
+                        length.out = 52L)
+psom_recorded_from <- min(psom_snapshots(con)$snapshot)
+weekly <- psom_weekly(board, week_of(psom_recorded_from), psom_through)
 
 # Panel order. Opened and closed are flows; the queue is the level they leave.
 panels <- c(opened = "Tickets opened", closed = "Tickets completed",
@@ -577,7 +583,7 @@ Median time open (`r window_label`)
 
 `r median_age`
 
-over `r fmt_count(nrow(ages), 'ticket')`
+calendar days, including waiting time
 :::
 
 ## Row
@@ -644,56 +650,102 @@ scorecard |>
 
 ::: {.figure-note}
 - **Time to first response:** how long a partner waits for PSO's first reply.
-- **PSO handling:** PSO's time on a ticket. The clock keeps running while a ticket waits
-  on another team or the partner.
+- **PSO handling:** PSO's time on a ticket. The clock pauses while a ticket is escalated
+  to another team.
 - **Auth product team handling:** the time a ticket spends escalated to the Auth product
   team.
-- **Time to done:** how long the whole ticket takes, from opened to done.
+- **Time to done:** how long the whole ticket takes, from opened to done. The clock keeps
+  running while a ticket is escalated.
 
-Each ticket counts in the week its clock stopped, as in Jira's SLA success rate report,
-and is judged on the target Jira gave it. Targets changed on October 15, 2026, so earlier
-tickets were judged on the old ones. Times count working hours only, 9 to 5 on weekdays.
+Clocks count working hours only, 9 to 5 on weekdays, and pause while a ticket waits for
+the partner. A ticket counts in the week its clock stopped, as in Jira's SLA success rate
+report. Targets changed on October 15, 2026, but not retroactively: earlier tickets are
+still judged on the old ones.
 :::
 
 :::
 
-## Row {height="230px"}
+## Row {height="auto"}
+
+::: {.card title="`r glue('What tickets were about ({window_label})')`"}
+
+```{r psom-topics}
+# A bar as wide as the share
+share_bar <- function(share, fill = accent) {
+  glue("<div style='background:{fill};width:{round(100 * share)}%;height:14px'></div>")
+}
+
+# Shares are of all tickets opened, not of the section
+topic_share <- function(rows) {
+  mutate(rows, share = tickets / nrow(handled), bar = share_bar(share))
+}
+
+# Each section's total over its topics, then its topics, most common first;
+# no topic last, as a section on its own
+section_rows <- topics |>
+  summarise(tickets = sum(tickets), .by = section) |>
+  arrange(section == "No topic given", desc(tickets), section) |>
+  mutate(label = section, level = "section", order = 0L)
+topic_rows <- topics |>
+  filter(section != "No topic given") |>
+  arrange(desc(tickets), topic) |>
+  mutate(label = topic, level = "topic", order = row_number())
+total_row <- tibble(label = "All tickets", tickets = nrow(handled),
+                    level = "total")
+
+bind_rows(section_rows, topic_rows) |>
+  mutate(section = factor(section, levels = section_rows$section)) |>
+  arrange(section, order) |>
+  bind_rows(total_row) |>
+  topic_share() |>
+  mutate(bar = if_else(level == "total", "", bar)) |>
+  select(label, tickets, share, bar, level) |>
+  gt(id = "psom-topics") |>
+  opt_css(paste("#psom-topics table > tbody > tr > *",
+                "{ --bs-table-bg-type: transparent; }")) |>
+  fmt_percent(columns = share, decimals = 0) |>
+  fmt_passthrough(columns = bar, escape = FALSE) |>
+  cols_hide(level) |>
+  cols_label(label = "", tickets = "Tickets", share = "Share", bar = "") |>
+  cols_align("left", columns = c(label, bar)) |>
+  cols_align("right", columns = c(tickets, share)) |>
+  cols_width(bar ~ pct(40)) |>
+  tab_style(list(cell_text(weight = "bold"), cell_fill("#EEF0F2")),
+            cells_body(rows = level == "section")) |>
+  tab_style(cell_text(indent = px(16)),
+            cells_body(columns = label, rows = level == "topic")) |>
+  tab_style(list(cell_text(weight = "bold"),
+                 cell_borders(sides = "top", color = "#1B1B1B", weight = px(2))),
+            cells_body(rows = level == "total")) |>
+  table_options()
+```
+
+::: {.figure-note}
+The topic picked on the support form, under its section of the form, as a share of all
+tickets opened. A ticket with two topics counts under both, so the shares can add to more
+than 100%.
+:::
+
+:::
 
 ::: {.card title="`r glue('Who handled tickets ({window_label})')`"}
 
 ```{r psom-handled-by}
-#| fig-width: 8
-#| fig-height: 1.3
-#| fig-alt: |
-#|   A single horizontal bar split three ways, showing the share of tickets opened
-#|   in the last four weeks that PSO handled alone, that went to the Partner
-#|   Transition Team, and that went to the Auth product team. Each part is labelled
-#|   with its count and share.
-
-handled_counts <- handled |>
-  count(handled_by, .drop = FALSE, name = "tickets") |>
-  mutate(share = tickets / sum(tickets),
-         label = if_else(tickets > 0,
-                         glue("{handled_by}\n{tickets} ({fmt_pct(share)})"), ""))
 handled_fill <- setNames(c(accent, accent_light, "#5C6670"),
                          psom_handled_by_levels)
-handled_text <- setNames(c("white", "#1B1B1B", "white"), psom_handled_by_levels)
 
-p <- ggplot(handled_counts, aes(share, "", fill = handled_by)) +
-  geom_col(width = 0.9, colour = "white", linewidth = 0.5,
-           position = position_stack(reverse = TRUE)) +
-  geom_text(aes(label = label, colour = handled_by), size = 4,
-            lineheight = 0.95, position = position_stack(vjust = 0.5,
-                                                         reverse = TRUE)) +
-  scale_fill_manual(values = handled_fill, guide = "none") +
-  scale_colour_manual(values = handled_text, guide = "none") +
-  scale_x_continuous(expand = expansion(0)) +
-  theme_cds() +
-  theme(axis.text = element_blank(), axis.title = element_blank(),
-        axis.ticks = element_blank(), axis.line = element_blank(),
-        panel.grid = element_blank(), panel.border = element_blank())
-
-brand_figure(p, height = 0.3, date = psom_through)
+handled |>
+  count(handled_by, .drop = FALSE, name = "tickets") |>
+  mutate(share = tickets / sum(tickets),
+         bar = share_bar(share, handled_fill[as.character(handled_by)])) |>
+  gt() |>
+  fmt_percent(columns = share, decimals = 0) |>
+  fmt_passthrough(columns = bar, escape = FALSE) |>
+  cols_label(handled_by = "", tickets = "Tickets", share = "Share", bar = "") |>
+  cols_align("left", columns = c(handled_by, bar)) |>
+  cols_align("right", columns = c(tickets, share)) |>
+  cols_width(bar ~ pct(40)) |>
+  table_options()
 ```
 
 ::: {.figure-note}
@@ -704,51 +756,9 @@ alone, even one still open that may be escalated later.
 
 :::
 
-## Row {height="420px"}
-
-::: {.card title="`r glue('What tickets were about ({window_label})')`"}
-
-```{r psom-topics}
-#| fig-width: 12
-#| fig-height: 3.6
-#| fig-alt: |
-#|   Horizontal bar chart of tickets opened in the last four weeks by the topic
-#|   chosen on the partner support form, grouped by the form's sections (Already
-#|   using, Onboarding, Escalated from Call Center), each bar labelled with its
-#|   count and share of tickets.
-
-charted_topics <- topics |>
-  mutate(
-    share = tickets / nrow(handled),
-    label = glue("{tickets} ({fmt_pct(share)})"),
-    topic = reorder(topic, tickets)
-  )
-
-p <- ggplot(charted_topics, aes(tickets, topic)) +
-  geom_col(fill = accent, width = 0.7) +
-  geom_text(aes(label = label), hjust = -0.1, size = 3.2, colour = "grey30") +
-  facet_grid(section ~ ., scales = "free_y", space = "free_y", switch = "y") +
-  scale_x_continuous(breaks = whole_breaks,
-                     expand = expansion(mult = c(0, 0.15))) +
-  theme_cds() +
-  theme(panel.grid.major.y = element_blank(),
-        strip.placement = "outside", strip.background = element_blank(),
-        strip.text.y.left = element_text(angle = 0, hjust = 1, face = "bold")) +
-  labs(x = "Tickets", y = NULL)
-
-brand_figure(p, date = psom_through)
-```
-
-::: {.figure-note}
-The topic picked on the support form. A ticket with two topics counts in both, so the
-shares can add to more than 100%. Cancelled tickets are left out.
-:::
-
-:::
-
 ## Row {height="720px"}
 
-::: {.card title="`r glue('The PSOM queue ({chart_span_label})')`"}
+::: {.card title="The PSOM queue (last year)"}
 
 ```{r psom-flow-chart}
 #| fig-width: 9
@@ -756,30 +766,33 @@ shares can add to more than 100%. Cancelled tickets are left out.
 #| fig-alt: |
 #|   Three stacked bar charts sharing a weekly axis, each in its own colour:
 #|   tickets opened per week, tickets completed per week, and tickets awaiting
-#|   handling at the end of each week.
+#|   handling at the end of each week. The axis spans the last year, with bars
+#|   only from the week the board was first recorded.
 
 p <- ggplot(charted_psom, aes(week + week_offset, tickets, fill = panel)) +
   geom_col(width = 7, colour = "white", linewidth = 0.25) +
   geom_text(aes(label = ifelse(tickets > 0, tickets, "")), vjust = -0.7,
-            size = 3, colour = "grey30") +
+            size = 2.6, colour = "grey30") +
   facet_wrap(~panel, ncol = 1, scales = "free_y", strip.position = "top",
              drop = FALSE) +
   scale_fill_manual(values = panel_fill, guide = "none") +
   scale_y_continuous(breaks = whole_breaks, limits = c(0, NA),
                      expand = expansion(mult = c(0, 0.15))) +
-  week_axis(weekly$week) +
+  # A day of slack each side, or ggplot drops the end bars
+  scale_x_date(date_breaks = "1 month", date_labels = "%b",
+               limits = c(min(psom_queue_weeks) - 1L, max(psom_queue_weeks) + 8L),
+               expand = expansion(0)) +
   theme_cds() +
   theme(panel.grid.major.x = element_blank()) +
-  labs(x = week_axis_title, y = "Tickets",
+  labs(x = NULL, y = "Tickets",
        subtitle = "Tickets opened and closed in a week (Mo-Su), open at its end")
 
 brand_figure(p, date = psom_through)
 ```
 
 ::: {.figure-note}
-Counted from each ticket's last snapshot, test tickets included, so a ticket opened and closed on
-the same day never reaches the queue. Closed means first seen at *Done*, *Canceled* or
-*Ready to archive*.
+Closed means first seen at *Done*, *Canceled* or *Ready to archive*. The board was first
+recorded on `r format_long_date(psom_recorded_from)`, so earlier weeks are blank.
 :::
 
 :::
@@ -854,10 +867,6 @@ export_name <- glue("psom-tickets-{psom_through}.csv")
 ```
 
 ::: {.figure-note}
-Every open ticket, oldest first, with its working time so far on each clock. **Bold red**
-is past its target. A dash is a clock not yet started. Open tickets are not in the
-service levels above until their clocks stop.
-
 [Download](`r export_href`){download="`r export_name`"} the last three months of tickets
 as a CSV.
 :::
