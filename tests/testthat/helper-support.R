@@ -60,7 +60,7 @@ support_psom_sla <- function(snapshot = support_today - 1L) {
     breached = FALSE,
     paused = FALSE,
     due_on = snapshot + 3L,
-    goal_hours = c(4, 40, 40, 16),
+    goal_hours = c(4, 48, 16, 30),
     elapsed_hours = 2
   )
 }

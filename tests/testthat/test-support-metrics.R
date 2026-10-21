@@ -235,19 +235,6 @@ test_that("psom_weekly's open count is the running total of opened less closed",
   expect_identical(weekly$open, cumsum(weekly$opened - weekly$closed))
 })
 
-test_that("psom_daily_open matches the weekly queue at each week's end", {
-  life <- tibble::tibble(
-    created = as.Date(c("2026-08-31", "2026-09-02", "2026-09-09")),
-    closed_on = as.Date(c("2026-09-03", NA, "2026-09-09"))
-  )
-  daily <- support$psom_daily_open(life, as.Date("2026-08-31"), as.Date("2026-09-13"))
-  expect_identical(daily$open[daily$day %in% as.Date(c("2026-09-02", "2026-09-03",
-                                                       "2026-09-09"))],
-                   c(2L, 1L, 1L))
-  weekly <- support$psom_weekly(life, as.Date("2026-08-31"), as.Date("2026-09-13"))
-  expect_identical(daily$open[daily$day %in% weekly$week_end], weekly$open)
-})
-
 # PSOM SLAs -------------------------------------------------------------------
 
 # One clock row per ticket; `snapshot` defaults to the first daily snapshot.
@@ -279,7 +266,7 @@ test_that("psom_sla_last ignores the weekly backfill before the first daily snap
 test_that("sla_outcomes keeps only stopped clocks on the scorecard", {
   rows <- dplyr::bind_rows(
     sla_clock("met"),
-    sla_clock("auth-team", sla = "escalated_to_pt"),
+    sla_clock("not-on-page", sla = "some_other_clock"),
     sla_clock("missed", breached = TRUE),
     sla_clock("missed-running", breached = TRUE, paused = FALSE),
     sla_clock("running", paused = FALSE, due_on = "2026-10-09"),
@@ -313,10 +300,10 @@ test_that("sla_open_clocks keeps scorecard clocks on open tickets, newest snapsh
     sla_clock("on-time", paused = FALSE),
     sla_clock("stopped"),
     sla_clock("closed"),
-    sla_clock("auth-team", sla = "escalated_to_pt", paused = FALSE),
+    sla_clock("not-on-page", sla = "some_other_clock", paused = FALSE),
     sla_clock("on-time", paused = TRUE, snapshot = "2026-09-30")
   )
-  open <- c("late-running", "on-time", "stopped", "auth-team")
+  open <- c("late-running", "on-time", "stopped", "not-on-page")
   expect_identical(support$sla_open_clocks(rows, open)$key,
                    c("late-running", "on-time", "stopped"))
 })
@@ -338,8 +325,9 @@ test_that("psom_key_number sorts PSOM-99 before PSOM-100", {
 
 # Board rows for psom_ticket_export(): one per ticket per snapshot
 export_ticket <- function(key, status, snapshot = "2026-10-01",
-                          status_changed = "2026-09-30", created = "2026-09-01") {
-  tibble::tibble(snapshot = as.Date(snapshot), key, status,
+                          status_changed = "2026-09-30", created = "2026-09-01",
+                          summary = "My app", form_topic = NA_character_) {
+  tibble::tibble(snapshot = as.Date(snapshot), key, summary, status, form_topic,
                  created = as.Date(created), status_changed = as.Date(status_changed))
 }
 
@@ -371,8 +359,8 @@ test_that("psom_ticket_export gives every SLA a state, hours and target", {
     dplyr::filter(ticket == "PSOM-1")
   expect_identical(
     names(export),
-    c("ticket", "status", "opened", "closed",
-      paste0(rep(support$psom_sla_names, each = 3),
+    c("ticket", "summary", "status", "opened", "closed",
+      paste0(rep(names(support$sla_clocks), each = 3),
              c("_state", "_hours", "_target_hours")))
   )
   expect_identical(export$pso_time_to_done_state, "running, past target")
@@ -393,7 +381,7 @@ test_that("sla_weekly counts stopped clocks and leaves an empty week NA", {
   expect_identical(pso$met, c(1L, 0L))
   expect_identical(pso$stopped, c(2L, 0L))
   expect_identical(pso$share, c(0.5, NA))
-  expect_identical(nrow(weekly), 6L)
+  expect_identical(nrow(weekly), 8L)
 })
 
 test_that("sla_weekly takes the median over the week's stopped clocks", {
@@ -405,21 +393,30 @@ test_that("sla_weekly takes the median over the week's stopped clocks", {
   weekly <- support$sla_weekly(support$sla_outcomes(rows, as.Date("2026-10-01")),
                                as.Date("2026-09-28"))
   expect_identical(weekly$median_hours[weekly$sla == "pso_time_to_done"], 2)
-  expect_identical(weekly$min_hours[weekly$sla == "pso_time_to_done"], 1)
-  expect_identical(weekly$max_hours[weekly$sla == "pso_time_to_done"], 30)
   expect_true(is.na(weekly$median_hours[weekly$sla == "first_response"]))
 })
 
-test_that("sla_target_label names one target or says each ticket has its own", {
+test_that("sla_weeks gives the complete weeks ending on or before through", {
+  # Wednesday: its week is not over, so the newest is the week before
+  expect_identical(support$sla_weeks(as.Date("2026-10-28")),
+                   as.Date(c("2026-09-28", "2026-10-05", "2026-10-12", "2026-10-19")))
+  # Sunday: its own week is complete
+  expect_identical(max(support$sla_weeks(as.Date("2026-10-18"))), as.Date("2026-10-12"))
+})
+
+test_that("sla_weeks starts no earlier than the first daily snapshot's week", {
+  expect_identical(min(support$sla_weeks(as.Date("2026-10-21"))), as.Date("2026-09-28"))
+})
+
+test_that("sla_target_label takes the target on the newest ticket", {
   rows <- dplyr::bind_rows(
-    sla_clock("a"),
-    sla_clock("b", sla = "time_to_done", goal_hours = 24),
-    sla_clock("c", sla = "time_to_done", goal_hours = 72)
+    sla_clock("PSOM-9", sla = "time_to_done", goal_hours = 40),
+    sla_clock("PSOM-10", sla = "time_to_done", goal_hours = 48),
+    sla_clock("PSOM-11", sla = "time_to_done", goal_hours = NA)
   )
-  expect_equal(as.character(support$sla_target_label(rows, "pso_time_to_done")),
-               "Target: 40 working hours")
-  expect_identical(support$sla_target_label(rows, "time_to_done"),
-                   "Target set per ticket")
+  expect_equal(as.character(support$sla_target_label(rows, "time_to_done")),
+               "Target: 48 working hours")
+  expect_identical(support$sla_target_label(rows, "first_response"), "No target set")
 })
 
 test_that("fmt_work_time shows whole minutes under an hour", {
@@ -432,10 +429,43 @@ test_that("fmt_work_time shows one decimal of hours under ten, whole hours above
                    c("1.0 hrs", "5.1 hrs", "38 hrs", "-"))
 })
 
-test_that("work_time_breaks falls on whole minutes for a panel under an hour", {
-  breaks <- support$work_time_breaks(c(0, 0.9))
-  expect_identical(breaks * 60, round(breaks * 60))
-  expect_identical(support$work_time_breaks(c(0, 38)), c(0, 10, 20, 30, 40))
+# Handling ---------------------------------------------------------------------
+
+test_that("psom_handled_by takes the first team a ticket was escalated to", {
+  snapshots <- dplyr::bind_rows(
+    export_ticket("PSOM-1", "Escalated to PTT", snapshot = "2026-10-02"),
+    export_ticket("PSOM-1", "Escalated to Auth PT", snapshot = "2026-10-03"),
+    export_ticket("PSOM-2", "Waiting for customer", snapshot = "2026-10-02"),
+    export_ticket("PSOM-2", "Escalated to Auth PT", snapshot = "2026-10-03"),
+    export_ticket("PSOM-3", "Done", snapshot = "2026-10-03")
+  ) |>
+    dplyr::mutate(created = as.Date("2026-10-01"))
+  handled <- support$psom_handled_by(snapshots, as.Date("2026-10-03"))
+  expect_identical(as.character(handled$handled_by),
+                   c("Partner Transition Team", "Auth product team", "PSO alone"))
+})
+
+test_that("psom_handled_by leaves out cancelled tickets and those outside the window", {
+  snapshots <- dplyr::bind_rows(
+    export_ticket("cancelled", "Canceled", created = "2026-10-01"),
+    export_ticket("old", "Done", created = "2026-08-01"),
+    export_ticket("kept", "Done", created = "2026-10-01")
+  )
+  handled <- support$psom_handled_by(snapshots, as.Date("2026-10-01"))
+  expect_identical(handled$key, "kept")
+})
+
+test_that("psom_topic_counts counts a two-topic ticket in both and names a blank", {
+  board <- tibble::tibble(
+    key = c("a", "b", "c"),
+    form_topic = c("Onboarding - Ready to go live",
+                   "Onboarding - Ready to go live; Already Using - Technical", NA)
+  )
+  counts <- support$psom_topic_counts(board)
+  expect_identical(counts$tickets[counts$topic == "Ready to go live"], 2L)
+  expect_identical(counts$section[counts$topic == "Technical"], "Already Using")
+  expect_identical(counts$section[counts$topic == "No topic given"], "No topic given")
+  expect_identical(sum(counts$tickets), 4L)
 })
 
 # Change ----------------------------------------------------------------------
