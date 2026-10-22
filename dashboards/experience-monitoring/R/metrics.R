@@ -8,9 +8,9 @@
 #' Every date and window column here is a string partition key: compare
 #' window_days == "7", not == 7. Expects dplyr / dbplyr on the caller.
 
-# Every funnel must be present in the data (preflight) and have its own page.
+# Every funnel must be present in the data (preflight) and have its own tab.
 required_funnels <- c(
-  "sign_in", "sign_up", "recover_password",
+  "sign_in", "sign_up", "recover_password", "recover_2sv",
   "migration_existing_to_cl", "migration_new_to_cl"
 )
 
@@ -21,6 +21,7 @@ funnel_entry_steps <- list(
   sign_in = "enter_email",
   sign_up = "terms",
   recover_password = "reset_password",
+  recover_2sv = "initiate_recovery",
   migration_existing_to_cl = "migration_not_skipped",
   migration_new_to_cl = "migration_not_skipped"
 )
@@ -49,6 +50,15 @@ funnel_presentation <- list(
     note = paste(
       "**Note.** The exit here is the confirmation shown once a new password is",
       "set, a first-party event."
+    )
+  ),
+  recover_2sv = list(
+    label = "Recover 2-step verification",
+    note = paste(
+      "**Note.** This funnel measures users who lost their 2-step verification",
+      "method and set up a new one. The exit is the screen shown once the new",
+      "method is set up, which asks the user to delete methods they no longer",
+      "use. It is a low volume funnel, about ten starts a day as of October 2026."
     )
   ),
   migration_existing_to_cl = list(
