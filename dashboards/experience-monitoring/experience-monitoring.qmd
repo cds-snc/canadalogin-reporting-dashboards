@@ -273,7 +273,7 @@ which is created thoughtfully and contains proper analysis and context.
 ### What task success measures
 
 Task success is the share of users who **start a flow and reach its defined
-finishing point**. Each tab on this dashboard tracks one flow: sign in, sign up,
+finishing point**. The CanadaLogin page has one tab per flow: sign in, sign up,
 recover password, and the two migration paths.
 
 The rate is shown over two rolling windows. The **7-day rate** is the primary
@@ -286,7 +286,7 @@ where one person can move the rate by double digits.
 
 ### Reading the numbers
 
-**Each funnel page shows a table below the chart.** The table lists the
+**Each flow's tab shows a table below the chart.** The table lists the
 `r number_words[party_rows]` busiest services and a total row across all of
 them. The rows do not add up to the total, because the total includes every
 service and the table is only a top `r number_words[party_rows]`.
@@ -299,6 +299,12 @@ measure different things. Do not present the gap between them as a performance
 difference.
 
 :::
+
+# CanadaLogin
+
+## Row
+
+### Column {.tabset}
 
 ```{r funnel-pages}
 #| output: asis
@@ -318,27 +324,17 @@ funnel_page <- function(fid, h1) {
   page
 }
 
-# Sign in and sign up stay first: they are the metric of record that feeds the
-# monthly task success report.
-standalone_funnels <- c("sign_in", "sign_up", "recover_password")
+# The flows that happen in CanadaLogin itself share one page, one tab each,
+# since Quarto dashboards cannot group navbar pages. Sign in and sign up stay
+# first: they are the metric of record that feeds the monthly task success
+# report, and the first tab is the one that opens. The tabset sits on the
+# Column, not on the Row: on the Row, only the first tab's layout is read.
+canadalogin_funnels <- c(
+  "sign_in", "sign_up", "recover_password",
+  "migration_existing_to_cl", "migration_new_to_cl"
+)
 
-cat(unlist(lapply(standalone_funnels, funnel_page, h1 = "#")), sep = "\n")
-```
-
-# Migration
-
-## Row
-
-### Column {.tabset}
-
-```{r migration-pages}
-#| output: asis
-# The two migration funnels are one flow split on whether the person already had
-# a CanadaLogin account, so they share a tab. The tabset sits on the Column, not
-# on the Row: on the Row, only the first tab's layout is read.
-migration_funnels <- c("migration_existing_to_cl", "migration_new_to_cl")
-
-cat(unlist(lapply(migration_funnels, funnel_page, h1 = "####")), sep = "\n")
+cat(unlist(lapply(canadalogin_funnels, funnel_page, h1 = "####")), sep = "\n")
 ```
 
 
