@@ -175,10 +175,13 @@ chart_subtitle <- function(funnel_id) {
   )
 }
 
+# Only the first letter is lowered, so "CanadaLogin" keeps its capitals.
 chart_alt <- function(funnel_id) {
+  label <- funnel_label(funnel_id)
+  label <- paste0(tolower(substr(label, 1, 1)), substring(label, 2))
   glue(
     "Chart of the task success rate over time for the ",
-    "{tolower(funnel_label(funnel_id))} funnel, across all relying parties. ",
+    "{label} funnel, across all relying parties. ",
     "A bold violet line traces the 7-day ",
     "rolling rate, breaking wherever the funnel version changes; faint grey ",
     "points underneath are the noisier daily rate, sized by how many people ",

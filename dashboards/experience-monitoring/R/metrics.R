@@ -62,7 +62,7 @@ funnel_presentation <- list(
     )
   ),
   migration_existing_to_cl = list(
-    label = "Migration (existing)",
+    label = "Migration, existing CanadaLogin account",
     note = paste(
       "**Note.** This funnel measures users who are migrating a legacy credential to",
       "CanadaLogin and already have a CanadaLogin account. As of August 2026, this",
@@ -70,7 +70,7 @@ funnel_presentation <- list(
     )
   ),
   migration_new_to_cl = list(
-    label = "Migration (new)",
+    label = "Migration, new CanadaLogin account",
     note = paste(
       "**Note.** This funnel measures users who are migrating a legacy credential to",
       "CanadaLogin and want to create a new CanadaLogin account."
