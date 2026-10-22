@@ -84,20 +84,24 @@ compare <- prior_period_complete(fid)
 
 # The one stored window ending on data_through, like the overall row, so a
 # service missing from it reads n/a rather than its last window from earlier.
-# One row per GA rp_name: stored rates cannot be pooled.
+# One row per GA rp_name: stored rates cannot be pooled. Each period is
+# compared with the stored window just before it; the two never share a day.
 latest_7d <- party_task_success(con, fid, "7", data_through, data_through) |>
-  select(breakdown_value, rate_7d = value)
+  select(breakdown_value, rate_7d = value, starters_7d = starters)
+prior_7d <- party_task_success(
+  con, fid, "7", data_through - 7L, data_through - 7L
+) |>
+  select(breakdown_value, prior_7d = value, prior_starters_7d = starters)
 
-# Both periods are stored windows; they never share a day.
 counts_long <- party_task_success_long_window(con, fid, data_through) |>
   select(breakdown_value, rate_long = value, entered = starters, finished)
 prior_long <- party_task_success_long_window(
   con, fid, data_through - long_window_days
 ) |>
-  select(breakdown_value, prior_long = value)
+  select(breakdown_value, prior_long = value, prior_entered = starters)
 
-merged <- reduce(list(latest_7d, counts_long, prior_long), full_join,
-                 by = "breakdown_value")
+merged <- reduce(list(latest_7d, prior_7d, counts_long, prior_long),
+                 full_join, by = "breakdown_value")
 
 per_rp <- merged |>
   mutate(Service = rp_display_name(breakdown_value)) |>
@@ -113,60 +117,60 @@ per_rp <- merged |>
     Service = if_else(shared, paste0(Service, " (", breakdown_value, ")"),
                       Service)
   ) |>
-  select(Service, Operator, rate_7d, rate_long, prior_long, entered, finished)
+  select(Service, Operator, rate_7d, starters_7d, prior_7d, prior_starters_7d,
+         rate_long, prior_long, prior_entered, entered, finished)
+
+overall_7d <- task_success_latest(con, fid, "7", trailing_start, data_through)
+overall_prior_7d <- task_success_latest(
+  con, fid, "7", data_through - 7L, data_through - 7L
+)
+overall_prior_long <- task_success_long_window(
+  con, fid, data_through - long_window_days
+)
 
 overall <- task_success_long_window(con, fid, data_through) |>
   transmute(
     Service = "All users",
     Operator = "",
-    rate_7d = task_success_latest(
-      con, fid, "7", trailing_start, data_through
-    )$value,
+    rate_7d = overall_7d$value,
+    starters_7d = overall_7d$starters,
+    prior_7d = overall_prior_7d$value,
+    prior_starters_7d = overall_prior_7d$starters,
     rate_long = value,
-    prior_long = task_success_long_window(
-      con, fid, data_through - long_window_days
-    )$value,
+    prior_long = overall_prior_long$value,
+    prior_entered = overall_prior_long$starters,
     entered = starters, finished
   )
 
 rows <- bind_rows(overall, per_rp) |>
-  # The column stays even with nothing to compare against: every row reads as
-  # a dash and comparison_note() explains it.
+  # The long change stays even with nothing to compare against: every row
+  # reads as a dash and comparison_note() explains it.
   mutate(
-    delta = if (compare) rate_long - prior_long else NA_real_,
-    direction = delta_direction(delta, points = TRUE)
+    delta_7d = rate_7d - prior_7d,
+    delta_long = if (compare) rate_long - prior_long else NA_real_,
+    noise_7d = change_noise(rate_7d, starters_7d, prior_7d, prior_starters_7d),
+    noise_long = change_noise(rate_long, entered, prior_long, prior_entered),
+    rate_7d = rate_change_cell(
+      rate_7d, delta_7d, is_meaningful_change(delta_7d, noise_7d)
+    ),
+    rate_long = rate_change_cell(
+      rate_long, delta_long, is_meaningful_change(delta_long, noise_long)
+    )
   ) |>
-  transmute(
-    Service, Operator, rate_7d, rate_long,
-    change = fmt_delta(delta, points = TRUE),
-    entered, finished, delta, direction
-  )
+  select(Service, Operator, entered, finished, rate_7d, rate_long)
 
 gt(rows) |>
-  cols_hide(c(delta, direction)) |>
-  fmt_percent(c(rate_7d, rate_long), decimals = 0) |>
+  fmt_markdown(c(rate_7d, rate_long)) |>
+  cols_align("right", c(rate_7d, rate_long)) |>
   fmt_number(c(entered, finished), decimals = 0) |>
   sub_missing(missing_text = "n/a") |>
   cols_label(
+    entered = html(glue("Started<br>({long_window_label})")),
+    finished = html(glue("Finished<br>({long_window_label})")),
     rate_7d = "7-day rate",
-    rate_long = glue("{long_window_label} rate"),
-    change = glue("vs. previous {long_window_days} days"),
-    entered = html(glue("{starts_column_label(fid)}<br>({long_window_label})")),
-    finished = html(glue("Finished<br>({long_window_label})"))
+    rate_long = glue("{long_window_label} rate")
   ) |>
   tab_style(cell_text(weight = "bold"), cells_body(rows = 1)) |>
-  tab_style(
-    cell_text(color = delta_colours[["up"]]),
-    cells_body(columns = change, rows = direction == "up")
-  ) |>
-  tab_style(
-    cell_text(color = delta_colours[["down"]]),
-    cells_body(columns = change, rows = direction == "down")
-  ) |>
-  tab_style(
-    cell_text(color = delta_colours[["flat"]]),
-    cells_body(columns = change, rows = direction == "flat")
-  ) |>
   tab_options(
     table.width = pct(100),
     table.font.size = px(14),
@@ -179,6 +183,8 @@ gt(rows) |>
 `r funnel_note(fid)`
 
 `r points_note` `r internal_note` `r finished_note`
+
+`r change_note`
 
 `r comparison_note(fid)`
 :::

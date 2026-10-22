@@ -29,5 +29,6 @@ fmt_delta <- function(delta, points = FALSE) {
   )
 }
 
-# Forest rather than brand green, too light to pass contrast.
-delta_colours <- c(up = "#115740", down = "#AB2328", flat = "#5C6670")
+# Greener than brand forest, darker than brand green, which is too light to
+# pass contrast. 5.4:1 on white.
+delta_colours <- c(up = "#0F7B32", down = "#AB2328", flat = "#5C6670")

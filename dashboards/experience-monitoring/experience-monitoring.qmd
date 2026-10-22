@@ -155,15 +155,6 @@ starts_box_title <- function(funnel_id) {
   }
 }
 
-# The table's count column holds the same denominator as the value box.
-starts_column_label <- function(funnel_id) {
-  if (denominator_is_entry(funnel_id)) {
-    "Started"
-  } else {
-    glue("Reached {entry_step_label(funnel_id)}")
-  }
-}
-
 chart_title <- function(funnel_id) {
   glue("Task Success: {funnel_label(funnel_id)}")
 }
@@ -222,6 +213,14 @@ comparison_note <- function(funnel_id) {
 points_note <- paste(
   "The daily points on the chart are sized by how many people were in that",
   "day's denominator."
+)
+
+# Shown under every table: what the arrows mean and when they take colour.
+change_note <- paste(
+  "Each arrow is the change in percentage points from the window just",
+  "before. It is coloured only when the change is larger than chance alone",
+  "would explain for that row's number of people (95% confidence); otherwise",
+  "it is grey."
 )
 
 # Shown under every table: Finished is derived, not read.

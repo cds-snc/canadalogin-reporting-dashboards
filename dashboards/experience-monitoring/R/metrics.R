@@ -213,3 +213,55 @@ party_task_success_long_window <- function(con, funnel_id, as_of) {
   as_of <- as.Date(as_of)
   party_task_success(con, funnel_id, long_window_days, as_of, as_of)
 }
+
+# Change against the window before -------------------------------------------
+
+# A change is meaningful past this many standard errors, about 95% two-sided.
+noise_multiple <- 1.96
+
+# Standard error of the difference between two rates from their starters, as
+# in the two-proportion test: the sampling noise alone, so a busy row gets a
+# tight band and a thin one a wide band. Pooled, so a window at 0% or 100%
+# still has noise. NA where either side has no starters.
+change_noise <- function(rate, starters, prior_rate, prior_starters) {
+  pooled <- (rate * starters + prior_rate * prior_starters) /
+    (starters + prior_starters)
+  variance <- pooled * (1 - pooled) * (1 / starters + 1 / prior_starters)
+  ifelse(starters > 0 & prior_starters > 0, sqrt(variance), NA_real_)
+}
+
+# Lighter than delta_colours' grey, so a change within the noise stands well
+# apart from a coloured one. It sits at 3.2:1 on white, under the 4.5:1 AA
+# minimum for text; the rate beside it carries the figure.
+quiet_change_colour <- "#8A9299"
+
+# FALSE where either side is missing, so an unmeasured change reads grey.
+is_meaningful_change <- function(delta, noise) {
+  dplyr::coalesce(abs(delta) > noise_multiple * noise, FALSE)
+}
+
+# One table cell as HTML: the rate, then its change in whole points, such as
+# "64% ▼ 4". The arrow carries the direction, so there is no sign. The change
+# is coloured only when meaningful and grey otherwise; one that rounds to
+# nothing is "● 0", and one with nothing to compare against is a dash.
+rate_change_cell <- function(rate, delta, meaningful) {
+  points <- floor(abs(delta) * 100 + 0.5)
+  direction <- dplyr::case_when(
+    is.na(delta) | points == 0 ~ "flat",
+    delta > 0 ~ "up",
+    .default = "down"
+  )
+  change <- dplyr::case_when(
+    is.na(delta) ~ "-",
+    direction == "up" ~ paste0("\u25b2\u00a0", points),
+    direction == "down" ~ paste0("\u25bc\u00a0", points),
+    .default = "\u25cf\u00a00"
+  )
+  colour <- ifelse(meaningful & direction != "flat",
+                   delta_colours[direction], quiet_change_colour)
+  ifelse(
+    is.na(rate), "n/a",
+    sprintf('%s%% <span style="color:%s">%s</span>',
+            round(rate * 100), colour, change)
+  )
+}

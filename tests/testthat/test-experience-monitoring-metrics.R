@@ -190,3 +190,54 @@ test_that("attribution over the threshold a second week is ongoing", {
 test_that("attribution without a current total has no status", {
   expect_true(is.na(expmon$attribution_status(NA, 0.7, 0.1)))
 })
+
+# Change against the window before ---------------------------------------------
+
+test_that("change noise is the standard error of the difference", {
+  expect_equal(expmon$change_noise(0.5, 100, 0.5, 100), sqrt(0.005))
+})
+
+test_that("change noise is pooled, so a window at 0% still has noise", {
+  expect_gt(expmon$change_noise(0.8, 30, 0, 2), 0.25)
+})
+
+test_that("change noise is NA without starters on both sides", {
+  expect_true(all(is.na(expmon$change_noise(c(0.5, 0.5), c(0, 100),
+                                            c(0.5, 0.5), c(100, NA)))))
+})
+
+test_that("a change is meaningful only past the noise band", {
+  expect_identical(
+    expmon$is_meaningful_change(c(0.05, -0.05, 0.01), 0.02),
+    c(TRUE, TRUE, FALSE)
+  )
+})
+
+test_that("a change with no delta or no noise is not meaningful", {
+  expect_identical(
+    expmon$is_meaningful_change(c(NA, 0.05), c(0.02, NA)), c(FALSE, FALSE)
+  )
+})
+
+test_that("a rate cell shows whole points with no sign", {
+  cell <- expmon$rate_change_cell(0.64, -0.042, TRUE)
+  expect_match(cell, "^64% ")
+  expect_match(cell, "▼ 4<", fixed = TRUE)
+  expect_no_match(cell, "-")
+})
+
+test_that("a rate cell colours a meaningful change and greys the rest", {
+  expect_match(expmon$rate_change_cell(0.64, 0.03, TRUE),
+               delta_colours[["up"]], fixed = TRUE)
+  expect_match(expmon$rate_change_cell(0.64, -0.03, TRUE),
+               delta_colours[["down"]], fixed = TRUE)
+  expect_match(expmon$rate_change_cell(0.64, 0.03, FALSE),
+               expmon$quiet_change_colour, fixed = TRUE)
+})
+
+test_that("a rate cell tells no change apart from a dash and n/a", {
+  expect_match(expmon$rate_change_cell(0.64, 0.004, TRUE), ">\u25cf\u00a00<",
+               fixed = TRUE)
+  expect_match(expmon$rate_change_cell(0.64, NA, FALSE), ">-<", fixed = TRUE)
+  expect_identical(expmon$rate_change_cell(NA, NA, FALSE), "n/a")
+})
