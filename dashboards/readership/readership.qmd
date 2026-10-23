@@ -316,14 +316,16 @@ so_far <- if (latest$days_seen < edition_window_days) {
   "first 14 days"
 }
 
+# The newest six, two rows of three.
+charted <- dplyr::slice_tail(comparable, n = 6)
 window_curve <- edition_window_events(
-  events, dplyr::filter(editions, number %in% comparable$number)
+  events, dplyr::filter(editions, number %in% charted$number)
 ) |>
   dwell_curve(c("number", "label")) |>
   dplyr::left_join(dplyr::select(coverage, number, published), by = "number") |>
   dplyr::mutate(panel = factor(
     paste0(label, ", ", format_short_date(published)),
-    levels = paste0(comparable$label, ", ", format_short_date(comparable$published))
+    levels = paste0(charted$label, ", ", format_short_date(charted$published))
   ))
 window_dwell <- edition_dwell(events, editions)
 
@@ -437,9 +439,10 @@ brand_figure(p)
 #| fig-width: 10
 #| fig-height: 4.6
 #| fig-alt: |
-#|   Small multiples, one panel per Signal Check, each showing the share of
-#|   its page views still open from 1 second to 10 minutes, with the other
-#|   Signal Checks' curves behind it and a dashed line at 50 percent.
+#|   Small multiples, one panel for each of the six newest Signal Checks, each
+#|   showing the share of its page views still open from 1 second to 10
+#|   minutes, with the other five curves behind it and a dashed line at 50
+#|   percent.
 brand_figure(dwell_panels(window_curve, "panel", ncol = 3), height = 0.07)
 ```
 

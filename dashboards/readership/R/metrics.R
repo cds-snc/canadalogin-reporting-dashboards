@@ -228,7 +228,9 @@ dwell_curve <- function(events, by) {
     dplyr::mutate(reached = dplyr::coalesce(reached, 0)) |>
     dplyr::inner_join(views, by = by) |>
     dplyr::filter(page_views > 0) |>
-    dplyr::mutate(share = reached / page_views) |>
+    # Capped at 100%: a view whose page_view falls just outside the days
+    # counted can still have its milestones inside them.
+    dplyr::mutate(share = pmin(reached / page_views, 1)) |>
     dplyr::arrange(dplyr::across(dplyr::all_of(c(by, "seconds"))))
 }
 

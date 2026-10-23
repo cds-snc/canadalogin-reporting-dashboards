@@ -100,6 +100,12 @@ test_that("a milestone nobody reached reads as zero", {
   expect_equal(curve$share[curve$seconds == 600], 0)
 })
 
+test_that("a milestone with more events than page views reads as all of them", {
+  # A view whose page_view falls on the day before the window.
+  curve <- curve_of(31, c(32, 30, 29, 20, 17, 14, 8, 7))
+  expect_equal(curve$share[curve$seconds == 1], 1)
+})
+
 test_that("the median read sits between the milestones either side of half", {
   # 60% open at 15 s, 40% at 30 s: halfway on a log scale, about 21 s.
   curve <- curve_of(10, c(10, 8, 6, 4, 3, 1, 0, 0))
