@@ -344,7 +344,8 @@ posts <- sum(window_sessions$sessions[
 
 daily_alt <- glue(
   "Stacked bar chart of Signal Check views each day over the last three ",
-  "months, one colour per Signal Check. Each Signal Check's views spike on ",
+  "months, one colour per Signal Check and pale for any sent earlier. ",
+  "Each Signal Check's views spike on ",
   "the day it is sent and trail off over the following weeks. ",
   "{latest$label} has {comma(latest_views)} views in its {so_far}."
 )
@@ -384,8 +385,13 @@ Total reading time, `r latest$label`
 #| fig-width: 10
 #| fig-height: 3.7
 #| fig-alt: !expr daily_alt
+# One published before the chart starts is unnamed, so it takes the quiet ink
+# rather than one a named Signal Check also wears.
 shown <- sort(unique(daily$number))
-check_colours <- setNames(rep_len(inks, length(shown)), shown)
+earlier <- unique(daily$number[daily$published < chart_from])
+named <- setdiff(shown, earlier)
+check_colours <- c(setNames(rep_len(inks, length(named)), named),
+                   setNames(rep(palette$quiet, length(earlier)), earlier))
 check_colours[as.character(latest$number)] <- palette$accent
 
 # A tick on the Monday of each send week, even when a Signal Check went out
@@ -395,11 +401,13 @@ send_mondays <- send_mondays[send_mondays >= chart_from - 1L &
                                send_mondays <= through + 1L]
 
 # Each Signal Check is named over its busiest day, leaning inward at the edges;
-# one with under five views in the chart is left unnamed.
+# one published before the chart starts, or with under five views in it, is
+# left unnamed.
 totals <- daily |>
   dplyr::group_by(day) |>
   dplyr::summarise(total = sum(views), .groups = "drop")
 names_at <- daily |>
+  dplyr::filter(published >= chart_from) |>
   dplyr::group_by(number, label) |>
   dplyr::filter(sum(views) >= 5) |>
   dplyr::slice_max(views, n = 1, with_ties = FALSE) |>
