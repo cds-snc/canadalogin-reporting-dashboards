@@ -80,9 +80,22 @@ psom_snapshots <- read_once("jira", "psom", \(x) {
   x |>
     dplyr::transmute(
       snapshot = as.Date(date),
-      key, summary, issue_type, status, organizations,
+      key, summary, issue_type, status, organizations, form_topic,
       created = as.Date(substr(created, 1, 10)),
       status_changed = as.Date(substr(status_changed, 1, 10))
+    )
+})
+
+# Every snapshot of each ticket's SLA clocks, one row per ticket per SLA.
+# `due` is text with its own offset, so its first ten characters are the local day.
+psom_sla_snapshots <- read_once("jira", "psom_sla", \(x) {
+  x |>
+    dplyr::transmute(
+      snapshot = as.Date(date),
+      key, sla, breached, paused,
+      due_on = as.Date(substr(due, 1, 10)),
+      goal_hours = goal_minutes / 60,
+      elapsed_hours = elapsed_minutes / 60
     )
 })
 
@@ -257,6 +270,7 @@ psom_board <- function(rows) {
     dplyr::ungroup() |>
     dplyr::left_join(psom_closed_on(rows), by = "key")
 }
+
 # Tickets closed in the `days` days ending on `as_of` inclusive.
 closed_in_window <- function(rows, as_of, days = summary_window_days) {
   as_of <- as.Date(as_of)
@@ -273,25 +287,251 @@ psom_ages <- function(board, as_of, days = summary_window_days) {
     dplyr::mutate(age = as.integer(dplyr::coalesce(closed_on, as_of) - created))
 }
 
-# One row per Monday-to-Sunday week: opened, closed, and open at the end of it.
-# All read off the board's own dates, so open is the running total of the rest.
-psom_weekly <- function(life, from, through) {
+# The first day of the month a date falls in
+month_of <- function(d) as.Date(format(as.Date(d), "%Y-%m-01"))
+
+# The queue chart never starts before this month
+psom_chart_start <- as.Date("2026-08-01")
+
+# The first of the earliest month on the queue chart: `months` calendar months
+# ending with the one `through` falls in, but not before psom_chart_start.
+psom_months_from <- function(through, months = 13L) {
+  back <- seq(month_of(through), by = "-1 month", length.out = months)
+  max(min(back), psom_chart_start)
+}
+
+# One row per calendar month from `from` to the month `through` falls in:
+# opened, closed, and open at the end of it. The last month runs only to
+# `through` and is flagged `partial` when that is before its end. All read off
+# the board's own dates, so open is the running total of the rest.
+psom_monthly <- function(life, from, through) {
   through <- as.Date(through)
+  starts <- seq(month_of(from), month_of(through), by = "1 month")
+  month_ends <- seq(starts[1], by = "1 month",
+                    length.out = length(starts) + 1L)[-1] - 1L
+  ends <- pmin(month_ends, through)
 
-  # The current week is not over, so its counts would read short.
-  weeks <- seq(week_of(from), week_of(through), by = "7 days")
-  ends <- weeks[weeks + 6L <= through] + 6L
-
-  in_week <- function(d, end) !is.na(d) & d > end - 7L & d <= end
+  count_in <- function(d) {
+    vapply(seq_along(starts), \(i) sum(!is.na(d) & d >= starts[i] & d <= ends[i]),
+           integer(1))
+  }
   tibble::tibble(
-    week = ends - 6L,
-    week_end = ends,
-    opened = vapply(ends, \(e) sum(in_week(life$created, e)), integer(1)),
-    closed = vapply(ends, \(e) sum(in_week(life$closed_on, e)), integer(1)),
+    month = starts,
+    month_end = ends,
+    partial = ends < month_ends,
+    opened = count_in(life$created),
+    closed = count_in(life$closed_on),
     open = vapply(ends, \(e) {
       sum(life$created <= e & (is.na(life$closed_on) | life$closed_on > e))
     }, integer(1))
   )
+}
+
+# PSOM SLAs ------------------------------------------------------------------
+
+# The first daily snapshot. Earlier ones are weekly backfills with no elapsed
+# time and no PSO clock, so nothing that stopped before its week is reported.
+psom_sla_from <- as.Date("2026-09-29")
+
+# The clocks on the scorecard, in the order a ticket meets them.
+# `escalated_to_pt` runs while a ticket is with the Auth product team.
+sla_clocks <- c(
+  first_response   = "Time to first response",
+  pso_time_to_done = "PSO handling",
+  escalated_to_pt  = "Auth product team handling",
+  time_to_done     = "Time to done, whole ticket"
+)
+
+# Each ticket's clocks as last seen. An archived ticket leaves the snapshots,
+# so its last one stands rather than the newest.
+psom_sla_last <- function(rows) {
+  rows |>
+    dplyr::filter(snapshot >= psom_sla_from) |>
+    dplyr::group_by(key, sla) |>
+    dplyr::slice_max(snapshot, n = 1, with_ties = FALSE) |>
+    dplyr::ungroup()
+}
+
+# One row per stopped clock on the scorecard, met or missed, on the day it
+# stopped. As in Jira's SLA success rate report, a running clock counts nowhere
+# until it stops, even past target. `due` is the stop time on a stopped clock.
+sla_outcomes <- function(last, through) {
+  last |>
+    dplyr::filter(sla %in% names(sla_clocks), !is.na(breached), is.na(paused)) |>
+    dplyr::mutate(
+      outcome = dplyr::if_else(breached, "missed", "met"),
+      stopped_on = due_on,
+      stopped_week = week_of(stopped_on)
+    ) |>
+    dplyr::filter(stopped_on >= week_of(psom_sla_from),
+                  stopped_on <= as.Date(through))
+}
+
+# The clocks on the scorecard for the tickets in `keys`, as of the newest
+# snapshot, one row per ticket per clock. Covers what sla_outcomes() leaves
+# out: clocks still running or paused, past target or not.
+sla_open_clocks <- function(rows, keys) {
+  rows |>
+    dplyr::filter(snapshot == max(snapshot), key %in% keys,
+                  sla %in% names(sla_clocks))
+}
+
+# Where a clock stands: "met" or "missed" once stopped, else "running" or
+# "paused", "past target" added when it has run over.
+sla_state <- function(breached, paused) {
+  over <- dplyr::if_else(breached %in% TRUE, ", past target", "")
+  dplyr::case_when(
+    is.na(breached) ~ "not started",
+    is.na(paused) ~ dplyr::if_else(breached, "missed", "met"),
+    paused ~ paste0("paused", over),
+    .default = paste0("running", over)
+  )
+}
+
+# Jira's page for a ticket
+psom_ticket_url <- function(key) paste0("https://jtickets.atlassian.net/browse/", key)
+
+# 157 for "PSOM-157", so tickets sort in the order they were opened
+psom_key_number <- function(key) as.integer(sub("^.*-", "", key))
+
+# One row per ticket open on the newest snapshot or closed on or after `from`,
+# oldest first, with where it stands on every SLA. SLA columns are blank for a
+# ticket last seen before `psom_sla_from`.
+psom_ticket_export <- function(snapshots, sla_snapshots, from) {
+  newest <- max(snapshots$snapshot)
+  # A reopened ticket keeps its old close date on the board, so it is cleared here
+  tickets <- psom_board(snapshots) |>
+    dplyr::mutate(closed_on = dplyr::if_else(status %in% psom_closed_statuses,
+                                             closed_on, as.Date(NA))) |>
+    dplyr::filter((snapshot == newest & is.na(closed_on)) |
+                    closed_on >= as.Date(from))
+
+  clocks <- psom_sla_last(sla_snapshots) |>
+    dplyr::filter(key %in% tickets$key, sla %in% names(sla_clocks)) |>
+    dplyr::transmute(
+      key,
+      sla = factor(sla, levels = names(sla_clocks)),
+      state = sla_state(breached, paused),
+      hours = round(elapsed_hours, 1),
+      target_hours = goal_hours
+    ) |>
+    tidyr::pivot_wider(names_from = sla,
+                       values_from = c(state, hours, target_hours),
+                       names_glue = "{sla}_{.value}", names_vary = "slowest",
+                       names_expand = TRUE)
+
+  tickets |>
+    dplyr::arrange(psom_key_number(key)) |>
+    dplyr::select(ticket = key, summary, status, opened = created,
+                  closed = closed_on) |>
+    dplyr::left_join(clocks, by = c(ticket = "key"))
+}
+
+# Monday of each of the `weeks` complete weeks ending on or before `through`,
+# oldest first. The current week is left off, and so is
+# any week before the first daily snapshot's.
+sla_weeks <- function(through, weeks = summary_window_weeks) {
+  last <- week_of(as.Date(through) + 1L) - 7L
+  starts <- seq(last - 7L * (weeks - 1L), last, by = "7 days")
+  starts[starts >= week_of(psom_sla_from)]
+}
+
+# Met and stopped clocks, the share met and the median working hours, per
+# group. Pass grouped rows.
+sla_tally <- function(outcomes) {
+  outcomes |>
+    dplyr::summarise(
+      met = sum(outcome == "met"),
+      stopped = dplyr::n(),
+      share = met / stopped,
+      median_hours = stats::median(elapsed_hours),
+      .groups = "drop"
+    )
+}
+
+# sla_tally() per clock per week, every week present even when empty. `share`
+# and the hours are NA where nothing stopped.
+sla_weekly <- function(outcomes, weeks) {
+  tidyr::expand_grid(sla = names(sla_clocks), week = weeks) |>
+    dplyr::left_join(
+      outcomes |>
+        dplyr::group_by(sla, week = stopped_week) |>
+        sla_tally(),
+      by = c("sla", "week")
+    ) |>
+    dplyr::mutate(dplyr::across(c(met, stopped), \(x) dplyr::coalesce(x, 0L)))
+}
+
+# A clock's target today, in working hours: the goal on the newest ticket that
+# has one. Jira does not re-goal old tickets when a target changes.
+sla_current_target <- function(last, clock) {
+  goals <- dplyr::filter(last, sla == clock, !is.na(goal_hours))
+  if (nrow(goals) == 0L) {
+    NA_real_
+  } else {
+    goals$goal_hours[which.max(psom_key_number(goals$key))]
+  }
+}
+
+# "Target: 16 working hours"
+sla_target_label <- function(last, clock) {
+  target <- sla_current_target(last, clock)
+  if (is.na(target)) {
+    "No target set"
+  } else {
+    glue::glue("Target: {format(target)} working hours")
+  }
+}
+
+# Handling ---------------------------------------------------------------------
+
+# The statuses that hand a ticket to another team, and what the page calls it
+psom_escalation_statuses <- c(
+  "Escalated to PTT"     = "Escalated to the Partner Transition team",
+  "Escalated to Auth PT" = "Escalated to the Auth product team"
+)
+
+psom_handled_by_levels <- c("PSO alone", unname(psom_escalation_statuses))
+
+# One row per ticket opened in the `days` days ending on `as_of`, cancelled ones
+# left out, with who handled it: the first team it was escalated to, else PSO
+# alone. A ticket still open and not yet escalated counts as PSO alone.
+psom_handled_by <- function(snapshots, as_of, days = summary_window_days) {
+  first_escalation <- snapshots |>
+    dplyr::filter(status %in% names(psom_escalation_statuses)) |>
+    dplyr::group_by(key) |>
+    dplyr::slice_min(snapshot, n = 1, with_ties = FALSE) |>
+    dplyr::ungroup() |>
+    dplyr::transmute(key, escalated_to = psom_escalation_statuses[status])
+
+  psom_board(snapshots) |>
+    created_in_window(as_of, days) |>
+    dplyr::filter(status != "Canceled") |>
+    dplyr::left_join(first_escalation, by = "key") |>
+    dplyr::transmute(
+      key,
+      handled_by = factor(dplyr::coalesce(escalated_to, "PSO alone"),
+                          levels = psom_handled_by_levels)
+    )
+}
+
+# Tickets per form topic, for the tickets in `board`. A ticket with two topics
+# counts in both; one with none is "No topic given". The form groups its topics
+# into sections, named before the " - ".
+psom_topic_counts <- function(board) {
+  board |>
+    dplyr::transmute(key, topic = dplyr::coalesce(form_topic, "")) |>
+    tidyr::separate_longer_delim(topic, delim = ";") |>
+    dplyr::mutate(topic = trimws(topic)) |>
+    dplyr::distinct(key, topic) |>
+    dplyr::mutate(
+      topic = dplyr::if_else(topic == "", "No topic given", topic),
+      section = dplyr::if_else(grepl(" - ", topic, fixed = TRUE),
+                               sub(" - .*$", "", topic), "No topic given"),
+      topic = sub("^.*? - ", "", topic)
+    ) |>
+    dplyr::count(section, topic, name = "tickets") |>
+    dplyr::arrange(dplyr::desc(tickets))
 }
 
 # Change ----------------------------------------------------------------------
@@ -335,6 +575,23 @@ fmt_days <- function(days) {
     whole <- if (days == round(days)) format(round(days)) else sprintf("%.1f", days)
     paste0(whole, "&nbsp;", if (days == 1) "day" else "days")
   }
+}
+
+# "88%", or NA for a share that cannot be calculated
+fmt_pct <- function(share) {
+  dplyr::if_else(is.na(share), NA_character_, sprintf("%.0f%%", share * 100))
+}
+
+# "<1 min", "54 min", "5.1 hrs" or "38 hrs", for a table cell
+fmt_work_time <- function(hours) {
+  minutes <- round(hours * 60)
+  dplyr::case_when(
+    is.na(hours) ~ "-",
+    minutes < 1 ~ "<1 min",
+    minutes < 60 ~ paste(minutes, "min"),
+    hours < 10 ~ paste(sprintf("%.1f", hours), "hrs"),
+    .default = paste(sprintf("%.0f", hours), "hrs")
+  )
 }
 
 # "1:45" for 105 seconds, for a table column, where the compact form fits and

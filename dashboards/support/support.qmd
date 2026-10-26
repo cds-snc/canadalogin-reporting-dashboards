@@ -520,23 +520,68 @@ closed_delta <- fmt_delta(relative_change(closed_now, closed_prior))
 # Median, not mean: the tail is long enough that a few slow tickets would set it.
 ages <- psom_ages(board, psom_through)
 median_age <- fmt_days(median(ages$age))
-open_now <- sum(is.na(board$closed_on))
 
-weekly <- psom_weekly(board, chart_from, psom_through)
+# Calendar months, the current one to date. Tickets archived before the first
+# snapshot were never recorded, so a month before it would read short.
+psom_recorded_from <- min(psom_snapshots(con)$snapshot)
+monthly <- psom_monthly(board, psom_months_from(psom_through), psom_through)
+
+# "Aug", with the year under the first month and every January; the current
+# month says how far it runs.
+month_label <- function(month, month_end, partial) {
+  last_day <- as.integer(format(month_end, "%d"))
+  label <- if_else(partial, as.character(glue("{format(month, '%b')} 1-{last_day}")),
+                   format(month, "%b"))
+  show_year <- seq_along(month) == 1L | format(month, "%m") == "01"
+  if_else(show_year, paste0(label, "\n", format(month, "%Y")), label)
+}
 
 # Panel order. Opened and closed are flows; the queue is the level they leave.
 panels <- c(opened = "Tickets opened", closed = "Tickets completed",
             open = "Tickets awaiting handling")
+panel_fill <- setNames(c(accent, accent_light, "#5C6670"), panels)
 
-charted_psom <- weekly |>
-  pivot_longer(all_of(names(panels)), names_to = "measure", values_to = "tickets") |>
+charted_psom <- monthly |>
+  mutate(label = factor(month_label(month, month_end, partial),
+                        levels = month_label(month, month_end, partial))) |>
+  pivot_longer(c(opened, closed, open), names_to = "measure",
+               values_to = "tickets") |>
   mutate(panel = factor(panels[measure], levels = panels))
+
+psom_queue_caveats <- paste0(
+  if (any(monthly$partial)) {
+    glue(" {format(psom_through, '%B')} runs only to ",
+         "{format_long_date(psom_through)}, so its counts are partial.")
+  } else {
+    ""
+  },
+  if (psom_recorded_from > min(monthly$month)) {
+    glue(" The board was first recorded on {format_long_date(psom_recorded_from)}, ",
+         "so tickets opened and archived before then are missing.")
+  } else {
+    ""
+  }
+)
 
 # Counts are whole tickets, so a half-ticket break would be nonsense.
 whole_breaks <- function(x) {
   breaks <- pretty_breaks(4)(x)
   breaks[breaks == floor(breaks)]
 }
+
+# SLA clocks, each counted in the complete week it stopped
+sla_week_starts <- sla_weeks(psom_through)
+sla_last <- psom_sla_last(psom_sla_snapshots(con))
+outcomes <- sla_outcomes(sla_last, max(sla_week_starts) + 6L) |>
+  filter(stopped_week %in% sla_week_starts)
+sla_by_week <- sla_weekly(outcomes, sla_week_starts)
+
+# Who handled the tickets opened in the window, and what they were about
+handled <- psom_handled_by(psom_snapshots(con), psom_through)
+topics <- board |>
+  created_in_window(psom_through) |>
+  filter(status != "Canceled") |>
+  psom_topic_counts()
 ```
 
 ## Row {height="150px"}
@@ -558,51 +603,292 @@ Tickets closed (`r window_label`)
 :::
 
 ::: {.valuebox color="secondary"}
-Median time a ticket was open (`r window_label`)
+Median time open (`r window_label`)
 
 `r median_age`
 
-over `r fmt_count(nrow(ages), 'ticket')`, `r open_now` still open
+calendar days, including waiting time
+:::
+
+## Row
+
+::: {.card title="Service levels by week"}
+
+```{r sla-scorecard}
+cell_headline <- function(x) {
+  glue("<div style='font-size:20px;font-weight:700;line-height:1.1'>{x}</div>")
+}
+cell_line <- function(x) glue("<div style='font-size:12px'>{x}</div>")
+empty_cell <- "<div style='color:#767676'>-</div>"
+
+# Share within target, then the count behind it, then the median time
+sla_cell <- function(share, met, stopped, median_hours) {
+  if_else(
+    stopped == 0, empty_cell,
+    paste0(cell_headline(fmt_pct(share)),
+           cell_line(glue("{met} of {stopped} within target")),
+           cell_line(glue("median {fmt_work_time(median_hours)}")))
+  )
+}
+
+# Pooled over the weeks shown, not a median of weekly medians
+sla_pooled <- outcomes |>
+  group_by(sla) |>
+  sla_tally() |>
+  right_join(tibble(sla = names(sla_clocks)), by = "sla") |>
+  mutate(across(c(met, stopped), \(x) coalesce(x, 0L)))
+
+week_cols <- as.character(sla_week_starts)
+scorecard <- bind_rows(mutate(sla_by_week, col = as.character(week)),
+                       mutate(sla_pooled, col = "all")) |>
+  mutate(cell = sla_cell(share, met, stopped, median_hours)) |>
+  select(sla, col, cell) |>
+  pivot_wider(names_from = col, values_from = cell) |>
+  mutate(
+    target = purrr::map_chr(sla, \(s) sla_target_label(sla_last, s)),
+    name = glue("<b>{sla_clocks[sla]}</b><br>",
+                "<span style='font-size:12px;color:#555'>{target}</span>"),
+    sla = factor(sla, levels = names(sla_clocks))
+  ) |>
+  arrange(sla) |>
+  select(name, all_of(week_cols), all)
+
+# Quarto stripes every table; the pooled column's shading does that job here
+scorecard |>
+  gt(id = "sla-scorecard") |>
+  opt_css(paste("#sla-scorecard table > tbody > tr > *",
+                "{ --bs-table-bg-type: transparent; }")) |>
+  fmt_passthrough(columns = everything(), escape = FALSE) |>
+  cols_label(.list = c(
+    list(name = "", all = md(glue("**All {length(sla_week_starts)} weeks**"))),
+    setNames(as.list(format_short_date(sla_week_starts + 6L)), week_cols)
+  )) |>
+  cols_align("center", columns = -name) |>
+  cols_align("left", columns = name) |>
+  tab_spanner("Week ending", columns = all_of(week_cols)) |>
+  tab_style(cell_fill("#EEF0F2"), cells_body(columns = all)) |>
+  tab_style(cell_borders(sides = "bottom", color = "#D0D4D8", weight = px(1)),
+            cells_body()) |>
+  table_options()
+```
+
+::: {.figure-note}
+- **Time to first response:** how long a partner waits for PSO's first reply.
+- **PSO handling:** PSO's time on a ticket. The clock pauses while a ticket is escalated
+  to another team.
+- **Auth product team handling:** the time a ticket spends escalated to the Auth product
+  team.
+- **Time to done:** how long the whole ticket takes, from opened to done. The clock keeps
+  running while a ticket is escalated.
+
+Clocks count working hours only, 9 to 5 on weekdays, and pause while a ticket waits for
+the partner. A ticket counts in the week its clock stopped, as in Jira's SLA success rate
+report. Targets changed on October 15, 2026, but not retroactively: earlier tickets are
+still judged on the old ones.
+:::
+
+:::
+
+## Row {height="auto"}
+
+::: {.card title="`r glue('What tickets were about ({window_label})')`"}
+
+```{r psom-topics}
+# A bar as wide as the share
+share_bar <- function(share, fill = accent) {
+  glue("<div style='background:{fill};width:{round(100 * share)}%;height:14px'></div>")
+}
+
+# Shares are of all tickets opened, not of the section
+topic_share <- function(rows) {
+  mutate(rows, share = tickets / nrow(handled), bar = share_bar(share))
+}
+
+# Each section's total over its topics, then its topics, most common first;
+# no topic last, as a section on its own
+section_rows <- topics |>
+  summarise(tickets = sum(tickets), .by = section) |>
+  arrange(section == "No topic given", desc(tickets), section) |>
+  mutate(label = section, level = "section", order = 0L)
+topic_rows <- topics |>
+  filter(section != "No topic given") |>
+  arrange(desc(tickets), topic) |>
+  mutate(label = topic, level = "topic", order = row_number())
+total_row <- tibble(label = "All tickets", tickets = nrow(handled),
+                    level = "total")
+
+bind_rows(section_rows, topic_rows) |>
+  mutate(section = factor(section, levels = section_rows$section)) |>
+  arrange(section, order) |>
+  bind_rows(total_row) |>
+  topic_share() |>
+  mutate(bar = if_else(level == "total", "", bar)) |>
+  select(label, tickets, share, bar, level) |>
+  gt(id = "psom-topics") |>
+  opt_css(paste("#psom-topics table > tbody > tr > *",
+                "{ --bs-table-bg-type: transparent; }")) |>
+  fmt_percent(columns = share, decimals = 0) |>
+  fmt_passthrough(columns = bar, escape = FALSE) |>
+  cols_hide(level) |>
+  cols_label(label = "", tickets = "Tickets", share = "Share", bar = "") |>
+  cols_align("left", columns = c(label, bar)) |>
+  cols_align("right", columns = c(tickets, share)) |>
+  cols_width(bar ~ pct(40)) |>
+  tab_style(list(cell_text(weight = "bold"), cell_fill("#EEF0F2")),
+            cells_body(rows = level == "section")) |>
+  tab_style(cell_text(indent = px(16)),
+            cells_body(columns = label, rows = level == "topic")) |>
+  tab_style(list(cell_text(weight = "bold"),
+                 cell_borders(sides = "top", color = "#1B1B1B", weight = px(2))),
+            cells_body(rows = level == "total")) |>
+  table_options()
+```
+
+::: {.figure-note}
+The topic picked on the support form, under its section of the form, as a share of all
+tickets opened. A ticket with two topics counts under both, so the shares can add to more
+than 100%.
+:::
+
+:::
+
+::: {.card title="`r glue('Who handled tickets ({window_label})')`"}
+
+```{r psom-handled-by}
+handled_fill <- setNames(c(accent, accent_light, "#5C6670"),
+                         psom_handled_by_levels)
+
+handled |>
+  count(handled_by, .drop = FALSE, name = "tickets") |>
+  mutate(share = tickets / sum(tickets),
+         bar = share_bar(share, handled_fill[as.character(handled_by)])) |>
+  gt() |>
+  fmt_percent(columns = share, decimals = 0) |>
+  fmt_passthrough(columns = bar, escape = FALSE) |>
+  cols_label(handled_by = "", tickets = "Tickets", share = "Share", bar = "") |>
+  cols_align("left", columns = c(handled_by, bar)) |>
+  cols_align("right", columns = c(tickets, share)) |>
+  cols_width(bar ~ pct(40)) |>
+  table_options()
+```
+
+::: {.figure-note}
+`r fmt_count(nrow(handled), "ticket")` opened in the last four weeks, cancelled ones left
+out, by the first team each was escalated to. A ticket never escalated counts as PSO
+alone, even one still open that may be escalated later.
+:::
+
 :::
 
 ## Row {height="720px"}
 
-::: {.card title="`r glue('The PSOM queue ({chart_span_label})')`"}
+::: {.card title="The PSOM queue by month"}
 
 ```{r psom-flow-chart}
 #| fig-width: 9
 #| fig-height: 6.5
 #| fig-alt: |
-#|   Three stacked charts sharing a weekly axis. Tickets opened per week and
-#|   tickets closed per week are bars, each running from zero to a handful.
-#|   Open tickets at the end of each week is a line, mostly in the low single
-#|   digits with a bump to eight in August.
+#|   Three stacked bar charts sharing a monthly axis, each in its own colour:
+#|   tickets opened per calendar month, tickets completed per month, and
+#|   tickets awaiting handling at the end of each month. The axis covers up to
+#|   13 months, from August 2026 at the earliest, ending with the current month
+#|   to date.
 
-is_queue <- function(d) d$panel == panels[["open"]]
-
-p <- ggplot(charted_psom, aes(week + week_offset, tickets)) +
-  geom_col(data = \(d) d[!is_queue(d), ], width = 7, fill = accent,
-           colour = "white", linewidth = 0.25) +
-  geom_line(data = \(d) d[is_queue(d), ], colour = accent, linewidth = 0.9) +
-  geom_point(data = \(d) d[is_queue(d), ], colour = accent, size = 1.8) +
+p <- ggplot(charted_psom, aes(label, tickets, fill = panel)) +
+  geom_col(width = 0.8, colour = "white", linewidth = 0.25) +
   geom_text(aes(label = ifelse(tickets > 0, tickets, "")), vjust = -0.7,
-            size = 3, colour = "grey30") +
-  facet_wrap(~panel, ncol = 1, scales = "free_y", strip.position = "top") +
+            size = 2.6, colour = "grey30") +
+  facet_wrap(~panel, ncol = 1, scales = "free_y", strip.position = "top",
+             drop = FALSE) +
+  scale_fill_manual(values = panel_fill, guide = "none") +
   scale_y_continuous(breaks = whole_breaks, limits = c(0, NA),
                      expand = expansion(mult = c(0, 0.15))) +
-  week_axis(weekly$week) +
   theme_cds() +
   theme(panel.grid.major.x = element_blank()) +
-  labs(x = week_axis_title, y = "Tickets",
-       subtitle = "Tickets opened and closed in a week (Mo-Su)")
+  labs(x = NULL, y = "Tickets",
+       subtitle = "Tickets opened and closed in a calendar month, open at its end")
 
 brand_figure(p, date = psom_through)
 ```
 
 ::: {.figure-note}
-Counted off the current board, test tickets included, so a ticket opened and closed in
-one week never reaches the queue. Closed means first seen at *Done*, *Canceled* or
-*Ready to archive*.
+Closed means first seen at *Done*, *Canceled* or *Ready to archive*.`r psom_queue_caveats`
+:::
+
+:::
+
+## Row {height="auto"}
+
+::: {.card title="Open tickets"}
+
+```{r sla-open}
+open_tickets <- psom_open(psom_latest(con))
+open_clocks <- sla_open_clocks(psom_sla_snapshots(con), open_tickets$key)
+
+# Bold red past target, so it does not rest on colour alone
+past_target_style <- glue("color:{colors$brand[['red']]};font-weight:700")
+
+if (nrow(open_tickets) == 0) {
+  cat("No tickets are open.")
+} else {
+  # Working time so far; a clock not yet started is a dash
+  clock_cells <- open_clocks |>
+    mutate(
+      cell = case_when(
+        is.na(breached) ~ "-",
+        breached ~ glue("<span style='{past_target_style}'>",
+                        "{fmt_work_time(elapsed_hours)}</span>"),
+        .default = fmt_work_time(elapsed_hours)
+      ),
+      sla = factor(sla, levels = names(sla_clocks))
+    ) |>
+    select(key, sla, cell) |>
+    pivot_wider(names_from = sla, values_from = cell, names_expand = TRUE,
+                values_fill = "-")
+
+  # "PSO handling" in bold over "Target: 40 working hours"
+  clock_labels <- purrr::map(names(sla_clocks), \(s) {
+    html(glue("<b>{sla_clocks[[s]]}</b><br><span style='font-weight:400'>",
+              "{sla_target_label(sla_last, s)}</span>"))
+  }) |>
+    setNames(names(sla_clocks))
+
+  open_tickets |>
+    select(key, status, created) |>
+    left_join(clock_cells, by = "key") |>
+    mutate(across(all_of(names(sla_clocks)), \(x) coalesce(x, "-"))) |>
+    arrange(psom_key_number(key)) |>
+    mutate(
+      ticket = glue("<a href='{psom_ticket_url(key)}'>{key}</a>"),
+      opened = format_short_date(created)
+    ) |>
+    select(ticket, status, opened, all_of(names(sla_clocks))) |>
+    gt() |>
+    fmt_passthrough(columns = c(ticket, all_of(names(sla_clocks))), escape = FALSE) |>
+    cols_label(.list = c(list(ticket = "Ticket", status = "Status", opened = "Opened"),
+                         clock_labels)) |>
+    tab_spanner("Working time so far", columns = all_of(names(sla_clocks))) |>
+    cols_align("left") |>
+    table_options() |>
+    # Smaller and tighter than the other tables: a reference list, not a headline
+    tab_options(table.font.size = px(12), column_labels.font.size = px(12),
+                data_row.padding = px(2), column_labels.padding = px(2),
+                table.font.color = "#555555")
+}
+
+# The download is embedded in the page: publishing copies only the HTML file.
+export_from <- chart_from
+ticket_export <- psom_ticket_export(psom_snapshots(con), psom_sla_snapshots(con),
+                                    export_from)
+export_file <- tempfile(fileext = ".csv")
+utils::write.csv(ticket_export, export_file, row.names = FALSE, na = "")
+export_href <- paste0("data:text/csv;base64,", base64enc::base64encode(export_file))
+export_name <- glue("psom-tickets-{psom_through}.csv")
+```
+
+::: {.figure-note}
+[Download](`r export_href`){download="`r export_name`"} the last three months of tickets
+as a CSV.
 :::
 
 :::
