@@ -218,21 +218,41 @@ psom_life <- tibble::tibble(
   closed_on = as.Date(c("2026-09-08", NA, "2026-09-11"))
 )
 
-test_that("psom_weekly leaves out the week still in progress", {
-  weekly <- support$psom_weekly(psom_life, as.Date("2026-08-31"), as.Date("2026-09-16"))
-  expect_identical(weekly$week_end, as.Date(c("2026-09-06", "2026-09-13")))
+test_that("psom_months_from goes back 13 months but not before August 2026", {
+  expect_identical(support$psom_months_from(as.Date("2026-10-25")),
+                   as.Date("2026-08-01"))
+  expect_identical(support$psom_months_from(as.Date("2027-09-15")),
+                   as.Date("2026-09-01"))
+  expect_identical(support$psom_months_from(as.Date("2028-03-31")),
+                   as.Date("2027-03-01"))
 })
 
-test_that("psom_weekly counts tickets opened and closed in each week", {
-  weekly <- support$psom_weekly(psom_life, as.Date("2026-08-31"), as.Date("2026-09-16"))
-  expect_identical(weekly$opened, c(2L, 1L))
-  expect_identical(weekly$closed, c(0L, 2L))
+test_that("psom_monthly runs by calendar month, the last one to through", {
+  monthly <- support$psom_monthly(psom_life, as.Date("2026-08-01"),
+                                  as.Date("2026-09-16"))
+  expect_identical(monthly$month, as.Date(c("2026-08-01", "2026-09-01")))
+  expect_identical(monthly$month_end, as.Date(c("2026-08-31", "2026-09-16")))
+  expect_identical(monthly$partial, c(FALSE, TRUE))
 })
 
-test_that("psom_weekly's open count is the running total of opened less closed", {
-  weekly <- support$psom_weekly(psom_life, as.Date("2026-08-31"), as.Date("2026-09-16"))
-  expect_identical(weekly$open, c(2L, 1L))
-  expect_identical(weekly$open, cumsum(weekly$opened - weekly$closed))
+test_that("psom_monthly does not flag a month that through ends", {
+  monthly <- support$psom_monthly(psom_life, as.Date("2026-09-01"),
+                                  as.Date("2026-09-30"))
+  expect_identical(monthly$partial, FALSE)
+})
+
+test_that("psom_monthly counts tickets opened and closed in each month", {
+  monthly <- support$psom_monthly(psom_life, as.Date("2026-08-01"),
+                                  as.Date("2026-09-16"))
+  expect_identical(monthly$opened, c(0L, 3L))
+  expect_identical(monthly$closed, c(0L, 2L))
+})
+
+test_that("psom_monthly's open count is the running total of opened less closed", {
+  monthly <- support$psom_monthly(psom_life, as.Date("2026-08-01"),
+                                  as.Date("2026-09-16"))
+  expect_identical(monthly$open, c(0L, 1L))
+  expect_identical(monthly$open, cumsum(monthly$opened - monthly$closed))
 })
 
 # PSOM SLAs -------------------------------------------------------------------
@@ -442,7 +462,8 @@ test_that("psom_handled_by takes the first team a ticket was escalated to", {
     dplyr::mutate(created = as.Date("2026-10-01"))
   handled <- support$psom_handled_by(snapshots, as.Date("2026-10-03"))
   expect_identical(as.character(handled$handled_by),
-                   c("Partner Transition Team", "Auth product team", "PSO alone"))
+                   c("Escalated to the Partner Transition team",
+                     "Escalated to the Auth product team", "PSO alone"))
 })
 
 test_that("psom_handled_by leaves out cancelled tickets and those outside the window", {

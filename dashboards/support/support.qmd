@@ -521,23 +521,47 @@ closed_delta <- fmt_delta(relative_change(closed_now, closed_prior))
 ages <- psom_ages(board, psom_through)
 median_age <- fmt_days(median(ages$age))
 
-# The queue spans a year, but bars start at the first snapshot: tickets
-# archived before it were never recorded, so earlier weeks would read short.
-# The newest complete week, as in psom_weekly()
-psom_queue_weeks <- seq(week_of(psom_through + 1L) - 7L, by = "-7 days",
-                        length.out = 52L)
+# Calendar months, the current one to date. Tickets archived before the first
+# snapshot were never recorded, so a month before it would read short.
 psom_recorded_from <- min(psom_snapshots(con)$snapshot)
-weekly <- psom_weekly(board, week_of(psom_recorded_from), psom_through)
+monthly <- psom_monthly(board, psom_months_from(psom_through), psom_through)
+
+# "Aug", with the year under the first month and every January; the current
+# month says how far it runs.
+month_label <- function(month, month_end, partial) {
+  last_day <- as.integer(format(month_end, "%d"))
+  label <- if_else(partial, as.character(glue("{format(month, '%b')} 1-{last_day}")),
+                   format(month, "%b"))
+  show_year <- seq_along(month) == 1L | format(month, "%m") == "01"
+  if_else(show_year, paste0(label, "\n", format(month, "%Y")), label)
+}
 
 # Panel order. Opened and closed are flows; the queue is the level they leave.
 panels <- c(opened = "Tickets opened", closed = "Tickets completed",
             open = "Tickets awaiting handling")
 panel_fill <- setNames(c(accent, accent_light, "#5C6670"), panels)
 
-charted_psom <- weekly |>
+charted_psom <- monthly |>
+  mutate(label = factor(month_label(month, month_end, partial),
+                        levels = month_label(month, month_end, partial))) |>
   pivot_longer(c(opened, closed, open), names_to = "measure",
                values_to = "tickets") |>
   mutate(panel = factor(panels[measure], levels = panels))
+
+psom_queue_caveats <- paste0(
+  if (any(monthly$partial)) {
+    glue(" {format(psom_through, '%B')} runs only to ",
+         "{format_long_date(psom_through)}, so its counts are partial.")
+  } else {
+    ""
+  },
+  if (psom_recorded_from > min(monthly$month)) {
+    glue(" The board was first recorded on {format_long_date(psom_recorded_from)}, ",
+         "so tickets opened and archived before then are missing.")
+  } else {
+    ""
+  }
+)
 
 # Counts are whole tickets, so a half-ticket break would be nonsense.
 whole_breaks <- function(x) {
@@ -758,19 +782,20 @@ alone, even one still open that may be escalated later.
 
 ## Row {height="720px"}
 
-::: {.card title="The PSOM queue (last year)"}
+::: {.card title="The PSOM queue by month"}
 
 ```{r psom-flow-chart}
 #| fig-width: 9
 #| fig-height: 6.5
 #| fig-alt: |
-#|   Three stacked bar charts sharing a weekly axis, each in its own colour:
-#|   tickets opened per week, tickets completed per week, and tickets awaiting
-#|   handling at the end of each week. The axis spans the last year, with bars
-#|   only from the week the board was first recorded.
+#|   Three stacked bar charts sharing a monthly axis, each in its own colour:
+#|   tickets opened per calendar month, tickets completed per month, and
+#|   tickets awaiting handling at the end of each month. The axis covers up to
+#|   13 months, from August 2026 at the earliest, ending with the current month
+#|   to date.
 
-p <- ggplot(charted_psom, aes(week + week_offset, tickets, fill = panel)) +
-  geom_col(width = 7, colour = "white", linewidth = 0.25) +
+p <- ggplot(charted_psom, aes(label, tickets, fill = panel)) +
+  geom_col(width = 0.8, colour = "white", linewidth = 0.25) +
   geom_text(aes(label = ifelse(tickets > 0, tickets, "")), vjust = -0.7,
             size = 2.6, colour = "grey30") +
   facet_wrap(~panel, ncol = 1, scales = "free_y", strip.position = "top",
@@ -778,21 +803,16 @@ p <- ggplot(charted_psom, aes(week + week_offset, tickets, fill = panel)) +
   scale_fill_manual(values = panel_fill, guide = "none") +
   scale_y_continuous(breaks = whole_breaks, limits = c(0, NA),
                      expand = expansion(mult = c(0, 0.15))) +
-  # A day of slack each side, or ggplot drops the end bars
-  scale_x_date(date_breaks = "1 month", date_labels = "%b",
-               limits = c(min(psom_queue_weeks) - 1L, max(psom_queue_weeks) + 8L),
-               expand = expansion(0)) +
   theme_cds() +
   theme(panel.grid.major.x = element_blank()) +
   labs(x = NULL, y = "Tickets",
-       subtitle = "Tickets opened and closed in a week (Mo-Su), open at its end")
+       subtitle = "Tickets opened and closed in a calendar month, open at its end")
 
 brand_figure(p, date = psom_through)
 ```
 
 ::: {.figure-note}
-Closed means first seen at *Done*, *Canceled* or *Ready to archive*. The board was first
-recorded on `r format_long_date(psom_recorded_from)`, so earlier weeks are blank.
+Closed means first seen at *Done*, *Canceled* or *Ready to archive*.`r psom_queue_caveats`
 :::
 
 :::

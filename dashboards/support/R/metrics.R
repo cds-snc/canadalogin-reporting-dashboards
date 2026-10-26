@@ -287,21 +287,40 @@ psom_ages <- function(board, as_of, days = summary_window_days) {
     dplyr::mutate(age = as.integer(dplyr::coalesce(closed_on, as_of) - created))
 }
 
-# One row per Monday-to-Sunday week: opened, closed, and open at the end of it.
-# All read off the board's own dates, so open is the running total of the rest.
-psom_weekly <- function(life, from, through) {
+# The first day of the month a date falls in
+month_of <- function(d) as.Date(format(as.Date(d), "%Y-%m-01"))
+
+# The queue chart never starts before this month
+psom_chart_start <- as.Date("2026-08-01")
+
+# The first of the earliest month on the queue chart: `months` calendar months
+# ending with the one `through` falls in, but not before psom_chart_start.
+psom_months_from <- function(through, months = 13L) {
+  back <- seq(month_of(through), by = "-1 month", length.out = months)
+  max(min(back), psom_chart_start)
+}
+
+# One row per calendar month from `from` to the month `through` falls in:
+# opened, closed, and open at the end of it. The last month runs only to
+# `through` and is flagged `partial` when that is before its end. All read off
+# the board's own dates, so open is the running total of the rest.
+psom_monthly <- function(life, from, through) {
   through <- as.Date(through)
+  starts <- seq(month_of(from), month_of(through), by = "1 month")
+  month_ends <- seq(starts[1], by = "1 month",
+                    length.out = length(starts) + 1L)[-1] - 1L
+  ends <- pmin(month_ends, through)
 
-  # The current week is not over, so its counts would read short.
-  weeks <- seq(week_of(from), week_of(through), by = "7 days")
-  ends <- weeks[weeks + 6L <= through] + 6L
-
-  in_week <- function(d, end) !is.na(d) & d > end - 7L & d <= end
+  count_in <- function(d) {
+    vapply(seq_along(starts), \(i) sum(!is.na(d) & d >= starts[i] & d <= ends[i]),
+           integer(1))
+  }
   tibble::tibble(
-    week = ends - 6L,
-    week_end = ends,
-    opened = vapply(ends, \(e) sum(in_week(life$created, e)), integer(1)),
-    closed = vapply(ends, \(e) sum(in_week(life$closed_on, e)), integer(1)),
+    month = starts,
+    month_end = ends,
+    partial = ends < month_ends,
+    opened = count_in(life$created),
+    closed = count_in(life$closed_on),
     open = vapply(ends, \(e) {
       sum(life$created <= e & (is.na(life$closed_on) | life$closed_on > e))
     }, integer(1))
@@ -409,7 +428,7 @@ psom_ticket_export <- function(snapshots, sla_snapshots, from) {
 }
 
 # Monday of each of the `weeks` complete weeks ending on or before `through`,
-# oldest first. The current week is left off, as in psom_weekly(), and so is
+# oldest first. The current week is left off, and so is
 # any week before the first daily snapshot's.
 sla_weeks <- function(through, weeks = summary_window_weeks) {
   last <- week_of(as.Date(through) + 1L) - 7L
@@ -468,8 +487,8 @@ sla_target_label <- function(last, clock) {
 
 # The statuses that hand a ticket to another team, and what the page calls it
 psom_escalation_statuses <- c(
-  "Escalated to PTT"     = "Partner Transition Team",
-  "Escalated to Auth PT" = "Auth product team"
+  "Escalated to PTT"     = "Escalated to the Partner Transition team",
+  "Escalated to Auth PT" = "Escalated to the Auth product team"
 )
 
 psom_handled_by_levels <- c("PSO alone", unname(psom_escalation_statuses))
