@@ -72,6 +72,11 @@
     **Note.** This funnel measures users who are migrating a legacy credential
     to CanadaLogin and want to create a new CanadaLogin account.
 
+- funnel: [sign_in, recover_password, migration_existing_to_cl, migration_new_to_cl]
+  start: 2026-09-02
+  description: >-
+    ATIP's two services started using CanadaLogin.
+
 - funnel: sign_up
   start: 2026-09-17
   end: 2026-10-01
