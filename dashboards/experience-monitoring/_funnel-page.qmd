@@ -169,6 +169,9 @@ rows <- bind_rows(overall, per_rp) |>
 gt(rows) |>
   fmt_markdown(c(rate_7d, rate_long)) |>
   cols_align("right", c(rate_7d, rate_long)) |>
+  # Without widths Quarto splits the table evenly, and full service names wrap
+  # beside a column of acronyms.
+  cols_width(Service ~ pct(34), Operator ~ pct(10), everything() ~ pct(14)) |>
   fmt_number(c(entered, finished), decimals = 0) |>
   sub_missing(missing_text = "n/a") |>
   cols_label(
