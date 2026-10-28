@@ -318,6 +318,8 @@ annotation_layers <- function(events, from, to) {
   drawn$xmin <- pmax(drawn$start, from)
   drawn$xmax <- pmin(drawn$end, to)
   drawn$middle <- drawn$xmin + as.numeric(drawn$xmax - drawn$xmin) / 2
+  # A single day's letter sits beside its line rather than struck through.
+  drawn$hjust <- ifelse(drawn$xmin == drawn$xmax, -0.6, 0.5)
   list(
     ggplot2::geom_rect(
       data = drawn[drawn$xmin < drawn$xmax, ],
@@ -331,7 +333,8 @@ annotation_layers <- function(events, from, to) {
     ),
     # Inf survives the y limits and lands in the headroom above 100%.
     ggplot2::geom_text(
-      data = drawn, ggplot2::aes(x = middle, label = letter), y = Inf,
+      data = drawn, ggplot2::aes(x = middle, label = letter, hjust = hjust),
+      y = Inf,
       vjust = 1.4, colour = "grey45", fontface = "bold", size = 3.3,
       inherit.aes = FALSE
     )
