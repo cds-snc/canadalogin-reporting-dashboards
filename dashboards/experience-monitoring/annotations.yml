@@ -77,10 +77,3 @@
   end: 2026-10-01
   description: >-
     Scripted account creation on several days pulled the sign-up rate down.
-
-- funnel: [sign_in, sign_up, recover_password, migration_existing_to_cl, migration_new_to_cl]
-  start: 2026-09-22
-  end: 2026-10-20
-  description: >-
-    ATIP's two services lost their service name in Google Analytics. Their
-    sessions still count in this rate, but are missing from the table below.
