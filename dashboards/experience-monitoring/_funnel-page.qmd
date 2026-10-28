@@ -8,11 +8,19 @@
 
 h_row <- paste0(h1, "#")
 h_col <- paste0(h_row, "#")
+
+# Here, not in the chart chunk: the chart's fig-cap is evaluated before its
+# code runs, and the caption depends on the series' date range.
+s7 <- task_success_series(con, fid, "7", series_start, data_through)
+s1 <- task_success_series(con, fid, "1", series_start, data_through)
+chart_from <- min(s7$window_end, s1$window_end)
+chart_to <- max(s7$window_end, s1$window_end)
+events <- funnel_annotations(annotations, fid, chart_from, chart_to)
 ```
 
 `r h1` `r label`
 
-`r h_row` Row {height="420px"}
+`r h_row` Row {height="auto"}
 
 `r h_col` Column {width="24%"}
 
@@ -41,11 +49,10 @@ Latest 7-day rate
 #| fig-width: 7.7
 #| fig-height: 3.6
 #| fig-alt: !expr chart_alt(fid)
-
-s7 <- task_success_series(con, fid, "7", series_start, data_through)
-s1 <- task_success_series(con, fid, "1", series_start, data_through)
+#| fig-cap: !expr annotation_caption(events)
 
 p <- ggplot() +
+  annotation_layers(events, chart_from, chart_to) +
   # Sized by starters, so a low-volume day draws small. No log transform:
   # the size scale already square-roots the value on its way to an area.
   geom_point(
@@ -180,9 +187,7 @@ gt(rows) |>
 ```
 
 ::: {.figure-note}
-`r funnel_note(fid)`
-
-`r points_note` `r internal_note` `r finished_note`
+`r internal_note` `r finished_note`
 
 `r change_note`
 

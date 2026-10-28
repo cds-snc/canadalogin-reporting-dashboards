@@ -7,3 +7,13 @@ $primary: #4B2E83;
 
 // Same hue, saturation 34%, lightness 85%.
 $info: #D5CCE6;
+
+/*-- scss:rules --*/
+
+// The chart row grows with its caption, and Quarto shares a value box column's
+// height equally between the boxes. Packed to the top instead, with the space
+// left below them; !important beats Quarto's inline grid style.
+.bslib-grid:has(> .bslib-value-box) {
+  grid-template-rows: repeat(3, auto) !important;
+  align-content: start;
+}

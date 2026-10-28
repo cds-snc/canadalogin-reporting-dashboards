@@ -24,6 +24,9 @@ source("R/preflight.R")
 
 con <- connect_athena()
 
+# Each funnel's chart notes and dated events.
+annotations <- read_annotations()
+
 # This dashboard's accent, mirroring $primary in _theme.scss. ggplot cannot read
 # the scss, so the hex is written in both places; keep them in step.
 accent <- "#4B2E83"
@@ -212,12 +215,6 @@ comparison_note <- function(funnel_id) {
   )
 }
 
-# Shown under every chart: point size is an encoding, not decoration.
-points_note <- paste(
-  "The daily points on the chart are sized by how many people were in that",
-  "day's denominator."
-)
-
 # Shown under every table: what the arrows mean and when they take colour.
 change_note <- paste(
   "Each arrow is the change in percentage points from the window just",
@@ -231,7 +228,7 @@ finished_note <- paste(
   "Finished is worked out from the rate and the number who started."
 )
 
-# Shown under every chart and on the Overview: what the numbers cover.
+# Shown under every table and on the Overview: what the numbers cover.
 internal_note <- glue(
   "The headline figures and the top row are Google Analytics' own total across ",
   "every relying party. The table lists the {number_words[party_rows]} busiest ",

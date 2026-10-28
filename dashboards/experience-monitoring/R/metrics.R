@@ -26,56 +26,18 @@ funnel_entry_steps <- list(
   migration_new_to_cl = "migration_not_skipped"
 )
 
-# Labels and the note shown under each funnel's table, local until the
-# pipeline emits a label column. Keyed by funnel id so a mismatch fails rather
-# than heading a page with another funnel's numbers.
+# Labels, local until the pipeline emits a label column. Keyed by funnel id so
+# a mismatch fails rather than heading a page with another funnel's numbers.
+# Each funnel's notes are in annotations.yml.
 funnel_presentation <- list(
-  sign_in = list(
-    label = "Sign in",
-    note = paste(
-      "**Note.** This rate stops when the user submits their second factor,",
-      "the last step Google Analytics can see before the off-site redirect to",
-      "IBM Verify. It counts submits, so a wrong code still counts as finished."
-    )
-  ),
-  sign_up = list(
-    label = "Sign up",
-    note = paste(
-      "**Note.** Sign up's exit is the account-creation confirmation page, a",
-      "first-party event."
-    )
-  ),
-  recover_password = list(
-    label = "Recover password",
-    note = paste(
-      "**Note.** The exit here is the confirmation shown once a new password is",
-      "set, a first-party event."
-    )
-  ),
-  recover_2sv = list(
-    label = "Recover 2-step verification",
-    note = paste(
-      "**Note.** This funnel measures users who lost their 2-step verification",
-      "method and set up a new one. The exit is the screen shown once the new",
-      "method is set up, which asks the user to delete methods they no longer",
-      "use. It is a low volume funnel, about ten starts a day as of October 2026."
-    )
-  ),
+  sign_in = list(label = "Sign in"),
+  sign_up = list(label = "Sign up"),
+  recover_password = list(label = "Recover password"),
+  recover_2sv = list(label = "Recover 2-step verification"),
   migration_existing_to_cl = list(
-    label = "Migration, existing CanadaLogin account",
-    note = paste(
-      "**Note.** This funnel measures users who are migrating a legacy credential to",
-      "CanadaLogin and already have a CanadaLogin account. As of August 2026, this",
-      "is a low volume funnel, since most users are creating a new account."
-    )
+    label = "Migration, existing CanadaLogin account"
   ),
-  migration_new_to_cl = list(
-    label = "Migration, new CanadaLogin account",
-    note = paste(
-      "**Note.** This funnel measures users who are migrating a legacy credential to",
-      "CanadaLogin and want to create a new CanadaLogin account."
-    )
-  )
+  migration_new_to_cl = list(label = "Migration, new CanadaLogin account")
 )
 
 # A missing entry fails here rather than heading a page with a warehouse id.
@@ -90,10 +52,6 @@ declared_or_stop <- function(table, funnel_id, table_name) {
 
 funnel_label <- function(funnel_id) {
   declared_or_stop(funnel_presentation, funnel_id, "funnel_presentation")$label
-}
-
-funnel_note <- function(funnel_id) {
-  declared_or_stop(funnel_presentation, funnel_id, "funnel_presentation")$note
 }
 
 # Both funnel tables, loaded whole once per render and sliced in R. Each
@@ -285,5 +243,97 @@ rate_change_cell <- function(rate, delta, meaningful) {
     is.na(rate), "n/a",
     sprintf('%s%% <span style="color:%s">%s</span>',
             round(rate * 100), colour, change)
+  )
+}
+
+# Chart annotations -----------------------------------------------------------
+
+# Nothing is checked here: the annotations test checks the file on every PR.
+read_annotations <- function(path = "annotations.yml") {
+  entries <- yaml::read_yaml(path)
+  field <- function(name, default) {
+    purrr::map(entries, \(entry) entry[[name]] %||% default)
+  }
+  start <- as.Date(unlist(field("start", NA_character_)))
+  tibble::tibble(
+    funnel = field("funnel", NULL),
+    start = start,
+    # A single day ends where it starts.
+    end = dplyr::coalesce(as.Date(unlist(field("end", NA_character_))), start),
+    description = unlist(field("description", NA_character_)),
+    chart = unlist(field("chart", TRUE))
+  )
+}
+
+# One funnel's entries in caption order: standing notes as written, then dated
+# ones by start. Dated ones wholly outside `from` to `to` are dropped, and only
+# drawn ones are lettered so the letters never skip.
+funnel_annotations <- function(annotations, funnel_id, from, to) {
+  mine <- purrr::map_lgl(annotations$funnel,
+                         \(funnel) any(c("all", funnel_id) %in% funnel))
+  standing <- annotations[mine & is.na(annotations$start), ]
+  dated <- annotations[mine & !is.na(annotations$start), ]
+  dated <- dated[dated$end >= from & dated$start <= to, ]
+  dated <- dated[order(dated$start), ]
+  dated$letter <- NA_character_
+  dated$letter[dated$chart] <- LETTERS[seq_len(sum(dated$chart))]
+  dplyr::bind_rows(standing, dated)
+}
+
+# "Sep 30, 2026", "Sep 17 to Oct 1, 2026", or a year on each end when a range
+# crosses one. month.abb rather than %b, which follows the locale.
+fmt_event_dates <- function(start, end) {
+  day <- function(date) {
+    paste(month.abb[as.integer(format(date, "%m"))],
+          as.integer(format(date, "%d")))
+  }
+  start_year <- format(start, "%Y")
+  end_year <- format(end, "%Y")
+  dplyr::case_when(
+    start == end ~ paste0(day(end), ", ", end_year),
+    start_year == end_year ~ paste0(day(start), " to ", day(end), ", ", end_year),
+    .default = paste0(day(start), ", ", start_year, " to ", day(end), ", ",
+                      end_year)
+  )
+}
+
+# Joined with <br>: a blank line in a fig-cap breaks the figure.
+annotation_caption <- function(events) {
+  lines <- events$description
+  dated <- !is.na(events$start)
+  lines[dated] <- paste0(fmt_event_dates(events$start[dated], events$end[dated]),
+                         ": ", lines[dated])
+  lettered <- !is.na(events$letter)
+  lines[lettered] <- paste0("**", events$letter[lettered], ".** ",
+                            lines[lettered])
+  paste(lines, collapse = "<br>")
+}
+
+# Grey and added before the data, so events sit behind it. Bands are clipped
+# to `from` and `to`; the x scale has no fixed limits, so an unclipped band
+# would stretch the axis. Bands are translucent with dashed edges so two that
+# overlap stay apart; a single day is an edge on its own.
+annotation_layers <- function(events, from, to) {
+  drawn <- events[!is.na(events$letter), ]
+  drawn$xmin <- pmax(drawn$start, from)
+  drawn$xmax <- pmin(drawn$end, to)
+  drawn$middle <- drawn$xmin + as.numeric(drawn$xmax - drawn$xmin) / 2
+  list(
+    ggplot2::geom_rect(
+      data = drawn[drawn$xmin < drawn$xmax, ],
+      ggplot2::aes(xmin = xmin, xmax = xmax),
+      ymin = -Inf, ymax = Inf, fill = "grey50", alpha = 0.12,
+      inherit.aes = FALSE
+    ),
+    ggplot2::geom_vline(
+      xintercept = unique(c(drawn$xmin, drawn$xmax)),
+      colour = "grey55", linetype = "dashed", linewidth = 0.4
+    ),
+    # Inf survives the y limits and lands in the headroom above 100%.
+    ggplot2::geom_text(
+      data = drawn, ggplot2::aes(x = middle, label = letter), y = Inf,
+      vjust = 1.4, colour = "grey45", fontface = "bold", size = 3.3,
+      inherit.aes = FALSE
+    )
   )
 }

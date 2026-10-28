@@ -119,6 +119,13 @@
   max-width: var(--card-content-width);
 }
 
+/* A chart's caption reads as a figure note; Quarto's own grey is too pale. */
+.quarto-dashboard figcaption {
+  font-size: 0.8rem;
+  color: #5c6670;
+  max-width: var(--card-content-width);
+}
+
 /* A figure note that points elsewhere and should not draw the eye. The grey is
    below 4.5:1 contrast on white on purpose; the underline alone marks the
    link. */

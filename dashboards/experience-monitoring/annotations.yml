@@ -1,0 +1,86 @@
+# Notes and dated events shown with each funnel's task success chart.
+#
+# Each entry is a block starting with "- ". The keys:
+#
+#   funnel       Required. One funnel id, a list like [sign_in, sign_up], or
+#                all. The ids: sign_in, sign_up, recover_password,
+#                recover_2sv, migration_existing_to_cl, migration_new_to_cl.
+#   start        Optional, as YYYY-MM-DD. Without it the entry is a standing
+#                note: it shows under the chart and is never drawn.
+#   end          Optional, only with start. Without it the event is one day.
+#   description  Required. Always write ">-" after the key and the text on
+#                indented lines below, so colons and # are safe. Markdown
+#                works, including links: [text](https://...).
+#   chart        Optional. "chart: false" lists a dated event under the chart
+#                without drawing it.
+#
+# Example:
+#
+#   - funnel: sign_up
+#     start: 2026-09-17
+#     end: 2026-10-01
+#     description: >-
+#       Scripted account creation on several days pulled the sign-up rate down.
+#
+# Rules:
+#
+# - This repo is public. No internal links (Slack, Jira, Google Docs) and
+#   nothing you would not put in a public commit.
+# - Draw an event only where the 7-day line visibly changes. Otherwise use
+#   "chart: false", or leave it out.
+# - Never annotate a funnel version change: the line already breaks there.
+# - Keep the point-size note first.
+#
+# A test checks this file on every pull request.
+
+- funnel: all
+  description: >-
+    The daily points on the chart are sized by how many people were in that
+    day's denominator.
+
+- funnel: sign_in
+  description: >-
+    **Note.** This rate stops when the user submits their second factor, the
+    last step Google Analytics can see before the off-site redirect to IBM
+    Verify. It counts submits, so a wrong code still counts as finished.
+
+- funnel: sign_up
+  description: >-
+    **Note.** Sign up's exit is the account-creation confirmation page, a
+    first-party event.
+
+- funnel: recover_password
+  description: >-
+    **Note.** The exit here is the confirmation shown once a new password is
+    set, a first-party event.
+
+- funnel: recover_2sv
+  description: >-
+    **Note.** This funnel measures users who lost their 2-step verification
+    method and set up a new one. The exit is the screen shown once the new
+    method is set up, which asks the user to delete methods they no longer
+    use. It is a low volume funnel, about ten starts a day as of October 2026.
+
+- funnel: migration_existing_to_cl
+  description: >-
+    **Note.** This funnel measures users who are migrating a legacy credential
+    to CanadaLogin and already have a CanadaLogin account. As of August 2026,
+    this is a low volume funnel, since most users are creating a new account.
+
+- funnel: migration_new_to_cl
+  description: >-
+    **Note.** This funnel measures users who are migrating a legacy credential
+    to CanadaLogin and want to create a new CanadaLogin account.
+
+- funnel: sign_up
+  start: 2026-09-17
+  end: 2026-10-01
+  description: >-
+    Scripted account creation on several days pulled the sign-up rate down.
+
+- funnel: [sign_in, sign_up, recover_password, migration_existing_to_cl, migration_new_to_cl]
+  start: 2026-09-22
+  end: 2026-10-20
+  description: >-
+    ATIP's two services lost their service name in Google Analytics. Their
+    sessions still count in this rate, but are missing from the table below.
