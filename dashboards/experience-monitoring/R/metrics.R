@@ -96,60 +96,76 @@ funnel_note <- function(funnel_id) {
   declared_or_stop(funnel_presentation, funnel_id, "funnel_presentation")$note
 }
 
+# Both funnel tables, loaded whole once per render and sliced in R. Each
+# Athena query costs about 3.5 s however few rows it returns, and a funnel
+# page asks for about seven slices, so querying per slice took most of the
+# render. Only entry steps are kept from funnels_current: starters are the
+# only step count read here.
+funnel_tables <- local({
+  cache <- NULL
+  function(con) {
+    if (!is.null(cache)) return(cache)
+
+    rates <- dplyr::tbl(
+      con, dbplyr::in_schema("google_analytics", "funnel_metrics_current")
+    ) |>
+      dplyr::filter(metric_id == "task_success", !window_incomplete) |>
+      dplyr::select(funnel_id, window_days, window_end, funnel_version,
+                    breakdown_value, value) |>
+      dplyr::collect()
+
+    entry_steps <- unique(unlist(funnel_entry_steps))
+    steps <- dplyr::tbl(
+      con, dbplyr::in_schema("google_analytics", "funnels_current")
+    ) |>
+      dplyr::filter(funnelstepname %in% !!entry_steps, !window_incomplete) |>
+      dplyr::select(funnel_id, window_days, window_end, funnelstepname,
+                    funnelstepnumber, breakdown_value, activeusers) |>
+      dplyr::collect()
+
+    cache <<- list(
+      rates = dplyr::mutate(rates, window_end = as.Date(window_end)),
+      steps = dplyr::mutate(steps, window_end = as.Date(window_end))
+    )
+    cache
+  }
+})
+
 # Stored rates with their starters and finishers, one row per (window_end,
 # breakdown_value). `from` and `to` bound window_end inclusively;
 # funnel_version is kept for the chart. `finished` is derived, rate times
 # starters, since the stored table holds the rate alone.
-#
-# Memoised: one funnel page calls this with the same (fid, window_days, from,
-# to) from several places (value boxes, table columns, the overall row), and
-# the data cannot change mid-render, so caching dedupes the Athena queries
-# without changing any call site.
-task_success_rows <- local({
-  cache <- new.env(parent = emptyenv())
-  function(con, funnel_id, window_days, from, to) {
-    key <- paste(funnel_id, window_days, from, to, sep = "|")
-    cached <- cache[[key]]
-    if (!is.null(cached)) return(cached)
+task_success_rows <- function(con, funnel_id, window_days, from, to) {
+  entry_step <- declared_or_stop(funnel_entry_steps, funnel_id,
+                                 "funnel_entry_steps")
+  tables <- funnel_tables(con)
+  window_days <- as.character(window_days)
+  from <- as.Date(from)
+  to <- as.Date(to)
 
-    entry_step <- declared_or_stop(funnel_entry_steps, funnel_id,
-                                   "funnel_entry_steps")
-
-    in_span <- function(table) {
-      dplyr::tbl(con, dbplyr::in_schema("google_analytics", table)) |>
-        dplyr::filter(
-          funnel_id == !!funnel_id,
-          window_days == !!as.character(window_days),
-          !window_incomplete,
-          as.Date(window_end) >= as.Date(!!as.character(from)),
-          as.Date(window_end) <= as.Date(!!as.character(to))
-        )
-    }
-
-    rates <- in_span("funnel_metrics_current") |>
-      dplyr::filter(metric_id == "task_success") |>
-      dplyr::select(window_end, funnel_version, breakdown_value, value) |>
-      dplyr::collect()
-
-    starters <- in_span("funnels_current") |>
-      dplyr::filter(funnelstepname == !!entry_step) |>
-      dplyr::select(window_end, breakdown_value, starters = activeusers) |>
-      dplyr::collect()
-
-    out <- rates |>
-      dplyr::left_join(starters, by = c("window_end", "breakdown_value")) |>
-      dplyr::mutate(
-        window_end = as.Date(window_end),
-        # integer64 does not survive arithmetic with doubles cleanly.
-        starters = as.numeric(starters),
-        finished = round(value * starters)
-      ) |>
-      dplyr::arrange(window_end)
-
-    cache[[key]] <- out
-    out
+  in_span <- function(table) {
+    table[table$funnel_id == funnel_id &
+            table$window_days == window_days &
+            table$window_end >= from &
+            table$window_end <= to, ]
   }
-})
+
+  rates <- in_span(tables$rates) |>
+    dplyr::select(window_end, funnel_version, breakdown_value, value)
+
+  starters <- in_span(tables$steps) |>
+    dplyr::filter(funnelstepname == entry_step) |>
+    dplyr::select(window_end, breakdown_value, starters = activeusers)
+
+  rates |>
+    dplyr::left_join(starters, by = c("window_end", "breakdown_value")) |>
+    dplyr::mutate(
+      # integer64 does not survive arithmetic with doubles cleanly.
+      starters = as.numeric(starters),
+      finished = round(value * starters)
+    ) |>
+    dplyr::arrange(window_end)
+}
 
 # GA's own total across every relying party, internal included. The headline
 # figures and the chart use this.
@@ -190,14 +206,10 @@ funnel_entry_step <- function(con, funnel_id) {
   entry_step <- declared_or_stop(funnel_entry_steps, funnel_id,
                                  "funnel_entry_steps")
 
-  numbers <- dplyr::tbl(
-    con, dbplyr::in_schema("google_analytics", "funnels_current")
-  ) |>
-    dplyr::filter(funnel_id == !!funnel_id,
-                  funnelstepname == !!entry_step) |>
-    dplyr::distinct(funnelstepnumber) |>
-    dplyr::collect() |>
-    dplyr::pull(funnelstepnumber)
+  steps <- funnel_tables(con)$steps
+  numbers <- unique(steps$funnelstepnumber[
+    steps$funnel_id == funnel_id & steps$funnelstepname == entry_step
+  ])
 
   dplyr::tibble(
     entry_step = entry_step,
