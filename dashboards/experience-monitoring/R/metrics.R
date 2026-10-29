@@ -312,31 +312,75 @@ annotation_caption <- function(events) {
 # Grey and added before the data, so events sit behind it. Bands are clipped
 # to `from` and `to`; the x scale has no fixed limits, so an unclipped band
 # would stretch the axis. Bands are translucent with dashed edges so two that
-# overlap stay apart; a single day is an edge on its own.
-annotation_layers <- function(events, from, to) {
+# overlap stay apart; a single day is an arrow square to `line`, the 7-day
+# series.
+annotation_layers <- function(events, from, to, line) {
   drawn <- events[!is.na(events$letter), ]
   drawn$xmin <- pmax(drawn$start, from)
   drawn$xmax <- pmin(drawn$end, to)
   drawn$middle <- drawn$xmin + as.numeric(drawn$xmax - drawn$xmin) / 2
-  # A single day's letter sits beside its line rather than struck through.
-  drawn$hjust <- ifelse(drawn$xmin == drawn$xmax, -0.6, 0.5)
+  band <- drawn[drawn$xmin < drawn$xmax, ]
+  day <- arrow_geometry(drawn[drawn$xmin == drawn$xmax, ], from, to, line)
   list(
     ggplot2::geom_rect(
-      data = drawn[drawn$xmin < drawn$xmax, ],
+      data = band,
       ggplot2::aes(xmin = xmin, xmax = xmax),
       ymin = -Inf, ymax = Inf, fill = "grey50", alpha = 0.12,
       inherit.aes = FALSE
     ),
     ggplot2::geom_vline(
-      xintercept = unique(c(drawn$xmin, drawn$xmax)),
+      xintercept = unique(c(band$xmin, band$xmax)),
       colour = "grey55", linetype = "dashed", linewidth = 0.4
     ),
-    # Inf survives the y limits and lands in the headroom above 100%.
+    ggplot2::geom_segment(
+      data = day,
+      ggplot2::aes(x = tail_x, xend = tip_x, y = tail_y, yend = tip_y),
+      colour = "grey45", linewidth = 0.5,
+      arrow = grid::arrow(length = grid::unit(0.06, "inches"), type = "closed"),
+      inherit.aes = FALSE
+    ),
     ggplot2::geom_text(
-      data = drawn, ggplot2::aes(x = middle, label = letter, hjust = hjust),
+      data = day, ggplot2::aes(x = label_x, y = label_y, label = letter),
+      colour = "grey45", fontface = "bold", size = 3.3,
+      inherit.aes = FALSE
+    ),
+    # Inf lands at the top of the headroom.
+    ggplot2::geom_text(
+      data = band, ggplot2::aes(x = middle, label = letter),
       y = Inf,
       vjust = 1.4, colour = "grey45", fontface = "bold", size = 3.3,
       inherit.aes = FALSE
     )
   )
+}
+
+# Room above 100% for letters and arrows, as a fraction of the y range. The y
+# scale also needs oob_keep, or an arrow above 100% is dropped.
+annotation_headroom <- 0.2
+
+# Arrow and letter positions, square to `line` on screen. `aspect` is the
+# panel's height over width at 7.7 by 3.6 inches; distances are panel widths.
+arrow_geometry <- function(day, from, to, line, aspect = 0.36) {
+  # Interpolated, so a day missing from the series still lands on the line.
+  at <- function(x) {
+    stats::approx(line$window_end, line$value, x, rule = 2, ties = mean)$y
+  }
+  # Days and rate per panel width; the x scale pads 5% each side.
+  per_day <- 1 / (as.numeric(to - from) * 1.1)
+  per_rate <- aspect / (1 + annotation_headroom)
+  slope <- (at(day$xmin + 3) - at(day$xmin - 3)) / 6 * per_rate / per_day
+  # The unit normal pointing up.
+  nx <- -slope / sqrt(1 + slope^2)
+  ny <- 1 / sqrt(1 + slope^2)
+  y <- at(day$xmin)
+  along <- function(dist, axis) {
+    if (axis == "x") day$xmin + nx * dist / per_day else y + ny * dist / per_rate
+  }
+  day$tip_x <- along(0.006, "x")
+  day$tip_y <- along(0.006, "y")
+  day$tail_x <- along(0.036, "x")
+  day$tail_y <- along(0.036, "y")
+  day$label_x <- along(0.046, "x")
+  day$label_y <- along(0.046, "y")
+  day
 }

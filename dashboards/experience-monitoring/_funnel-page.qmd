@@ -52,7 +52,7 @@ Latest 7-day rate
 #| fig-cap: !expr annotation_caption(events)
 
 p <- ggplot() +
-  annotation_layers(events, chart_from, chart_to) +
+  annotation_layers(events, chart_from, chart_to, s7) +
   # Sized by starters, so a low-volume day draws small. No log transform:
   # the size scale already square-roots the value on its way to an area.
   geom_point(
@@ -67,7 +67,8 @@ p <- ggplot() +
   ) +
   scale_y_continuous(
     labels = label_percent(accuracy = 1), limits = c(0, 1),
-    expand = expansion(mult = c(0, 0.05))
+    expand = expansion(mult = c(0, annotation_headroom)),
+    oob = scales::oob_keep
   ) +
   scale_x_date(date_labels = "%b %d") +
   theme_cds() +

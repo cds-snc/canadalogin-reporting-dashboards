@@ -202,6 +202,8 @@ chart_from <- as.Date("2026-09-12")
 chart_to <- as.Date("2026-10-25")
 
 sign_up <- expmon$funnel_annotations(fixture, "sign_up", chart_from, chart_to)
+line <- data.frame(window_end = as.Date(c("2026-09-29", "2026-10-01")),
+                   value = c(0.6, 0.8))
 
 test_that("a missing end means a single day", {
   late <- fixture[fixture$description == "Late.", ]
@@ -256,30 +258,53 @@ test_that("a range across a year names both years", {
 })
 
 test_that("a band is clipped to the chart", {
-  layers <- expmon$annotation_layers(sign_up, chart_from, chart_to)
+  layers <- expmon$annotation_layers(sign_up, chart_from, chart_to, line)
   expect_equal(layers[[1]]$data$xmin, chart_from)
 })
 
-test_that("a single day draws a line, not a band", {
-  layers <- expmon$annotation_layers(sign_up, chart_from, chart_to)
+test_that("a single day draws an arrow, not a band or a line", {
+  layers <- expmon$annotation_layers(sign_up, chart_from, chart_to, line)
   expect_equal(nrow(layers[[1]]$data), 1L)
-  expect_true(as.Date("2026-09-30") %in% layers[[2]]$data$xintercept)
+  expect_false(as.Date("2026-09-30") %in% layers[[2]]$data$xintercept)
+  expect_equal(layers[[3]]$data$xmin, as.Date("2026-09-30"))
+})
+
+test_that("a single day's arrow points at the 7-day line", {
+  layers <- expmon$annotation_layers(sign_up, chart_from, chart_to, line)
+  arrow <- layers[[3]]$data
+  expect_gt(arrow$tip_y, 0.7)
+  expect_lt(arrow$tip_y, 0.72)
+  expect_gt(arrow$tail_y, arrow$tip_y)
+})
+
+test_that("an arrow stands square to a sloped line", {
+  layers <- expmon$annotation_layers(sign_up, chart_from, chart_to, line)
+  # The line rises, so the arrow leans back from the upper left.
+  expect_lt(layers[[3]]$data$tail_x, as.Date("2026-09-30"))
+})
+
+test_that("an arrow over a flat line is upright", {
+  flat <- data.frame(window_end = as.Date(c("2026-09-01", "2026-10-20")),
+                     value = 0.8)
+  layers <- expmon$annotation_layers(sign_up, chart_from, chart_to, flat)
+  expect_equal(layers[[3]]$data$tail_x, as.Date("2026-09-30"))
 })
 
 test_that("a band has a line at each end", {
-  layers <- expmon$annotation_layers(sign_up, chart_from, chart_to)
+  layers <- expmon$annotation_layers(sign_up, chart_from, chart_to, line)
   expect_true(all(c(chart_from, as.Date("2026-09-20")) %in%
                     layers[[2]]$data$xintercept))
 })
 
 test_that("an entry with chart false draws nothing", {
-  layers <- expmon$annotation_layers(sign_up, chart_from, chart_to)
-  expect_equal(layers[[3]]$data$letter, c("A", "B"))
+  layers <- expmon$annotation_layers(sign_up, chart_from, chart_to, line)
+  expect_equal(c(layers[[5]]$data$letter, layers[[4]]$data$letter),
+               c("A", "B"))
 })
 
 test_that("a funnel with no dated entries draws nothing", {
   events <- expmon$funnel_annotations(fixture, "recover_2sv", chart_from,
                                       chart_to)
-  layers <- expmon$annotation_layers(events, chart_from, chart_to)
-  expect_equal(nrow(layers[[3]]$data), 0L)
+  layers <- expmon$annotation_layers(events, chart_from, chart_to, line)
+  expect_equal(nrow(layers[[4]]$data) + nrow(layers[[5]]$data), 0L)
 })
