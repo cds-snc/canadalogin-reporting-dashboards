@@ -15,7 +15,7 @@ s7 <- task_success_series(con, fid, "7", series_start, data_through)
 s1 <- task_success_series(con, fid, "1", series_start, data_through)
 chart_from <- min(s7$window_end, s1$window_end)
 chart_to <- max(s7$window_end, s1$window_end)
-events <- funnel_annotations(annotations, fid, chart_from, chart_to)
+events <- scoped_annotations(annotations, fid, chart_from, chart_to)
 ```
 
 `r h1` `r label`
@@ -52,7 +52,8 @@ Latest 7-day rate
 #| fig-cap: !expr annotation_caption(events)
 
 p <- ggplot() +
-  annotation_layers(events, chart_from, chart_to, s7) +
+  annotation_layers(events, chart_from, chart_to, s7,
+                    aes(window_end, value)) +
   # Sized by starters, so a low-volume day draws small. No log transform:
   # the size scale already square-roots the value on its way to an area.
   geom_point(

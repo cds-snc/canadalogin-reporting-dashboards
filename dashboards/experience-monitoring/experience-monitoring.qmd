@@ -25,7 +25,7 @@ source("R/preflight.R")
 con <- connect_athena()
 
 # Each funnel's chart notes and dated events.
-annotations <- read_annotations()
+annotations <- read_annotations(scope = "funnel")
 
 # This dashboard's accent, mirroring $primary in _theme.scss. ggplot cannot read
 # the scss, so the hex is written in both places; keep them in step.
