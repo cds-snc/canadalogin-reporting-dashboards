@@ -28,7 +28,6 @@
 #   nothing you would not put in a public commit.
 # - Draw an event only where the 7-day line visibly changes. Otherwise use
 #   "chart: false", or leave it out.
-# - Never annotate a funnel version change: the line already breaks there.
 # - Keep the point-size note first.
 #
 # A test checks this file on every pull request.
@@ -53,6 +52,12 @@
   description: >-
     **Note.** The exit here is the confirmation shown once a new password is
     set, a first-party event.
+
+- funnel: recover_password
+  start: 2026-10-14
+  description: >-
+    "Account checkers", users who tried to recover their password but were told their
+    email is not linked to an account, are no longer counted in task success.
 
 - funnel: recover_2sv
   description: >-
