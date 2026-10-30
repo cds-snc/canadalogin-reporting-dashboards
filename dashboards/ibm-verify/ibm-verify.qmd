@@ -206,18 +206,18 @@ numbers are reported in periods running Monday through Sunday.
 
 ::: {.card title="Understanding the metrics"}
 
-### One sign-in, many services
+### One sign-in, many online services
 
 ```{=html}
 <svg viewBox="0 0 900 258" role="img" aria-labelledby="flow-title flow-desc"
      style="width:100%;height:auto;font-family:inherit;max-width:900px;margin-bottom:1rem">
-  <title id="flow-title">How a CanadaLogin sign-in reaches a partner service</title>
+  <title id="flow-title">How a CanadaLogin sign-in reaches a partner online service</title>
   <desc id="flow-desc">A user signs in to CanadaLogin once, presenting a password and
     then a second factor. IBM Verify records each factor as its own authentication
     event, so one sign-in raises two or more of them. CanadaLogin then holds a session
-    and uses it to reach any number of partner services without asking for a password
+    and uses it to reach any number of partner online services without asking for a password
     again, recording each of those as a single SSO event. The Authentication tab counts
-    the authentication events on the left; the Services tab counts the SSO events on
+    the authentication events on the left; the Online Services tab counts the SSO events on
     the right.</desc>
 
   <defs>
@@ -256,13 +256,13 @@ numbers are reported in periods running Monday through Sunday.
 
     <rect x="618" y="24" width="204" height="44" rx="6"
           fill="#f2f4f6" stroke="#ccd2d8" stroke-width="1.5"/>
-    <text x="720" y="52">Partner service</text>
+    <text x="720" y="52">Partner online service</text>
     <rect x="618" y="70" width="204" height="44" rx="6"
           fill="#f2f4f6" stroke="#ccd2d8" stroke-width="1.5"/>
-    <text x="720" y="98">Partner service</text>
+    <text x="720" y="98">Partner online service</text>
     <rect x="618" y="116" width="204" height="44" rx="6"
           fill="#f2f4f6" stroke="#ccd2d8" stroke-width="1.5"/>
-    <text x="720" y="144">Partner service</text>
+    <text x="720" y="144">Partner online service</text>
 
     <!-- One sign-in on the left, many services on the right. The event count each
          raises differs from both, which is what the braces exist to separate. -->
@@ -272,9 +272,9 @@ numbers are reported in periods running Monday through Sunday.
     <text x="240" y="248" font-size="13" fill="#5a6672">counted on Authentication tab</text>
 
     <path d="M 490 178 V 190 H 822 V 178" fill="none" stroke="#8c97a1" stroke-width="1.5"/>
-    <text x="656" y="211" font-size="14" font-weight="600">Many services reached</text>
+    <text x="656" y="211" font-size="14" font-weight="600">Many online services reached</text>
     <text x="656" y="230" font-size="13">one SSO event each</text>
-    <text x="656" y="248" font-size="13" fill="#5a6672">counted on Services tab</text>
+    <text x="656" y="248" font-size="13" fill="#5a6672">counted on Online Services tab</text>
 
   </g>
 </svg>
@@ -285,14 +285,14 @@ factor. IBM Verify records **each factor they present as its own authentication
 event**, so a single sign-in raises two or more of them. What the user is left
 with is a **session**.
 
-Reaching a partner service afterwards does not sign anyone in again. CanadaLogin
+Reaching a partner online service afterwards does not sign anyone in again. CanadaLogin
 uses the session it already has to vouch for the user, and IBM Verify records
 that as an **SSO event**. No password and no second factor are involved. We reserve 
 the phrase *sign in* for the thing a user does at the start of the process.
 
 ### Reading the numbers
 
-**"Authentication" counts authentication events. "Services" counts SSO events.** IBM 
+**"Authentication" counts authentication events. "Online Services" counts SSO events.** IBM 
 Verify treats these as two different kinds of record and counts them separately. You 
 should not add them together or compare them against each other.
 
@@ -815,7 +815,7 @@ sign anyone in.
 
 :::
 
-# Services
+# Online Services
 
 ```{r rp-data}
 #| include: false
@@ -890,7 +890,7 @@ rp_sparkline <- function(key) {
         theme_void()
     ),
     alt = glue("Sparkline of weekly SSO events for {key} over the last ",
-               "{chart_months} months, scaled to this service."),
+               "{chart_months} months, scaled to this online service."),
     width = 150, height = 30,
     device = ragg::agg_png, deviceArgs = list(background = "transparent")
   ))
@@ -916,7 +916,7 @@ rp_detail <- function(key) {
   chart <- if (nrow(weekly) == 0) {
     htmltools::div(
       class = "figure-note",
-      glue("Nothing to chart yet. The weekly bars start once this service has ",
+      glue("Nothing to chart yet. The weekly bars start once this online service has ",
            "been live for a full Monday to Sunday week.")
     )
   } else {
@@ -958,6 +958,14 @@ rp_detail <- function(key) {
         summarise(users = total_or_na(users), .groups = "drop"),
       by = "month"
     ) |>
+    left_join(
+      monthly_unit_daily_share(daily, data_through) |>
+        group_by(month) |>
+        # Summed across applications, so not exact for a service with several
+        summarise(daily_share = sum(user_days) / first(days_in_month) / sum(users),
+                  .groups = "drop"),
+      by = "month"
+    ) |>
     arrange(desc(month)) |>
     # The current month is still filling up, and says so on its own line.
     mutate(month = ifelse(
@@ -971,7 +979,9 @@ rp_detail <- function(key) {
     sso_events = colDef(name = "SSO events", format = colFormat(separators = TRUE),
                         na = "-"),
     users = colDef(name = "Active users, summed",
-                   format = colFormat(separators = TRUE), na = "-")
+                   format = colFormat(separators = TRUE), na = "-"),
+    daily_share = colDef(name = "Daily share of monthly users",
+                         format = colFormat(percent = TRUE, digits = 1), na = "-")
   )
 
   # We have to be a little hacky with CSS so we can get the table and the graph
@@ -1009,9 +1019,12 @@ rp_detail <- function(key) {
       class = "figure-note",
       glue(
         "Whole calendar months, where everything above is a rolling window. ",
-        "Active users are running totals summed across the service's ",
+        "Active users are running totals summed across the online service's ",
         "applications, so that column cannot be added up, ",
-        "and a dash is a month before the service existed, not a zero."
+        "and a dash is a month before the online service existed, not a zero. ",
+        "Daily share of monthly users is the share of the month's users who ",
+        "came on a typical day. It needs a whole month, so it starts with the ",
+        "first full month and leaves out the current one."
       )
     )
   )
@@ -1041,7 +1054,7 @@ SSO events (`r window_label`)
 
 `r format(sum(rp_rows$sso_events), big.mark = ",")`
 
-External services only, no password or second factor involved
+External online services only, no password or second factor involved
 :::
 
 ::: {.valuebox color="info"}
@@ -1053,7 +1066,7 @@ SSO events `r prior_window_label`
 :::
 
 ::: {.valuebox color="secondary"}
-External services
+External online services
 
 `r nrow(rp_rows)`
 
@@ -1062,7 +1075,7 @@ External services
 
 ## Row
 
-::: {.card title="External services (click a row to expand it)"}
+::: {.card title="External online services (click a row to expand it)"}
 
 ```{r rp-table}
 reactable(
@@ -1070,8 +1083,8 @@ reactable(
          ytd, operator, direction, applications, prior_sso_events),
   searchable = TRUE,
   language = reactableLang(
-    searchPlaceholder = "Service or department",
-    searchLabel = "Search by service or department"
+    searchPlaceholder = "Online service or department",
+    searchLabel = "Search by online service or department"
   ),
   defaultSorted = "service",
   showSortable = TRUE,
@@ -1088,7 +1101,7 @@ reactable(
   theme = rp_theme,
   columns = list(
     service = colDef(
-      name = "Service", minWidth = 210,
+      name = "Online service", minWidth = 210,
       # The operator rides under the name rather than taking a column of its
       # own, which keeps the numbers together on the right.
       cell = function(value, index) {
@@ -1147,17 +1160,17 @@ reactable(
 
 ::: {.figure-note}
 
-**Click a row** for its weekly chart and its calendar months. A *service* is one
+**Click a row** for its weekly chart and its calendar months. An *online service* is one
 relying party, and the *applications* inside it are the names IBM Verify knows it
-by. One service can have several applications. CanadaLogin's own internal
+by. One online service can have several applications. CanadaLogin's own internal
 applications are left out, although they still count towards the CanadaLogin-wide
 figures on the Authentication tab.
 
-**Active users are summed across a service's applications.** IBM Verify counts
-users per application, so a user of two applications in one service counts
-twice. For a service with one application, the figure is exact.
+**Active users are summed across an online service's applications.** IBM Verify counts
+users per application, so a user of two applications in one online service counts
+twice. For an online service with one application, the figure is exact.
 
-**These are not sign-ins.** An *SSO event* is a user reaching a service on the
+**These are not sign-ins.** An *SSO event* is a user reaching an online service on the
 CanadaLogin session they already have, so no password and no second factor are
 involved. One sign-in can raise several. See the notes on the Overview tab.
 

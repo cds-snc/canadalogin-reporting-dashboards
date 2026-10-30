@@ -154,6 +154,33 @@ test_that("monthly unit SSO events are NA before a unit existed and zero after",
   expect_identical(b$sso_events, c(NA, 3, 0))
 })
 
+share_rows <- tibble::tibble(
+  date = as.Date(c("2026-07-15", "2026-08-03", "2026-08-20", "2026-09-04",
+                   "2026-08-25")),
+  unit = c("a", "a", "a", "a", "b"),
+  unique_users = c(2, 4, 2, 5, 1),
+  mtd_unique_users = c(2, 4, 5, 5, 1)
+)
+
+test_that("monthly daily share counts only whole months a unit was live", {
+  share <- ibm$monthly_unit_daily_share(share_rows, as.Date("2026-09-10"))
+  # a's July is its first month, b's August its first, September is part way
+  expect_identical(share$unit, "a")
+  expect_identical(share$month, as.Date("2026-08-01"))
+})
+
+test_that("monthly daily share takes user-days and the month's top count", {
+  share <- ibm$monthly_unit_daily_share(share_rows, as.Date("2026-09-10"))
+  expect_identical(share$user_days, 6)
+  expect_identical(share$users, 5)
+  expect_identical(share$days_in_month, 31)
+})
+
+test_that("monthly daily share counts a month that ended on as_of", {
+  share <- ibm$monthly_unit_daily_share(share_rows, as.Date("2026-08-31"))
+  expect_identical(share$month, as.Date("2026-08-01"))
+})
+
 # MFA -------------------------------------------------------------------------
 
 test_that("a known factor gets its display name", {

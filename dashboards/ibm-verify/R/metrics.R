@@ -257,6 +257,31 @@ monthly_unit_sso_events <- function(rows, as_of) {
     dplyr::select(month, unit, sso_events)
 }
 
+# User-days and active users per unit per calendar month, for the cookbook's
+# Daily Share of Monthly Users. Only months that have ended and that the unit
+# was live for in full: a part month reads high.
+monthly_unit_daily_share <- function(rows, as_of) {
+  as_of <- as.Date(as_of)
+  rows |>
+    dplyr::filter(date <= as_of) |>
+    dplyr::mutate(month = as.Date(format(date, "%Y-%m-01"))) |>
+    dplyr::group_by(month, unit) |>
+    dplyr::summarise(
+      user_days = sum(unique_users),
+      # Grows through the month, so the maximum is the month's total even
+      # when the last day has no row
+      users = max(mtd_unique_users),
+      .groups = "drop"
+    ) |>
+    dplyr::left_join(unit_first_seen(rows), by = "unit") |>
+    dplyr::mutate(
+      next_month = as.Date(format(month + 31, "%Y-%m-01")),
+      days_in_month = as.numeric(next_month - month)
+    ) |>
+    dplyr::filter(next_month - 1 <= as_of, first_seen < month) |>
+    dplyr::select(month, unit, user_days, users, days_in_month)
+}
+
 # Units, busiest first, so the stack and the table read in the same order.
 service_units <- function(rows) {
   rows |>
