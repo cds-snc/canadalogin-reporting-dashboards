@@ -182,11 +182,6 @@ window_weeks_label <- glue(
 
 # The charts run on the reported weeks ending inside the charted span.
 charted <- weeks |> filter(week_end >= chart_from)
-
-# A week the sign-in data does not cover has no rate and is left off the chart
-charted_rate <- call_rate(charted, daily_active_users(con)) |>
-  filter(!is.na(calls_per_100))
-newest_rate <- charted_rate |> slice_max(week, n = 1)
 ```
 
 ## Row {height="150px"}
@@ -217,10 +212,10 @@ Includes test calls
 
 ## Row {height="500px"}
 
-::: {.card title="Call volume" width="60%"}
+::: {.card title="Call volume"}
 
 ```{r calls-chart}
-#| fig-width: 8.2
+#| fig-width: 12
 #| fig-height: 4.1
 #| fig-alt: |
 #|   Bar chart of calls to the CanadaLogin support line per week, one bar per
@@ -239,43 +234,6 @@ p <- ggplot(charted, aes(week + week_offset, calls)) +
 
 brand_figure(p)
 ```
-
-:::
-
-::: {.card title="`r glue('Support demand ({chart_span_label})')`" width="40%"}
-
-```{r call-rate-chart}
-#| fig-width: 5.4
-#| fig-height: 4.3
-#| fig-alt: |
-#|   Scatter plot of calls per 100 daily active users for each reported week, one
-#|   dot per week, with a LOESS smoothing line through them and the newest week
-#|   labelled with its value.
-
-p <- ggplot(charted_rate, aes(week + week_offset, calls_per_100)) +
-  geom_smooth(method = "loess", formula = y ~ x, se = FALSE,
-              colour = "grey40", linewidth = 0.9) +
-  geom_point(colour = accent, size = 2.4) +
-  geom_text(data = newest_rate, aes(label = sprintf("%.2f", calls_per_100)),
-            vjust = -1.2, colour = accent, fontface = "bold", size = 3.4) +
-  scale_y_continuous(breaks = pretty_breaks(5),
-                     expand = expansion(mult = c(0.05, 0.15))) +
-  # Not a scale limit, which would silently drop the line falling below it.
-  expand_limits(y = 0) +
-  # An extra week of slack so we don't accidentally truncate labels
-  week_axis(charted_rate$week, max_labels = 7L, expand = expansion(add = c(2, 7))) +
-  theme_cds() +
-  labs(x = week_axis_title, y = "Calls per 100 daily users",
-       subtitle = "Call centre demand, measured against\nthe size of the user base")
-
-brand_figure(p, height = 0.11)
-```
-
-::: {.figure-note}
-Each week's calls, excluding test calls, divided by the sign-in user-days in
-that same week. Read as a percentage: 0.5 calls per 100 users means 0.5% of the people
-who signed in that called for support.
-:::
 
 :::
 
@@ -893,10 +851,264 @@ as a CSV.
 
 :::
 
+# Support ratios
+
+```{r ratios-summary}
+#| include: false
+
+# Step 1: how often a service's users sign in, across public applications
+login_through <- max(app_logins(con)$date)
+daily_share <- application_daily_share(
+  app_logins(con), application_is_internal(con), login_through
+)
+
+# Steps 2 and 3: four reported weeks at a time, since escalation began
+ratio_weeks <- weeks |> filter(week_end >= escalation_start)
+weekly_rate <- call_rate(ratio_weeks, daily_active_users(con))
+windows <- rolling_windows(ratio_weeks)
+window_rates <- window_call_rate(weekly_rate, windows) |>
+  left_join(
+    # Not `topics`, which the Partner support page has taken over by now
+    window_escalation_rate(call_topics(con), windows) |>
+      select(window_end, dump_calls = calls, escalations, escalation_rate),
+    by = "window_end"
+  ) |>
+  # Drawn at the centre of its last week, beside that week's own dot
+  mutate(x = window_end - 6L + week_offset)
+
+# Single weeks, for the grey dots under each four-week line
+weekly_escalation <- window_escalation_rate(
+  call_topics(con), rolling_windows(ratio_weeks, size = 1L)
+)
+
+# The charts run on the page's usual span, so old weeks age off. The diagram
+# draws from the same four-week stretches the charts show.
+ratio_charted <- ratio_weeks |> filter(week_end >= chart_from)
+ratio_x <- range(ratio_charted$week) + week_offset
+drawn <- window_rates |> filter(window_end >= chart_from)
+
+# Every call in the stretches drawn, once, for the counts behind the rate
+drawn_pooled <- window_escalation_rate(
+  call_topics(con),
+  tibble(window_start = min(drawn$window_start), window_end = max(drawn$window_end))
+)
+
+steps <- bind_rows(
+  daily_share = quartiles(daily_share$daily_share),
+  calls_per_100 = quartiles(drawn$calls_per_100),
+  escalation_rate = quartiles(drawn$escalation_rate),
+  .id = "step"
+)
+step <- split(steps, steps$step)
+
+projection <- support_projection(daily_share$daily_share,
+                                 drawn$calls_per_100,
+                                 drawn$escalation_rate)
+stage <- split(projection, projection$stage)
+
+monthly_users_label <- fmt_rounded(projection_monthly_users, 1)
+
+pct1 <- function(x) sprintf("%.1f%%", 100 * x)
+
+# "range: 6,400 to 9,400", worded the same in the diagram and the charts
+fmt_range <- function(x, fmt) glue("range: {fmt(x$low)} to {fmt(x$high)}")
+
+# Both ratio charts are drawn by this, so they read as a pair
+ratio_chart <- function(rows, weekly, y, ratio, fmt, y_title,
+                        y_labels = waiver()) {
+  rows <- filter(rows, !is.na(.data[[y]]))
+  weekly <- weekly |>
+    filter(!is.na(.data[[y]]), window_end >= chart_from) |>
+    mutate(x = window_start + week_offset)
+
+  p <- ggplot(rows, aes(x, .data[[y]])) +
+    # The arrow's middle half and median, from the green points
+    annotate("rect", xmin = -Inf, xmax = Inf, ymin = ratio$low,
+             ymax = ratio$high, fill = accent, alpha = 0.12) +
+    geom_hline(yintercept = ratio$median, colour = accent, linetype = "dashed",
+               linewidth = 0.6) +
+    geom_point(data = weekly, colour = "grey60", size = 2.2) +
+    geom_line(colour = accent, linewidth = 1) +
+    geom_point(colour = accent, size = 1.6) +
+    # In the head room below the logo, worded as on the arrow: beside the
+    # line, the label can cross a point
+    annotate("text", x = max(rows$x), y = Inf, vjust = 2.2, hjust = 0.85,
+             label = glue("Median {fmt(ratio$median)}\n",
+                          fmt_range(ratio, fmt)),
+             colour = accent, fontface = "bold", size = 3.2, lineheight = 0.9) +
+    scale_y_continuous(labels = y_labels, breaks = pretty_breaks(5),
+                       expand = expansion(mult = c(0.05, 0.45))) +
+    # Not a scale limit, which would silently drop the line falling below it
+    expand_limits(x = ratio_x, y = 0) +
+    # An extra week of slack so we don't accidentally truncate labels
+    week_axis(ratio_charted$week, max_labels = 9L,
+              expand = expansion(add = c(2, 7))) +
+    theme_cds() +
+    # Narrow tick labels otherwise run into the title
+    theme(axis.title.y = element_text(margin = margin(r = 8))) +
+    labs(x = week_axis_title, y = y_title,
+         subtitle = paste0("Grey: each week. Green: the rate over four weeks.\n",
+                           "Band and dashed line: their middle half and median."))
+  brand_figure(p, height = 0.11)
+}
+```
+
+## Row {height="auto"}
+
+::: {.card title="About support ratios"}
+
+A **support ratio** says how often one step leads to the next on the way to a
+support request. They let us turn the size of a service into the support it is
+likely to need, so the call centre and Partner Success and Operations (PSO) can
+plan before a large service joins CanadaLogin. This page uses two:
+
+- **Calls per 100 daily users**: calls to the support line, excluding test
+  calls, for every 100 users who sign in on a given day.
+- **Share of calls escalated to PSO**: of those calls, the share the call centre
+  passes to PSO for a callback.
+
+Both are taken over four weeks at a time, from the `r chart_span_label`. The
+diagram starts from how often a service's users sign in, then applies each
+support ratio in turn.
+
+:::
+
+## Row {height="auto"}
+
+::: {.card title="`r glue('What {monthly_users_label} monthly active users mean for support, per week')`"}
+
+```{r ratios-diagram}
+# HTML rather than a figure: real text, sized with the page, that wraps to a
+# column on a narrow screen. Styled in _theme.scss.
+ratio_box <- function(value, unit, range = NULL, given = FALSE) {
+  htmltools::div(
+    class = paste("ratio-box", if (given) "ratio-box-given"),
+    htmltools::div(class = "ratio-value", value),
+    htmltools::div(class = "ratio-unit", unit),
+    if (!is.null(range)) htmltools::div(class = "ratio-range", range)
+  )
+}
+
+ratio_arrow <- function(ratio, what, range) {
+  htmltools::div(
+    class = "ratio-arrow",
+    htmltools::div(class = "ratio-step", ratio),
+    htmltools::div(class = "ratio-what", what),
+    htmltools::div(class = "ratio-line", `aria-hidden` = "true"),
+    htmltools::div(class = "ratio-range", range)
+  )
+}
+
+stage_range <- function(stage, unit) fmt_range(stage, \(x) fmt_rounded(x, unit))
+fmt_rate <- function(x) sprintf("%.2f", x)
+
+htmltools::div(
+  class = "ratio-diagram",
+  htmltools::p(
+    class = "ratio-legend",
+    "Each box: the median week, with the middle half of simulated weeks below",
+    "it. Each arrow: the median ratio, with the middle half of its values below it."
+  ),
+  htmltools::div(
+    class = "ratio-flow",
+    # The starting point is a given, not an estimate
+    ratio_box(monthly_users_label, "monthly active users", given = TRUE),
+    ratio_arrow(
+      glue("× {pct1(step$daily_share$median)}"),
+      "sign in on a typical day",
+      fmt_range(step$daily_share, pct1)
+    ),
+    ratio_box(fmt_rounded(stage$daily_users$median, 100), "daily users",
+              stage_range(stage$daily_users, 100)),
+    ratio_arrow(
+      glue("× 7 days × {sprintf('%.2f', step$calls_per_100$median)}"),
+      "calls per 100 daily users",
+      fmt_range(step$calls_per_100, fmt_rate)
+    ),
+    ratio_box(fmt_rounded(stage$calls$median, 10), "calls a week",
+              stage_range(stage$calls, 10)),
+    ratio_arrow(
+      glue("× {pct1(step$escalation_rate$median)}"),
+      "escalated to PSO",
+      fmt_range(step$escalation_rate, pct1)
+    ),
+    ratio_box(fmt_rounded(stage$escalations$median, 1), "escalations a week",
+              stage_range(stage$escalations, 1))
+  )
+)
+```
+
+::: {.figure-note}
+Each box multiplies the one before it by a support ratio, calculated below.
+**Sign in on a typical day** is the
+[daily share of monthly users](https://cds-snc.github.io/canadalogin-metrics-cookbook/cookbook/ibm_verify/daily-share-of-monthly-users.html)
+of `r n_distinct(daily_share$application_name)` public applications, with small
+applications left out. This math assumes new services behave like a median
+service, but a new service may not behave like any of these!
+:::
+
+:::
+
+## Row {height="500px"}
+
+::: {.card title="`r glue('Calls per 100 daily users ({chart_span_label})')`"}
+
+```{r ratio-call-rate-chart}
+#| fig-width: 5.4
+#| fig-height: 3.8
+#| fig-alt: |
+#|   Calls per 100 daily users over the last three months: one grey dot per
+#|   reported week, a green line through the rate over each four-week stretch,
+#|   and a shaded band and dashed line marking the middle half and median of
+#|   those four-week rates, labelled as in the diagram.
+
+ratio_chart(
+  drawn,
+  weekly = rename(weekly_rate, window_start = week, window_end = week_end),
+  y = "calls_per_100", ratio = step$calls_per_100,
+  fmt = \(x) sprintf("%.2f", x),
+  y_title = "Calls per 100 daily users"
+)
+```
+
+::: {.figure-note}
+Read it as a percentage: 0.5 calls per 100 daily users means 0.5% of users who
+signed in on a given day called for support.
+:::
+
+:::
+
+::: {.card title="`r glue('Share of calls escalated to PSO ({chart_span_label})')`"}
+
+```{r ratio-escalation-chart}
+#| fig-width: 5.4
+#| fig-height: 3.8
+#| fig-alt: |
+#|   Share of calls escalated to PSO over the last three months: one grey dot
+#|   per reported week, a green line through the share over each four-week
+#|   stretch, and a shaded band and dashed line marking the middle half and
+#|   median of those four-week shares, labelled as in the diagram.
+
+ratio_chart(
+  drawn, weekly = weekly_escalation, y = "escalation_rate",
+  ratio = step$escalation_rate, fmt = pct1,
+  y_title = "Calls escalated",
+  y_labels = label_percent(accuracy = 1)
+)
+```
+
+::: {.figure-note}
+Out of calls with a topic recorded. One call can move a four-week stretch by a
+percentage point. Across the stretches shown,
+`r drawn_pooled$escalations` of `r comma(drawn_pooled$calls)` calls were escalated.
+:::
+
+:::
+
 ```{r cleanup}
 #| include: false
 # include: false matters for layout: this chunk sits in the last Row, where
-# anything visible becomes a card and takes width from the table.
+# anything visible becomes a card and takes width from the charts.
 DBI::dbDisconnect(con)
 ```
 

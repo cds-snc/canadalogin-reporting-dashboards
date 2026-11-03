@@ -26,7 +26,8 @@ support_topics <- function(weeks, topic = "CanadaLogin Password Criteria",
     call_date = days,
     topic = topic,
     language = "English",
-    clienttype = "Public"
+    clienttype = "Public",
+    transaction_type = "Search"
   )
   if (is.null(env)) rows else dplyr::mutate(rows, category = env$topic_category(topic))
 }
@@ -36,6 +37,22 @@ support_users <- function(weeks, unique_users = 1000) {
     date = seq(min(weeks$week), max(weeks$week_end), by = "day"),
     unique_users = unique_users
   )
+}
+
+# Four public applications, each with 100 users a month and 10 a day, live
+# since May so June to August are complete months as of support_today.
+support_app_logins <- function(from = as.Date("2026-05-15"),
+                               through = support_today - 1L,
+                               apps = paste("App", 1:4)) {
+  tidyr::expand_grid(
+    date = seq(from, through, by = "day"),
+    application_name = apps
+  ) |>
+    dplyr::mutate(unique_users = 10, mtd_unique_users = 100)
+}
+
+support_internal <- function(apps = paste("App", 1:4)) {
+  tibble::tibble(application_name = apps, is_internal = FALSE)
 }
 
 support_psom <- function(snapshot = support_today - 1L) {
@@ -69,7 +86,9 @@ support_with_data <- function(weeks = support_weeks(),
                               topics = NULL,
                               users = support_users(weeks),
                               psom = support_psom(),
-                              psom_sla = support_psom_sla()) {
+                              psom_sla = support_psom_sla(),
+                              logins = support_app_logins(),
+                              internal = support_internal()) {
   env <- load_dashboard("support")
   if (is.null(topics)) topics <- support_topics(weeks, env = env)
   stub(
@@ -78,7 +97,9 @@ support_with_data <- function(weeks = support_weeks(),
     call_topics = function(con) topics,
     daily_active_users = function(con) users,
     psom_snapshots = function(con) psom,
-    psom_sla_snapshots = function(con) psom_sla
+    psom_sla_snapshots = function(con) psom_sla,
+    app_logins = function(con) logins,
+    application_is_internal = function(con) internal
   )
 }
 

@@ -15,6 +15,9 @@ call_centre_report_due_days <- 5L
 # partition is today's or, before tonight's run, yesterday's.
 psom_lag_days <- 1L
 
+# Yesterday's sign-in rows land early this morning
+app_login_lag_days <- 1L
+
 # Reads ----------------------------------------------------------------------
 
 # Read a table once and cache it for the session
@@ -60,7 +63,9 @@ call_topics <- read_once("call_centre", "weekly_topic_dump", \(x) {
       call_date = as.Date(call_date),
       topic = stringr::str_squish(statobject),
       language,
-      clienttype
+      clienttype,
+      # Padded with trailing spaces
+      transaction_type = stringr::str_trim(transactiontype)
     ) |>
     dplyr::mutate(category = topic_category(topic))
 })
@@ -74,6 +79,24 @@ daily_active_users <- read_once(
       dplyr::arrange(date)
   }
 )
+
+# Daily and month-to-date users per application, for the daily share of
+# monthly users
+app_logins <- read_once(
+  "ibm_verify_events_transformed", "events_app_login_counts",
+  \(x) {
+    x |>
+      dplyr::transmute(date = as.Date(date), application_name, unique_users,
+                       mtd_unique_users) |>
+      dplyr::arrange(date)
+  }
+)
+
+# Whether each application name is an internal CanadaLogin component
+application_is_internal <- function(con) {
+  relying_party_lookup(con) |>
+    dplyr::distinct(application_name = alias, is_internal)
+}
 
 # Every snapshot of the board. `key` recurs once per snapshot.
 psom_snapshots <- read_once("jira", "psom", \(x) {
@@ -163,6 +186,160 @@ call_rate <- function(weeks, users) {
         NA_real_
       )
     )
+}
+
+# Support ratios ---------------------------------------------------------------
+
+# Escalation to PSO began on this day
+escalation_start <- as.Date("2026-06-29")
+
+# The call and escalation rates are over this many reported weeks at a time
+rate_window_weeks <- 4L
+
+# The daily share of monthly users is over this many complete months, from
+# applications with at least this many monthly users. Pilots and test
+# applications have a handful of users and any ratio at all.
+daily_share_months <- 3L
+daily_share_min_users <- 25L
+
+# Fewer application-months than this and the range is thin
+daily_share_min_sample <- 10L
+
+# The diagram starts from this many monthly active users
+projection_monthly_users <- 100000
+
+# Fixed seed, so a re-render on the same data gives the same numbers
+projection_draws <- 10000L
+projection_seed <- 20261103L
+
+# One row per application per complete month, from the cookbook's Daily Share
+# of Monthly Users: the last `months` months that end on or before `as_of`,
+# public applications live all month with at least `min_users` users.
+application_daily_share <- function(logins, internal, as_of,
+                                    months = daily_share_months,
+                                    min_users = daily_share_min_users) {
+  as_of <- as.Date(as_of)
+  # The month after the newest complete one
+  after <- month_of(as_of + 1L)
+  from <- seq(after, by = "-1 month", length.out = months + 1L)[months + 1L]
+
+  first_seen <- logins |>
+    dplyr::group_by(application_name) |>
+    dplyr::summarise(first_seen = min(date), .groups = "drop")
+
+  logins |>
+    dplyr::filter(date >= from, date < after) |>
+    dplyr::mutate(month = month_of(date)) |>
+    dplyr::group_by(application_name, month) |>
+    dplyr::summarise(
+      user_days = sum(unique_users, na.rm = TRUE),
+      # Grows through the month, so the maximum is the month's total even
+      # when the last day has no row
+      users = max(mtd_unique_users, na.rm = TRUE),
+      .groups = "drop"
+    ) |>
+    dplyr::left_join(first_seen, by = "application_name") |>
+    dplyr::left_join(internal, by = "application_name") |>
+    # An application missing from the registry is kept, as in the cookbook
+    dplyr::filter(first_seen < month, !dplyr::coalesce(is_internal, FALSE),
+                  users >= min_users) |>
+    dplyr::mutate(
+      days_in_month = as.integer(month_of(month + 31L) - month),
+      daily_share = user_days / days_in_month / users
+    ) |>
+    dplyr::select(month, application_name, users, user_days, days_in_month,
+                  daily_share) |>
+    dplyr::arrange(month, application_name)
+}
+
+# Rolling windows of `size` reported weeks, one ending on each week from the
+# first week that holds `from`.
+rolling_windows <- function(weeks, from = escalation_start,
+                            size = rate_window_weeks) {
+  weeks <- weeks |>
+    dplyr::filter(week_end >= as.Date(from)) |>
+    dplyr::arrange(week)
+  if (nrow(weeks) < size) {
+    return(tibble::tibble(window_start = as.Date(character()),
+                          window_end = as.Date(character())))
+  }
+  last <- seq(size, nrow(weeks))
+  tibble::tibble(window_start = weeks$week[last - size + 1L],
+                 window_end = weeks$week_end[last])
+}
+
+# Calls per 100 daily users over each window: its calls over its user-days.
+# NA when the sign-in data misses a day of it. Takes call_rate()'s weeks.
+window_call_rate <- function(rates, windows) {
+  in_window <- function(s, e) rates$week >= s & rates$week_end <= e
+  windows |>
+    dplyr::mutate(
+      calls = purrr::map2_dbl(window_start, window_end,
+                              \(s, e) sum(rates$calls[in_window(s, e)])),
+      user_days = purrr::map2_dbl(window_start, window_end,
+                                  \(s, e) sum(rates$user_days[in_window(s, e)])),
+      covered = purrr::map2_lgl(window_start, window_end,
+                                \(s, e) !anyNA(rates$calls_per_100[in_window(s, e)])),
+      calls_per_100 = dplyr::if_else(covered, calls / user_days * 100, NA_real_)
+    ) |>
+    dplyr::select(-covered)
+}
+
+# The cookbook's escalation rate over each window: distinct calls with a
+# callback over distinct calls, both from the topic dump. A window reaching
+# back past `from` counts from `from`.
+window_escalation_rate <- function(topics, windows, from = escalation_start) {
+  escalated <- topics$transaction_type %in% "Callback"
+  distinct_calls <- function(s, e, keep = TRUE) {
+    s <- max(s, as.Date(from))
+    dplyr::n_distinct(
+      topics$call_no[keep & topics$call_date >= s & topics$call_date <= e]
+    )
+  }
+  windows |>
+    dplyr::mutate(
+      calls = purrr::map2_int(window_start, window_end, distinct_calls),
+      escalations = purrr::map2_int(window_start, window_end,
+                                    \(s, e) distinct_calls(s, e, escalated)),
+      escalation_rate = dplyr::if_else(calls > 0, escalations / calls, NA_real_)
+    )
+}
+
+# Lower quartile, median and upper quartile
+quartiles <- function(x) {
+  q <- stats::quantile(x, c(0.25, 0.5, 0.75), names = FALSE, na.rm = TRUE)
+  tibble::tibble(low = q[1], median = q[2], high = q[3])
+}
+
+# Daily users, calls a week and escalations a week from `monthly_users`, with
+# each ratio drawn independently from its observed values. The quartiles are
+# of the simulated outcomes, not a product of each step's quartiles: every
+# step at its low end at once is rarer than one step there.
+support_projection <- function(daily_share, calls_per_100, escalation_rate,
+                               monthly_users = projection_monthly_users,
+                               draws = projection_draws,
+                               seed = projection_seed) {
+  # Indexed rather than sample(x), which reads a single number as 1:x
+  pick <- function(x) {
+    x <- x[!is.na(x)]
+    x[sample.int(length(x), draws, replace = TRUE)]
+  }
+  withr::with_seed(seed, {
+    daily_users <- monthly_users * pick(daily_share)
+    calls <- daily_users * 7 * pick(calls_per_100) / 100
+    escalations <- calls * pick(escalation_rate)
+  })
+  dplyr::bind_rows(
+    daily_users = quartiles(daily_users),
+    calls = quartiles(calls),
+    escalations = quartiles(escalations),
+    .id = "stage"
+  )
+}
+
+# "7,600", rounded to `unit`, so a box is no more precise than its inputs
+fmt_rounded <- function(x, unit) {
+  format(round(x / unit) * unit, big.mark = ",", scientific = FALSE, trim = TRUE)
 }
 
 # Topics -----------------------------------------------------------------------
