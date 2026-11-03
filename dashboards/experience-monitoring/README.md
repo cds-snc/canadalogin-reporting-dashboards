@@ -1,6 +1,6 @@
 # CanadaLogin Experience Monitoring
 
-An internal-only dashboard for the EDCP Data and Research Team that helps us understand
+An internal dashboard for Enterprise Digital Credentials that helps us understand
 the experience of a CanadaLogin user. It covers:
 
 - **Task success rates** for the sign-in, sign-up, recover-password and migration

@@ -39,10 +39,9 @@ test_that("every entry step is one step name", {
   }
 })
 
-test_that("every required funnel has a label and a note", {
+test_that("every required funnel has a label", {
   for (funnel in expmon$required_funnels) {
     expect_type(expmon$funnel_label(funnel), "character")
-    expect_type(expmon$funnel_note(funnel), "character")
   }
 })
 

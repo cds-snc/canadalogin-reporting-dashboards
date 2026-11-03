@@ -8,11 +8,19 @@
 
 h_row <- paste0(h1, "#")
 h_col <- paste0(h_row, "#")
+
+# Here, not in the chart chunk: the chart's fig-cap is evaluated before its
+# code runs, and the caption depends on the series' date range.
+s7 <- task_success_series(con, fid, "7", series_start, data_through)
+s1 <- task_success_series(con, fid, "1", series_start, data_through)
+chart_from <- min(s7$window_end, s1$window_end)
+chart_to <- max(s7$window_end, s1$window_end)
+events <- scoped_annotations(annotations, fid, chart_from, chart_to)
 ```
 
 `r h1` `r label`
 
-`r h_row` Row {height="420px"}
+`r h_row` Row {height="auto"}
 
 `r h_col` Column {width="24%"}
 
@@ -41,11 +49,11 @@ Latest 7-day rate
 #| fig-width: 7.7
 #| fig-height: 3.6
 #| fig-alt: !expr chart_alt(fid)
-
-s7 <- task_success_series(con, fid, "7", series_start, data_through)
-s1 <- task_success_series(con, fid, "1", series_start, data_through)
+#| fig-cap: !expr annotation_caption(events)
 
 p <- ggplot() +
+  annotation_layers(events, chart_from, chart_to, s7,
+                    aes(window_end, value)) +
   # Sized by starters, so a low-volume day draws small. No log transform:
   # the size scale already square-roots the value on its way to an area.
   geom_point(
@@ -60,7 +68,8 @@ p <- ggplot() +
   ) +
   scale_y_continuous(
     labels = label_percent(accuracy = 1), limits = c(0, 1),
-    expand = expansion(mult = c(0, 0.05))
+    expand = expansion(mult = c(0, annotation_headroom)),
+    oob = scales::oob_keep
   ) +
   scale_x_date(date_labels = "%b %d") +
   theme_cds() +
@@ -162,6 +171,9 @@ rows <- bind_rows(overall, per_rp) |>
 gt(rows) |>
   fmt_markdown(c(rate_7d, rate_long)) |>
   cols_align("right", c(rate_7d, rate_long)) |>
+  # Without widths Quarto splits the table evenly, and full service names wrap
+  # beside a column of acronyms.
+  cols_width(Service ~ pct(34), Operator ~ pct(10), everything() ~ pct(14)) |>
   fmt_number(c(entered, finished), decimals = 0) |>
   sub_missing(missing_text = "n/a") |>
   cols_label(
@@ -180,9 +192,7 @@ gt(rows) |>
 ```
 
 ::: {.figure-note}
-`r funnel_note(fid)`
-
-`r points_note` `r internal_note` `r finished_note`
+`r internal_note` `r finished_note`
 
 `r change_note`
 

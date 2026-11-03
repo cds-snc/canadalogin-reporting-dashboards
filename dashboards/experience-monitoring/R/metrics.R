@@ -26,56 +26,18 @@ funnel_entry_steps <- list(
   migration_new_to_cl = "migration_not_skipped"
 )
 
-# Labels and the note shown under each funnel's table, local until the
-# pipeline emits a label column. Keyed by funnel id so a mismatch fails rather
-# than heading a page with another funnel's numbers.
+# Labels, local until the pipeline emits a label column. Keyed by funnel id so
+# a mismatch fails rather than heading a page with another funnel's numbers.
+# Each funnel's notes are in annotations.yml.
 funnel_presentation <- list(
-  sign_in = list(
-    label = "Sign in",
-    note = paste(
-      "**Note.** This rate stops when the user submits their second factor,",
-      "the last step Google Analytics can see before the off-site redirect to",
-      "IBM Verify. It counts submits, so a wrong code still counts as finished."
-    )
-  ),
-  sign_up = list(
-    label = "Sign up",
-    note = paste(
-      "**Note.** Sign up's exit is the account-creation confirmation page, a",
-      "first-party event."
-    )
-  ),
-  recover_password = list(
-    label = "Recover password",
-    note = paste(
-      "**Note.** The exit here is the confirmation shown once a new password is",
-      "set, a first-party event."
-    )
-  ),
-  recover_2sv = list(
-    label = "Recover 2-step verification",
-    note = paste(
-      "**Note.** This funnel measures users who lost their 2-step verification",
-      "method and set up a new one. The exit is the screen shown once the new",
-      "method is set up, which asks the user to delete methods they no longer",
-      "use. It is a low volume funnel, about ten starts a day as of October 2026."
-    )
-  ),
+  sign_in = list(label = "Sign in"),
+  sign_up = list(label = "Sign up"),
+  recover_password = list(label = "Recover password"),
+  recover_2sv = list(label = "Recover 2-step verification"),
   migration_existing_to_cl = list(
-    label = "Migration, existing CanadaLogin account",
-    note = paste(
-      "**Note.** This funnel measures users who are migrating a legacy credential to",
-      "CanadaLogin and already have a CanadaLogin account. As of August 2026, this",
-      "is a low volume funnel, since most users are creating a new account."
-    )
+    label = "Migration, existing CanadaLogin account"
   ),
-  migration_new_to_cl = list(
-    label = "Migration, new CanadaLogin account",
-    note = paste(
-      "**Note.** This funnel measures users who are migrating a legacy credential to",
-      "CanadaLogin and want to create a new CanadaLogin account."
-    )
-  )
+  migration_new_to_cl = list(label = "Migration, new CanadaLogin account")
 )
 
 # A missing entry fails here rather than heading a page with a warehouse id.
@@ -90,10 +52,6 @@ declared_or_stop <- function(table, funnel_id, table_name) {
 
 funnel_label <- function(funnel_id) {
   declared_or_stop(funnel_presentation, funnel_id, "funnel_presentation")$label
-}
-
-funnel_note <- function(funnel_id) {
-  declared_or_stop(funnel_presentation, funnel_id, "funnel_presentation")$note
 }
 
 # Both funnel tables, loaded whole once per render and sliced in R. Each

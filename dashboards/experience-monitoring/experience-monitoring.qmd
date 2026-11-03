@@ -24,6 +24,9 @@ source("R/preflight.R")
 
 con <- connect_athena()
 
+# Each funnel's chart notes and dated events.
+annotations <- read_annotations(scope = "funnel")
+
 # This dashboard's accent, mirroring $primary in _theme.scss. ggplot cannot read
 # the scss, so the hex is written in both places; keep them in step.
 accent <- "#4B2E83"
@@ -78,7 +81,7 @@ cat(
   c(
     '<div class="page-strip">',
     glue("  <p><strong>Data through {data_through_label}.</strong> ",
-         "Internal to the Data and Research team, not for public ",
+         "Internal to Enterprise Digital Credentials, not for public ",
          "consumption.</p>"),
     "</div>"
   ),
@@ -212,12 +215,6 @@ comparison_note <- function(funnel_id) {
   )
 }
 
-# Shown under every chart: point size is an encoding, not decoration.
-points_note <- paste(
-  "The daily points on the chart are sized by how many people were in that",
-  "day's denominator."
-)
-
 # Shown under every table: what the arrows mean and when they take colour.
 change_note <- paste(
   "Each arrow is the change in percentage points from the window just",
@@ -231,7 +228,7 @@ finished_note <- paste(
   "Finished is worked out from the rate and the number who started."
 )
 
-# Shown under every chart and on the Overview: what the numbers cover.
+# Shown under every table and on the Overview: what the numbers cover.
 internal_note <- glue(
   "The headline figures and the top row are Google Analytics' own total across ",
   "every relying party. The table lists the {number_words[party_rows]} busiest ",
@@ -249,8 +246,8 @@ internal_note <- glue(
 
 This dashboard watches **task success on CanadaLogin** as recorded by
 [Google Analytics 4](https://github.com/cds-snc/canadalogin-reporting-data-pipeline/tree/main/infra/modules/google_analytics/funnel_src/funnels).
-It is internal to the Data and Research Team and the link is unlisted, so it
-isn't visible to the general public. It's for *your* information.
+It is internal to Enterprise Digital Credentials and the link is unlisted, so
+it isn't visible to the general public. It's for *your* information.
 For anything that leaves EDCP, please reach out to the
 [Data and Research team](https://gcdigital.slack.com/archives/C0A6S9F7KV4).
 We are happy to provide you with a bespoke calculation or the underlying data.
