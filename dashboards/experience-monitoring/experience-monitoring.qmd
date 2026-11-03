@@ -81,7 +81,7 @@ cat(
   c(
     '<div class="page-strip">',
     glue("  <p><strong>Data through {data_through_label}.</strong> ",
-         "Internal to the Data and Research team, not for public ",
+         "Internal to Enterprise Digital Credentials, not for public ",
          "consumption.</p>"),
     "</div>"
   ),
@@ -246,8 +246,8 @@ internal_note <- glue(
 
 This dashboard watches **task success on CanadaLogin** as recorded by
 [Google Analytics 4](https://github.com/cds-snc/canadalogin-reporting-data-pipeline/tree/main/infra/modules/google_analytics/funnel_src/funnels).
-It is internal to the Data and Research Team and the link is unlisted, so it
-isn't visible to the general public. It's for *your* information.
+It is internal to Enterprise Digital Credentials and the link is unlisted, so
+it isn't visible to the general public. It's for *your* information.
 For anything that leaves EDCP, please reach out to the
 [Data and Research team](https://gcdigital.slack.com/archives/C0A6S9F7KV4).
 We are happy to provide you with a bespoke calculation or the underlying data.
