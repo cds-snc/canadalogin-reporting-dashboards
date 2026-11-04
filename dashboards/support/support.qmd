@@ -909,6 +909,9 @@ stage <- split(projection, projection$stage)
 monthly_users_label <- fmt_rounded(projection_monthly_users, 1)
 
 pct1 <- function(x) sprintf("%.1f%%", 100 * x)
+# calls_per_100 is already per cent of daily users, and keeps the public
+# figure's two decimals
+calls_pct <- function(x) sprintf("%.2f%%", x)
 
 # "range: 6,400 to 9,400", worded the same in the diagram and the charts
 fmt_range <- function(x, fmt) glue("range: {fmt(x$low)} to {fmt(x$high)}")
@@ -962,8 +965,8 @@ support request. They let us turn the size of a service into the support it is
 likely to need, so the call centre and Partner Success and Operations (PSO) can
 plan before a large service joins CanadaLogin. This page uses two:
 
-- **Calls per 100 daily users**: calls to the support line, excluding test
-  calls, for every 100 users who sign in on a given day.
+- **Calls as a share of daily users**: calls to the support line, excluding
+  test calls, as a percentage of the users who sign in on a given day.
 - **Share of calls escalated to PSO**: of those calls, the share the call centre
   passes to PSO for a callback.
 
@@ -1000,7 +1003,6 @@ ratio_arrow <- function(ratio, what, range) {
 }
 
 stage_range <- function(stage, unit) fmt_range(stage, \(x) fmt_rounded(x, unit))
-fmt_rate <- function(x) sprintf("%.2f", x)
 
 htmltools::div(
   class = "ratio-diagram",
@@ -1021,9 +1023,9 @@ htmltools::div(
     ratio_box(fmt_rounded(stage$daily_users$median, 100), "daily users",
               stage_range(stage$daily_users, 100)),
     ratio_arrow(
-      glue("× 7 days × {sprintf('%.2f', step$calls_per_100$median)}"),
-      "calls per 100 daily users",
-      fmt_range(step$calls_per_100, fmt_rate)
+      glue("× 7 days × {calls_pct(step$calls_per_100$median)}"),
+      "calls, as a share of daily users",
+      fmt_range(step$calls_per_100, calls_pct)
     ),
     ratio_box(fmt_rounded(stage$calls$median, 10), "calls a week",
               stage_range(stage$calls, 10)),
@@ -1051,13 +1053,13 @@ service, but a new service may not behave like any of these!
 
 ## Row {height="500px"}
 
-::: {.card title="`r glue('Calls per 100 daily users ({chart_span_label})')`"}
+::: {.card title="`r glue('Calls as a share of daily users ({chart_span_label})')`"}
 
 ```{r ratio-call-rate-chart}
 #| fig-width: 5.4
 #| fig-height: 3.8
 #| fig-alt: |
-#|   Calls per 100 daily users over the last three months: one grey dot per
+#|   Calls as a share of daily users over the last three months: one grey dot per
 #|   reported week, a green line through the rate over each four-week stretch,
 #|   and a shaded band and dashed line marking the middle half and median of
 #|   those four-week rates, labelled as in the diagram.
@@ -1066,14 +1068,16 @@ ratio_chart(
   drawn,
   weekly = rename(weekly_rate, window_start = week, window_end = week_end),
   y = "calls_per_100", ratio = step$calls_per_100,
-  fmt = \(x) sprintf("%.2f", x),
-  y_title = "Calls per 100 daily users"
+  fmt = calls_pct,
+  y_title = "Calls, share of daily users",
+  y_labels = label_percent(accuracy = 0.1, scale = 1)
 )
 ```
 
 ::: {.figure-note}
-Read it as a percentage: 0.5 calls per 100 daily users means 0.5% of users who
-signed in on a given day called for support.
+This counts calls, not callers: one person can call more than once, and a
+caller may not have signed in that day. Elsewhere this is published as calls
+per 100 daily active users, so 0.5% here is 0.5 calls per 100.
 :::
 
 :::
