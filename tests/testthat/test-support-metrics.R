@@ -64,6 +64,233 @@ test_that("call_rate gives no rate for a week the sign-in data only part covers"
   expect_true(is.na(support$call_rate(weeks, users)$calls_per_100))
 })
 
+# Support ratios --------------------------------------------------------------
+
+share_logins <- function(rows) {
+  tibble::tibble(
+    date = as.Date(rows$date),
+    application_name = rows$app,
+    unique_users = rows$unique_users,
+    mtd_unique_users = rows$mtd_unique_users
+  )
+}
+
+# Every day from May 15 to `through` for one application
+daily_logins <- function(app = "App", through = as.Date("2026-09-16"),
+                         from = as.Date("2026-05-15"), unique_users = 10,
+                         mtd_unique_users = 100) {
+  days <- seq(from, through, by = "day")
+  share_logins(list(date = days, app = app, unique_users = unique_users,
+                    mtd_unique_users = mtd_unique_users))
+}
+
+public <- function(apps) tibble::tibble(application_name = apps, is_internal = FALSE)
+
+test_that("daily share takes the last complete months before as_of", {
+  share <- support$application_daily_share(daily_logins(), public("App"),
+                                           as.Date("2026-09-16"), months = 3)
+  expect_identical(share$month, as.Date(c("2026-06-01", "2026-07-01", "2026-08-01")))
+})
+
+test_that("daily share counts a month that ends on as_of as complete", {
+  share <- support$application_daily_share(daily_logins(), public("App"),
+                                           as.Date("2026-08-31"), months = 1)
+  expect_identical(share$month, as.Date("2026-08-01"))
+})
+
+test_that("daily share is user-days over days in the month over monthly users", {
+  share <- support$application_daily_share(daily_logins(), public("App"),
+                                           as.Date("2026-09-16"), months = 1)
+  expect_equal(share$user_days, 310)
+  expect_equal(share$days_in_month, 31L)
+  expect_equal(share$daily_share, 310 / 31 / 100)
+})
+
+test_that("daily share takes the month's largest month-to-date count", {
+  logins <- daily_logins()
+  logins$mtd_unique_users[logins$date == as.Date("2026-08-20")] <- 150
+  share <- support$application_daily_share(logins, public("App"),
+                                           as.Date("2026-09-16"), months = 1)
+  expect_equal(share$users, 150)
+})
+
+test_that("daily share leaves out internal applications", {
+  logins <- dplyr::bind_rows(daily_logins("Public"), daily_logins("Internal"))
+  internal <- tibble::tibble(application_name = c("Public", "Internal"),
+                             is_internal = c(FALSE, TRUE))
+  share <- support$application_daily_share(logins, internal,
+                                           as.Date("2026-09-16"), months = 1)
+  expect_identical(share$application_name, "Public")
+})
+
+test_that("daily share keeps an application missing from the registry", {
+  share <- support$application_daily_share(daily_logins("Unknown"), public("App"),
+                                           as.Date("2026-09-16"), months = 1)
+  expect_identical(share$application_name, "Unknown")
+})
+
+test_that("daily share leaves out a month the application was not live for in full", {
+  logins <- daily_logins(from = as.Date("2026-08-01"))
+  share <- support$application_daily_share(logins, public("App"),
+                                           as.Date("2026-09-16"), months = 1)
+  expect_identical(nrow(share), 0L)
+})
+
+test_that("daily share leaves out an application under the user floor", {
+  logins <- dplyr::bind_rows(daily_logins("Big", mtd_unique_users = 25),
+                             daily_logins("Small", mtd_unique_users = 24))
+  share <- support$application_daily_share(logins, public(c("Big", "Small")),
+                                           as.Date("2026-09-16"), months = 1,
+                                           min_users = 25)
+  expect_identical(share$application_name, "Big")
+})
+
+test_that("rolling_windows gives one window per week from the week holding from", {
+  windows <- support$rolling_windows(support_weeks(8), from = as.Date("2026-07-22"),
+                                     size = 4)
+  expect_identical(windows$window_start,
+                   as.Date(c("2026-07-19", "2026-07-26", "2026-08-02",
+                             "2026-08-09", "2026-08-16")))
+  expect_identical(windows$window_end,
+                   as.Date(c("2026-08-15", "2026-08-22", "2026-08-29",
+                             "2026-09-05", "2026-09-12")))
+})
+
+test_that("rolling_windows is empty with fewer weeks than one window", {
+  windows <- support$rolling_windows(support_weeks(3), from = as.Date("2026-01-01"),
+                                     size = 4)
+  expect_identical(nrow(windows), 0L)
+})
+
+test_that("window_call_rate is the window's calls over its user-days", {
+  weeks <- support_weeks(4)
+  rates <- support$call_rate(weeks, support_users(weeks, unique_users = 1000))
+  windows <- support$rolling_windows(weeks, from = min(weeks$week), size = 4)
+  rate <- support$window_call_rate(rates, windows)
+  expect_equal(rate$calls, 64)
+  expect_equal(rate$calls_per_100, 64 / 28000 * 100)
+})
+
+test_that("window_call_rate gives no rate when the sign-in data misses a day", {
+  weeks <- support_weeks(4)
+  rates <- support$call_rate(weeks, support_users(weeks)[-10, ])
+  windows <- support$rolling_windows(weeks, from = min(weeks$week), size = 4)
+  expect_true(is.na(support$window_call_rate(rates, windows)$calls_per_100))
+})
+
+escalation_topics <- function(call_no, call_date, transaction_type) {
+  tibble::tibble(call_no = call_no, call_date = as.Date(call_date),
+                 transaction_type = transaction_type)
+}
+
+one_window <- tibble::tibble(window_start = as.Date("2026-08-02"),
+                             window_end = as.Date("2026-08-29"))
+
+test_that("window_escalation_rate is distinct callback calls over distinct calls", {
+  topics <- escalation_topics(1:4, "2026-08-10",
+                              c("Callback", "Search", "Search", "Comment"))
+  rate <- support$window_escalation_rate(topics, one_window,
+                                         from = as.Date("2026-06-29"))
+  expect_identical(rate$calls, 4L)
+  expect_identical(rate$escalations, 1L)
+  expect_equal(rate$escalation_rate, 0.25)
+})
+
+test_that("window_escalation_rate counts a call with two topic rows once", {
+  topics <- escalation_topics(c(1, 1, 2), "2026-08-10",
+                              c("Callback", "Search", "Search"))
+  rate <- support$window_escalation_rate(topics, one_window,
+                                         from = as.Date("2026-06-29"))
+  expect_identical(rate$calls, 2L)
+  expect_identical(rate$escalations, 1L)
+})
+
+test_that("window_escalation_rate counts nothing before escalation began", {
+  topics <- escalation_topics(1:2, c("2026-08-03", "2026-08-20"),
+                              c("Callback", "Search"))
+  rate <- support$window_escalation_rate(topics, one_window,
+                                         from = as.Date("2026-08-10"))
+  expect_identical(rate$calls, 1L)
+  expect_identical(rate$escalations, 0L)
+})
+
+test_that("window_escalation_rate leaves out calls outside the window", {
+  topics <- escalation_topics(1:2, c("2026-08-01", "2026-08-30"), "Callback")
+  rate <- support$window_escalation_rate(topics, one_window,
+                                         from = as.Date("2026-06-29"))
+  expect_identical(rate$calls, 0L)
+})
+
+test_that("window_escalation_rate has no rate for a window with no calls", {
+  topics <- escalation_topics(integer(), character(), character())
+  rate <- support$window_escalation_rate(topics, one_window,
+                                         from = as.Date("2026-06-29"))
+  expect_true(is.na(rate$escalation_rate))
+})
+
+test_that("quartiles gives the lower quartile, median and upper quartile", {
+  q <- support$quartiles(c(1, 2, 3, 4, 5, NA))
+  expect_equal(c(q$low, q$median, q$high), c(2, 3, 4))
+})
+
+test_that("support_projection multiplies through when every ratio is fixed", {
+  projection <- support$support_projection(0.08, 0.5, 0.02,
+                                           monthly_users = 100000, draws = 50)
+  expect_identical(projection$stage, c("daily_users", "calls", "escalations"))
+  expect_equal(projection$median, c(8000, 280, 5.6))
+  expect_equal(projection$low, projection$high)
+})
+
+test_that("support_projection reads a single value as a value, not 1:x", {
+  projection <- support$support_projection(3, 100, 1, monthly_users = 1,
+                                           draws = 20)
+  expect_equal(projection$median, c(3, 21, 21))
+})
+
+test_that("support_projection ignores missing ratios", {
+  projection <- support$support_projection(c(0.1, NA), 1, 1,
+                                           monthly_users = 100, draws = 20)
+  expect_equal(projection$median[1], 10)
+})
+
+test_that("support_projection gives the same numbers on the same data", {
+  run <- function() {
+    support$support_projection(c(0.05, 0.08, 0.1), c(0.4, 0.6), c(0, 0.02, 0.05))
+  }
+  expect_identical(run(), run())
+})
+
+test_that("support_projection leaves the session's random numbers alone", {
+  set.seed(1)
+  expected <- runif(1)
+  set.seed(1)
+  support$support_projection(c(0.05, 0.1), 0.5, 0.02, draws = 10)
+  expect_identical(runif(1), expected)
+})
+
+test_that("support_projection scales with the monthly users", {
+  small <- support$support_projection(c(0.05, 0.1), c(0.4, 0.6), c(0.01, 0.03),
+                                      monthly_users = 100000)
+  large <- support$support_projection(c(0.05, 0.1), c(0.4, 0.6), c(0.01, 0.03),
+                                      monthly_users = 1000000)
+  expect_equal(large$median, small$median * 10)
+})
+
+test_that("support_projection's range is no wider than every step at its quartile", {
+  share <- c(0.05, 0.06, 0.08, 0.1, 0.15)
+  calls <- c(0.4, 0.5, 0.6, 0.7)
+  escalated <- c(0.01, 0.02, 0.03, 0.04)
+  projection <- support$support_projection(share, calls, escalated, draws = 20000)
+  q <- function(x, p) stats::quantile(x, p, names = FALSE)
+  all_low <- 100000 * q(share, 0.25) * 7 * q(calls, 0.25) / 100 * q(escalated, 0.25)
+  expect_gt(projection$low[3], all_low)
+})
+
+test_that("fmt_rounded rounds to the unit with thousands separators", {
+  expect_identical(support$fmt_rounded(c(7638, 264.9, 5.6), c(100, 10, 1)),
+                   c("7,600", "260", "6"))
+})
+
 # Topics ----------------------------------------------------------------------
 
 test_that("a topic in the lookup table takes the table's category", {

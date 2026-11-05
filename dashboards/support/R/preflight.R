@@ -252,6 +252,68 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
     }
   )
 
+  # Check 10 - app sign-in freshness --------------------------------------------
+  #
+  # The daily share of monthly users takes complete months only, so a stalled
+  # table would quietly hand the support ratios older months.
+
+  logins <- app_logins(con)
+  login_through <- suppressWarnings(max(logins$date))
+  due_month_end <- month_of(today - app_login_lag_days) - 1L
+
+  record_check(
+    "app-login-freshness",
+    glue("Sign-in data by application must cover the last complete month, ",
+         "through {format_date(due_month_end)}"),
+    passed = is.finite(login_through) && login_through >= due_month_end,
+    details = glue("events_app_login_counts reports through ",
+                   "{format_date(login_through)}")
+  )
+
+  # Check 11 - escalation field -------------------------------------------------
+  #
+  # A stretch with no escalations is real, but a blank transaction type would
+  # read as one too.
+
+  blank_types <- newest_week_topics |>
+    dplyr::filter(is.na(transaction_type) | transaction_type == "")
+
+  record_check(
+    "escalation-field",
+    "Every topic record in the newest reported week must have a transaction type",
+    passed = nrow(blank_types) == 0,
+    details = if (nrow(blank_types) == 0) {
+      glue("{nrow(newest_week_topics)} topic record(s) in the week ending ",
+           "{format_date(newest_week_end)}, none blank")
+    } else {
+      glue("{nrow(blank_types)} of {nrow(newest_week_topics)} topic record(s) ",
+           "in the week ending {format_date(newest_week_end)} have no ",
+           "transaction type, so their escalations cannot be counted")
+    }
+  )
+
+  # Check 12 - daily share sample -----------------------------------------------
+  #
+  # Advisory: a thin sample still gives a correct range, just a shaky one.
+
+  share_sample <- if (is.finite(login_through)) {
+    nrow(application_daily_share(logins, application_is_internal(con),
+                                 login_through))
+  } else {
+    0L
+  }
+
+  record_check(
+    "daily-share-sample",
+    glue("The daily share of monthly users must have at least ",
+         "{daily_share_min_sample} application-months to draw from"),
+    passed = share_sample >= daily_share_min_sample,
+    advisory = TRUE,
+    details = glue("{share_sample} application-month(s) with at least ",
+                   "{daily_share_min_users} users over the last ",
+                   "{daily_share_months} complete months")
+  )
+
   for (i in seq_along(checks)) {
     check <- checks[[i]]
     mark <- if (isTRUE(check$advisory)) "NOTE" else if (check$passed) "PASS" else "FAIL"

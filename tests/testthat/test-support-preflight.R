@@ -14,7 +14,8 @@ test_that("every check keeps its slug", {
     purrr::map_chr(result$checks, "slug"),
     c("call-centre-freshness", "call-centre-continuity", "topic-coverage",
       "topic-categories", "topic-lookup", "call-rate-coverage", "psom-freshness",
-      "psom-sla", "plausibility")
+      "psom-sla", "plausibility", "app-login-freshness", "escalation-field",
+      "daily-share-sample")
   )
 })
 
@@ -195,4 +196,68 @@ test_that("plausibility fails when test calls exceed accepted", {
   weeks$test_calls[3] <- 25
   result <- run_support_preflight(support_with_data(weeks))
   expect_true("plausibility" %in% failed_slugs(result))
+})
+
+# app-login-freshness ---------------------------------------------------------
+
+test_that("app sign-in freshness fails when the last complete month is short", {
+  logins <- support_app_logins(through = as.Date("2026-08-30"))
+  result <- run_support_preflight(support_with_data(logins = logins))
+  expect_identical(failed_slugs(result), "app-login-freshness")
+})
+
+test_that("app sign-in freshness passes data through the month's last day", {
+  logins <- support_app_logins(through = as.Date("2026-08-31"))
+  result <- run_support_preflight(support_with_data(logins = logins))
+  expect_true(check_named(result, "app-login-freshness")$passed)
+})
+
+test_that("app sign-in freshness waits a day into the month for the last one", {
+  logins <- support_app_logins(through = as.Date("2026-08-31"))
+  env <- support_with_data(logins = logins)
+  first <- run_support_preflight(env, today = as.Date("2026-09-01"))
+  expect_true(check_named(first, "app-login-freshness")$passed)
+})
+
+# escalation-field ------------------------------------------------------------
+
+test_that("escalation field fails on a blank transaction type in the newest week", {
+  weeks <- support_weeks()
+  topics <- support_topics(weeks, env = support)
+  topics$transaction_type[nrow(topics)] <- NA
+  result <- run_support_preflight(support_with_data(weeks, topics = topics))
+  expect_identical(failed_slugs(result), "escalation-field")
+})
+
+test_that("escalation field fails on an empty transaction type", {
+  weeks <- support_weeks()
+  topics <- support_topics(weeks, env = support)
+  topics$transaction_type[nrow(topics)] <- ""
+  result <- run_support_preflight(support_with_data(weeks, topics = topics))
+  expect_identical(failed_slugs(result), "escalation-field")
+})
+
+test_that("escalation field ignores a blank older than the newest week", {
+  weeks <- support_weeks()
+  topics <- support_topics(weeks, env = support)
+  topics$transaction_type[1] <- NA
+  result <- run_support_preflight(support_with_data(weeks, topics = topics))
+  expect_true(result$passed)
+})
+
+# daily-share-sample ----------------------------------------------------------
+
+test_that("a thin daily share sample is reported but does not fail the render", {
+  logins <- support_app_logins(apps = "App 1")
+  result <- run_support_preflight(
+    support_with_data(logins = logins, internal = support_internal("App 1"))
+  )
+  expect_false(check_named(result, "daily-share-sample")$passed)
+  expect_true(result$passed)
+})
+
+test_that("the daily share sample counts application-months", {
+  result <- run_support_preflight(support_with_data())
+  expect_match(check_named(result, "daily-share-sample")$details,
+               "12 application-month(s)", fixed = TRUE)
 })
