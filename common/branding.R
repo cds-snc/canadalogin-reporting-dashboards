@@ -2,8 +2,8 @@
 #'
 #' add_cds_logo() overlays the logo with cowplot::draw_image, preserving its
 #' aspect ratio. The result renders like any other figure, so embed-resources
-#' inlines it. The mark is bilingual and the variant is picked at random per
-#' call, deliberately: graphs in one report may differ in language.
+#' inlines it. The mark is bilingual: `lang` "en" (default) is the
+#' English-first CDS/SNC mark, "fr" the French-first SNC/CDS mark.
 
 suppressPackageStartupMessages({
   library(cowplot)
@@ -11,23 +11,21 @@ suppressPackageStartupMessages({
 })
 
 # Shared assets sit at the repo root; repo_path() comes from common/setup.R.
-cds_logo_path <- function(canada_wordmark = FALSE) {
+cds_logo_path <- function(canada_wordmark = FALSE, lang = c("en", "fr")) {
+  lang <- match.arg(lang)
   variants <- if (canada_wordmark) {
-    c("EN_Square+CANADA.jpg", "FR_Square+CANADA.jpg")
+    c(en = "EN_Square+CANADA.jpg", fr = "FR_Square+CANADA.jpg")
   } else {
-    c("cds-snc.png", "snc-cds.png")
+    c(en = "cds-snc.png", fr = "snc-cds.png")
   }
-  present <- repo_path("img", variants)
-  present <- present[file.exists(present)]
-  if (length(present) > 0) return(sample(present, 1))
-  stop(
-    "CDS logo not found in img/ (", paste(variants, collapse = " / "), ")",
-    call. = FALSE
-  )
+  path <- repo_path("img", variants[[lang]])
+  if (file.exists(path)) return(path)
+  stop("CDS logo not found in img/ (", variants[[lang]], ")", call. = FALSE)
 }
 
 # Overlay the logo flush in a corner. `height` is a fraction of the figure;
 # width is generous so height is what constrains it, keeping it undistorted.
+# `lang` is "en" (CDS/SNC) or "fr" (SNC/CDS).
 add_cds_logo <- function(plot,
                          position = c(
                            "top-right", "bottom-left",
@@ -35,8 +33,10 @@ add_cds_logo <- function(plot,
                            "all"
                          ),
                          height = 0.13,
-                         canada_wordmark = FALSE) {
+                         canada_wordmark = FALSE,
+                         lang = c("en", "fr")) {
   position <- match.arg(position)
+  lang <- match.arg(lang)
 
   corners <- list(
     "top-right" = list(
@@ -76,7 +76,7 @@ add_cds_logo <- function(plot,
   for (corner in placements) {
     result <- result +
       cowplot::draw_image(
-        cds_logo_path(canada_wordmark),
+        cds_logo_path(canada_wordmark, lang),
         x = corner$x, y = corner$y,
         hjust = corner$hjust, vjust = corner$vjust,
         halign = corner$halign,
