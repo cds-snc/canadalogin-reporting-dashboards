@@ -68,11 +68,6 @@ read_once <- function(read) {
   }
 }
 
-# Drops integer64, which does not survive arithmetic with doubles cleanly.
-as_plain_numbers <- function(df) {
-  dplyr::mutate(df, dplyr::across(dplyr::where(bit64::is.integer64), as.numeric))
-}
-
 # Views and sessions per day, page, title and session source. The campaign
 # is dropped: tagged links carry a source only.
 page_traffic <- read_once(\(con) {
@@ -83,7 +78,6 @@ page_traffic <- read_once(\(con) {
                      views = sum(screenpageviews, na.rm = TRUE),
                      .groups = "drop") |>
     dplyr::collect() |>
-    as_plain_numbers() |>
     dplyr::mutate(day = as.Date(date), .keep = "unused") |>
     dplyr::arrange(day)
 })
@@ -95,7 +89,6 @@ page_events <- read_once(\(con) {
     dplyr::group_by(date, page_kind, pagepath_redacted, eventname) |>
     dplyr::summarise(events = sum(eventcount, na.rm = TRUE), .groups = "drop") |>
     dplyr::collect() |>
-    as_plain_numbers() |>
     dplyr::mutate(day = as.Date(date), .keep = "unused") |>
     dplyr::arrange(day)
 })

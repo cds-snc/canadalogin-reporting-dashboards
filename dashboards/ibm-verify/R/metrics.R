@@ -24,13 +24,8 @@ read_once <- function(name, prepare) {
     }
     raw <- dplyr::tbl(con, dbplyr::in_schema("ibm_verify_events_transformed", name)) |>
       dplyr::collect()
-    # BIGINT arrives as integer64, which does not survive arithmetic with
-    # doubles cleanly.
     cache$value <- raw |>
-      dplyr::mutate(
-        date = as.Date(date),
-        dplyr::across(dplyr::where(bit64::is.integer64), as.numeric)
-      ) |>
+      dplyr::mutate(date = as.Date(date)) |>
       prepare() |>
       dplyr::arrange(date)
     cache$value

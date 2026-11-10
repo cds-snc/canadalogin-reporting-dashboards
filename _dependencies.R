@@ -5,9 +5,6 @@
 # cowplot loads magick indirectly for logo images.
 library(magick)
 
-# dplyr needs bit64 methods for Athena BIGINT columns.
-library(bit64)
-
 # Quarto selects ragg through the document's dev option.
 library(ragg)
 

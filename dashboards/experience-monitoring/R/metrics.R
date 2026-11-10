@@ -117,11 +117,7 @@ task_success_rows <- function(con, funnel_id, window_days, from, to) {
 
   rates |>
     dplyr::left_join(starters, by = c("window_end", "breakdown_value")) |>
-    dplyr::mutate(
-      # integer64 does not survive arithmetic with doubles cleanly.
-      starters = as.numeric(starters),
-      finished = round(value * starters)
-    ) |>
+    dplyr::mutate(finished = round(value * starters)) |>
     dplyr::arrange(window_end)
 }
 
