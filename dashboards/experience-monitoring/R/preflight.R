@@ -48,6 +48,15 @@ largest_starter_drops <- function(current, previous, n = 3L) {
     utils::head(n)
 }
 
+# The `expected_days` with no RESERVED_TOTAL row for `funnel` in any window.
+# A day with no starters has no 1-day row but still ends the longer windows,
+# so only a day with no rows at all is a gap.
+funnel_missing_days <- function(raw, funnel, expected_days) {
+  days_present <- raw$window_end[raw$funnel_id == funnel &
+                                   raw$breakdown_value == "RESERVED_TOTAL"]
+  expected_days[!expected_days %in% days_present]
+}
+
 run_preflight_safety_check <- function(con,
                                        today = Sys.Date(),
                                        ga_export_lag_days = 2L,
@@ -100,25 +109,18 @@ run_preflight_safety_check <- function(con,
     collect() |>
     mutate(window_end = as.Date(window_end))
 
-  # Check 1 - GA freshness (1-day rows, no gaps over the lookback) --------------
+  # Check 1 - GA freshness (no gaps over the lookback) --------------------------
 
   freshness_problems <- character()
   expected_days <- seq(freshness_start, as_of, by = "day")
   for (funnel in required_funnels) {
-    days_present <- raw |>
-      filter(funnel_id == funnel,
-             window_days == "1",
-             breakdown_value == "RESERVED_TOTAL",
-             window_end >= freshness_start) |>
-      pull(window_end) |>
-      unique()
-    missing <- expected_days[!expected_days %in% days_present]
+    missing <- funnel_missing_days(raw, funnel, expected_days)
     if (length(missing) > 0) {
       # Capped: the full list would overflow the banner.
       shown <- format_date(utils::head(missing, 5))
       freshness_problems <- c(
         freshness_problems,
-        glue("{funnel}: missing 1-day rows for {length(missing)} day(s), ",
+        glue("{funnel}: no rows for {length(missing)} day(s), ",
              "including {glue_collapse(shown, sep = ', ')}")
       )
     }
@@ -126,7 +128,7 @@ run_preflight_safety_check <- function(con,
 
   record_check(
     "ga-freshness",
-    glue("1-day rows must reach {format_date(as_of)} ",
+    glue("Rows must reach {format_date(as_of)} ",
          "with no gaps over the last {lookback_days} days"),
     passed = length(freshness_problems) == 0,
     details = if (length(freshness_problems) == 0) {

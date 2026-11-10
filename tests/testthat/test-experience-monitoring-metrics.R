@@ -110,6 +110,51 @@ test_that("the party long window reads the same stored window", {
   expect_identical(call$to, as.Date("2026-09-02"))
 })
 
+# GA freshness ----------------------------------------------------------------
+
+freshness_days <- seq(day_1, by = "day", length.out = 3)
+
+# RESERVED_TOTAL rows for `funnel`, one per date in each named window length.
+freshness_rows <- function(..., funnel = "recover_2sv") {
+  windows <- list(...)
+  tibble::tibble(
+    funnel_id = funnel,
+    window_days = rep(names(windows), lengths(windows)),
+    breakdown_value = "RESERVED_TOTAL",
+    window_end = do.call(c, unname(windows))
+  )
+}
+
+test_that("a funnel with rows every day has no missing days", {
+  raw <- freshness_rows("1" = freshness_days, "7" = freshness_days)
+  expect_length(expmon$funnel_missing_days(raw, "recover_2sv", freshness_days), 0)
+})
+
+test_that("a day with no starters is not missing while a longer window ends on it", {
+  raw <- freshness_rows("1" = freshness_days[-2], "7" = freshness_days)
+  expect_length(expmon$funnel_missing_days(raw, "recover_2sv", freshness_days), 0)
+})
+
+test_that("a day with no window at all is missing", {
+  raw <- freshness_rows("1" = freshness_days[-2], "7" = freshness_days[-2])
+  expect_identical(
+    expmon$funnel_missing_days(raw, "recover_2sv", freshness_days),
+    freshness_days[2]
+  )
+})
+
+test_that("missing days read only the total rows of the named funnel", {
+  raw <- dplyr::bind_rows(
+    freshness_rows("7" = freshness_days[-3]),
+    freshness_rows("7" = freshness_days, funnel = "sign_in"),
+    dplyr::mutate(freshness_rows("7" = freshness_days), breakdown_value = "rp-a")
+  )
+  expect_identical(
+    expmon$funnel_missing_days(raw, "recover_2sv", freshness_days),
+    freshness_days[3]
+  )
+})
+
 # Relying party attribution ---------------------------------------------------
 
 starters <- function(...) {
