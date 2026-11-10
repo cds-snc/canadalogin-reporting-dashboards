@@ -3,8 +3,7 @@
 # install.sh - Set up a Mac to render the dashboards in this repo.
 #
 # Installs the system libraries the R graphics stack needs, R at the version
-# renv.lock pins, Quarto, the AWS CLI, a project-local Python venv holding the
-# pinned boto3 that RAthena drives through reticulate, and the R packages.
+# renv.lock pins, Quarto, the AWS CLI and the R packages.
 #
 # Safe to re-run. Anything already present is reported and skipped, including
 # tools installed outside Homebrew.
@@ -139,24 +138,6 @@ if command -v aws >/dev/null 2>&1; then
 else
   run brew install awscli
 fi
-
-# ---------------------------------------------------------------------------
-
-step "Python environment for RAthena"
-
-# Project-local, because requirements.txt pins boto3 exactly and a venv shared
-# across projects cannot honour that pin.
-if [[ ! -d .venv ]]; then
-  run /usr/bin/python3 -m venv .venv
-else
-  info ".venv already exists"
-fi
-
-run ./.venv/bin/python -m pip install --quiet --upgrade pip
-run ./.venv/bin/python -m pip install --quiet -r requirements.txt
-$dry_run || info "boto3 $(./.venv/bin/python -c 'import boto3;print(boto3.__version__)')"
-
-$dry_run || info "common/setup.R points reticulate at this venv at render time"
 
 # ---------------------------------------------------------------------------
 

@@ -377,8 +377,7 @@ help_all <- tbl(con, in_schema("google_analytics", "page_traffic")) |>
   collect() |>
   mutate(
     date = as.Date(date),
-    # integer64 does not survive arithmetic with doubles cleanly.
-    views = as.numeric(screenpageviews),
+    views = screenpageviews,
     # /en and /en/ are one page, and the site emits both.
     path = ifelse(pagepath == "/", pagepath, sub("/+$", "", pagepath)),
     # The bare root is the English landing page, so it folds into /en.

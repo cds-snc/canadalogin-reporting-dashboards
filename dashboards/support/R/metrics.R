@@ -29,9 +29,7 @@ read_once <- function(schema, name, prepare) {
     }
     raw <- dplyr::tbl(con, dbplyr::in_schema(schema, name)) |>
       dplyr::collect()
-    cache$value <- raw |>
-      dplyr::mutate(dplyr::across(dplyr::where(bit64::is.integer64), as.numeric)) |>
-      prepare()
+    cache$value <- prepare(raw)
     cache$value
   }
 }

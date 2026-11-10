@@ -21,12 +21,15 @@ load_config <- function() {
 
 connect_athena <- function() {
   load_config()
-  RAthena::RAthena_options(verbose = FALSE)
+  noctua::noctua_options(verbose = FALSE)
 
+  # BIGINT arrives as double rather than integer64, which does not survive
+  # arithmetic with doubles cleanly.
   args <- list(
-    drv            = RAthena::athena(),
+    drv            = noctua::athena(),
     region_name    = Sys.getenv("AWS_REGION", "ca-central-1"),
-    s3_staging_dir = Sys.getenv("ATHENA_S3_STAGING_DIR")
+    s3_staging_dir = Sys.getenv("ATHENA_S3_STAGING_DIR"),
+    bigint         = "numeric"
   )
 
   # Pass profile_name only when set. CI has none: credentials come from env

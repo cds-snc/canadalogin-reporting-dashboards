@@ -57,11 +57,6 @@ read_once <- function(read) {
   }
 }
 
-# Drops integer64, which does not survive arithmetic with doubles cleanly.
-as_plain_numbers <- function(df) {
-  dplyr::mutate(df, dplyr::across(dplyr::where(bit64::is.integer64), as.numeric))
-}
-
 # Adds any of `columns` missing from `df` as zeros, so a result or error group
 # with no rows on any day still gets its column.
 with_columns <- function(df, columns) {
@@ -78,7 +73,6 @@ sms_days <- read_once(\(con) {
     dplyr::group_by(date, result) |>
     dplyr::summarise(n = sum(count, na.rm = TRUE), .groups = "drop") |>
     dplyr::collect() |>
-    as_plain_numbers() |>
     dplyr::transmute(day = as.Date(date), column = paste0("sms_", result), n) |>
     tidyr::pivot_wider(names_from = column, values_from = n, values_fill = 0) |>
     with_columns(c("sms_sent", "sms_success")) |>
@@ -107,7 +101,6 @@ sms_origin_days <- read_once(\(con) {
                      sms_outside = sum(outside, na.rm = TRUE),
                      .groups = "drop") |>
     dplyr::collect() |>
-    as_plain_numbers() |>
     dplyr::mutate(day = as.Date(day)) |>
     dplyr::arrange(day)
 })
@@ -128,7 +121,6 @@ sms_phone_days <- read_once(\(con) {
       .groups = "drop"
     ) |>
     dplyr::collect() |>
-    as_plain_numbers() |>
     dplyr::mutate(day = as.Date(day), per_phone = sms_sent / phones) |>
     dplyr::arrange(day)
 })
@@ -142,7 +134,6 @@ active_users_by_month <- read_once(\(con) {
   ) |>
     dplyr::select(date, mtd_unique_users) |>
     dplyr::collect() |>
-    as_plain_numbers() |>
     dplyr::mutate(date = as.Date(date)) |>
     dplyr::group_by(month = month_start(date)) |>
     dplyr::summarise(volume = mtd_unique_users[which.max(date)],
@@ -174,7 +165,6 @@ email_code_seconds <- read_once(\(con) {
     ) |>
     dplyr::count(day, seconds, name = "codes") |>
     dplyr::collect() |>
-    as_plain_numbers() |>
     dplyr::mutate(day = as.Date(day)) |>
     dplyr::arrange(day, seconds)
 })
@@ -232,7 +222,6 @@ account_pairs <- read_once(\(con) {
     dplyr::left_join(first_service, by = "user") |>
     dplyr::count(first_day, service_day, name = "accounts") |>
     dplyr::collect() |>
-    as_plain_numbers() |>
     dplyr::mutate(first_day = as.Date(first_day),
                   service_day = as.Date(service_day))
 })
@@ -243,7 +232,6 @@ error_codes <- read_once(\(con) {
     dplyr::group_by(date, error_code) |>
     dplyr::summarise(events = sum(eventcount, na.rm = TRUE), .groups = "drop") |>
     dplyr::collect() |>
-    as_plain_numbers() |>
     dplyr::transmute(day = as.Date(date), error_code, events)
 })
 
