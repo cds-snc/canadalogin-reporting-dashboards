@@ -970,7 +970,7 @@ plan before a large service joins CanadaLogin. This page uses two:
 - **Share of calls escalated to PSO**: of those calls, the share the call centre
   passes to PSO for a callback.
 
-Both are taken over four weeks at a time, from the `r chart_span_label`. The
+We calculate both over four weeks at a time, from the `r chart_span_label`. The
 diagram starts from how often a service's users sign in, then applies each
 support ratio in turn.
 
@@ -1076,7 +1076,7 @@ ratio_chart(
 
 ::: {.figure-note}
 This counts calls, not callers: one person can call more than once, and a
-caller may not have signed in that day. Elsewhere this is published as calls
+caller may not have signed in that day. Elsewhere we publish this as calls
 per 100 daily active users, so 0.5% here is 0.5 calls per 100.
 :::
 
