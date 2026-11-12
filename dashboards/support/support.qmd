@@ -151,8 +151,7 @@ usually last week's. Each call's reason is recorded as a *topic*. One call may
 cover several topics, and some calls have no topic recorded at all.
 
 The **Call topics** page shows what calls were about: every topic as the call centre
-recorded it, the topics that come up on the same calls, and the services whose callers had
-problems.
+recorded it, and the topics that come up on the same calls.
 
 The **Partner support** page counts tickets on the Partner Success and
 Operations (PSOM) Jira board, where departments integrating a service with
@@ -476,12 +475,11 @@ accepted minus test calls. Averages are the call centre's own weekly figures.
 ```{r topics-summary}
 #| include: false
 
-# Topic rows through the newest reported week, each with the service it names
-topic_services <- call_topic_services(con) |>
-  filter(call_date <= data_through)
-window_topics <- topics_in_weeks(topic_services, current)
+# Topic rows through the newest reported week
+history_topics <- filter(topics, call_date <= data_through)
+window_topics <- topics_in_weeks(history_topics, current)
 
-history_label <- glue("since {format_short_date(min(topic_services$call_date))}")
+history_label <- glue("since {format_short_date(min(history_topics$call_date))}")
 
 # "last four weeks" as a heading
 sentence_case <- function(x) paste0(toupper(substr(x, 1, 1)), substring(x, 2))
@@ -489,38 +487,22 @@ sentence_case <- function(x) paste0(toupper(substr(x, 1, 1)), substring(x, 2))
 
 ## Row {height="auto"}
 
-::: {.card title="`r glue('Problems by service ({history_label})')`"}
+::: {.card title="How to read this page"}
+Every topic the call centre recorded, grouped by category and sorted by calls in the
+last four weeks.
 
-```{r service-problems}
-problems <- service_problem_counts(topic_services)
-problem_columns <- setdiff(names(problems), c("service", "calls", "any_problem"))
-
-problems |>
-  gt(id = "service-problems") |>
-  cols_label(service = "", calls = "All calls", any_problem = "Any") |>
-  # The spanner says these are problems
-  cols_label_with(columns = all_of(problem_columns),
-                  fn = \(x) sub(" problems$", "", x)) |>
-  tab_spanner("Calls with a troubleshooting topic",
-              columns = c(any_problem, all_of(problem_columns))) |>
-  cols_align("right", columns = -service) |>
-  tab_style(cell_borders(sides = "right", color = "#DFE2E5", weight = px(1)),
-            list(cells_body(columns = calls), cells_column_labels(columns = calls))) |>
-  tab_style(list(cell_text(style = "italic"),
-                 cell_borders(sides = "top", color = "#1B1B1B", weight = px(2))),
-            cells_body(rows = service == "No service named")) |>
-  table_options()
-```
-
-::: {.figure-note}
-Calls `r history_label` that name each service, and how many of them carry a
-troubleshooting topic. A call's service comes from its topics, and about half of calls
-name none, so a service's counts are a floor. A call naming two services counts under
-both. A call can have problems in more than one category, so a row can add to more than
-*Any*. Only services with a troubleshooting call are listed. A referral to 1 800 O-Canada
-counts as no service.
-:::
-
+- **Counts are calls.** A call can have several topics, so it can count in more than
+  one row, and the shares add to more than 100%. A category counts each call once.
+- **Share** is the share of all calls in the last four weeks.
+- **Click on a topic** to see the other topics recorded on the same calls
+  `r history_label`. The percentage is how many of the selected topic's calls also had
+  that topic; hover over it for the count. A topic is listed only if it is on at least
+  `r cooccurrence_min_calls` of those calls and `r scales::percent(cooccurrence_min_share)`
+  of them.
+- **"What is CanadaLogin" is listed last.** It is recorded on most calls, so it says little
+  about why people called, and it is never listed as a related topic.
+- **Hover over a topic for its full name.** Where several topics in a category start
+  "Difficulties When", that start is dropped.
 :::
 
 ## Row {height="auto"}
@@ -528,7 +510,7 @@ counts as no service.
 ::: {.card title="Every call topic"}
 
 ```{r topics-table}
-topic_rows <- topic_table_rows(topic_services, window_topics)
+topic_rows <- topic_table_rows(history_topics, window_topics)
 
 topic_calls <- topic_rows |>
   filter(level == "topic") |>
@@ -537,17 +519,16 @@ topic_calls <- topic_rows |>
 
 # One string per topic: for each topic most often on the same calls, its share
 # of this topic's calls, then its name. The count is in the tooltip.
-most_often_with <- topic_cooccurrence(topic_services) |>
-  left_join(select(topic_calls, topic, all), by = "topic") |>
+most_often_with <- topic_cooccurrence(history_topics) |>
   left_join(select(topic_calls, topic_with = topic, short), by = "topic_with") |>
   mutate(full = htmltools::htmlEscape(topic_with, attribute = TRUE),
-         item = glue("<span class='with-share' title='on {shared} of {all} calls'>",
-                     "{round(100 * shared / all)}%</span>",
+         item = glue("<span class='with-share' title='on {shared} of {calls} calls'>",
+                     "{round(100 * shared / calls)}%</span>",
                      "<span title='{full}'>{htmltools::htmlEscape(short)}</span>")) |>
   summarise(items = paste(item, collapse = ""), .by = topic)
 
-none_shared <- glue("<span class='with-none'>No other topic on ",
-                    "{cooccurrence_min_calls} or more of its calls</span>")
+none_shared <- paste0("<span class='with-none'>No other topic on enough of the same ",
+                      "calls</span>")
 
 # A topic opens to show what came up with it. The full name is in the tooltip.
 topic_label <- function(level, category, topic, items) {
@@ -606,23 +587,13 @@ topic_rows |>
 
 # The download is embedded in the page: publishing copies only the HTML file.
 topics_file <- tempfile(fileext = ".csv")
-utils::write.csv(topic_weekly_counts(topic_services, weeks), topics_file,
+utils::write.csv(topic_weekly_counts(history_topics, weeks), topics_file,
                  row.names = FALSE)
 topics_href <- paste0("data:text/csv;base64,", base64enc::base64encode(topics_file))
 topics_name <- glue("call-topics-{data_through}.csv")
 ```
 
 ::: {.figure-note}
-Every topic the call centre recorded, under its category, with the calls that carried
-it. A call counts once under each of its topics, and once under a category however many
-of its topics fall there. Shares are of all calls in the last four weeks, so they add to
-more than 100%. "What is CanadaLogin" sits last, whatever its count.
-
-Select a topic to see the topics most often recorded on the same calls
-`r history_label`, leaving out "What is CanadaLogin". Each percentage is the share of the
-selected topic's calls that also carried the one listed; hover over it for the count. A
-topic is listed only if it is on `r cooccurrence_min_calls` or more of the same calls. Where several topics in a category
-start "Difficulties When", that start is dropped; hover over a topic for its full name.
 [Download](`r topics_href`){download="`r topics_name`"} the calls per topic per week as
 a CSV.
 :::

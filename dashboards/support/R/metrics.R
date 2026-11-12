@@ -420,28 +420,11 @@ topics_in_weeks <- function(topics, weeks) {
 # Recorded on most calls, so it says little about why anyone called
 default_topic_category <- "What is CanadaLogin"
 
-# The caller was referred to 1 800 O-Canada. Not a CanadaLogin service.
-referral_topic <- "SCA - 1 800 O-Canada"
-
-# "Most often with" lists up to this many topics, each sharing at least this
-# many calls. Below that, a pair is one or two calls of noise.
-cooccurrence_top_n <- 3L
+# "Most often with" lists every topic on at least this many of a topic's calls
+# and this share of them. Below 3 calls a pair is noise; below 5% a big topic
+# lists every article that ever came up beside it.
 cooccurrence_min_calls <- 3L
-
-# The service each topic names, from rp.alias, or NA. The topic dump has no
-# service field.
-topic_service_lookup <- function(con) {
-  topics <- unique(call_topics(con)$topic)
-  service <- label_relying_parties(con, topics)$service_name
-  service[topics == referral_topic] <- NA_character_
-  dplyr::tibble(topic = topics, service = service)
-}
-
-# Topic rows with the service the topic names. A call's service is any service
-# named by one of its topics.
-call_topic_services <- function(con) {
-  dplyr::left_join(call_topics(con), topic_service_lookup(con), by = "topic")
-}
+cooccurrence_min_share <- 0.05
 
 # Calls per category, then per topic, in `recent` and in `all`. A call with two
 # topics in one category counts once for the category. Categories run most
@@ -485,10 +468,13 @@ topic_short_label <- function(topic, category) {
   ifelse(shared, parts[, 3], topic)
 }
 
-# For each topic, the topics most often recorded on the same calls and how many
-# calls they share. Topics in the default category are never listed.
+# For each topic, the topics recorded on enough of the same calls: `shared` of
+# the topic's `calls`, most shared first. Topics in the default category are
+# never listed.
 topic_cooccurrence <- function(topics, min_calls = cooccurrence_min_calls,
-                               top_n = cooccurrence_top_n) {
+                               min_share = cooccurrence_min_share) {
+  calls <- topics |>
+    dplyr::summarise(calls = dplyr::n_distinct(call_no), .by = topic)
   kept <- topics |>
     dplyr::filter(category != default_topic_category) |>
     dplyr::distinct(call_no, topic)
@@ -498,46 +484,9 @@ topic_cooccurrence <- function(topics, min_calls = cooccurrence_min_calls,
                       relationship = "many-to-many") |>
     dplyr::filter(topic != topic_with) |>
     dplyr::count(topic, topic_with, name = "shared") |>
-    dplyr::filter(shared >= min_calls) |>
-    dplyr::arrange(topic, dplyr::desc(shared), topic_with) |>
-    dplyr::slice_head(n = top_n, by = topic)
-}
-
-# One row per service: calls naming it, calls with any troubleshooting topic,
-# and calls in each troubleshooting category, one column each. Only services
-# with a troubleshooting call, then `none_label` for calls naming no service.
-# A call naming two services counts under both.
-service_problem_counts <- function(topics, none_label = "No service named") {
-  named <- topics |>
-    dplyr::filter(!is.na(service)) |>
-    dplyr::distinct(call_no, service)
-  by_call <- dplyr::bind_rows(
-    named,
-    dplyr::tibble(call_no = setdiff(unique(topics$call_no), named$call_no),
-                  service = none_label)
-  )
-
-  problems <- topics |>
-    dplyr::filter(topic_category_type(category) == "Troubleshooting") |>
-    dplyr::distinct(call_no, category) |>
-    dplyr::mutate(category = factor(as.character(category),
-                                    levels = topic_category_levels)) |>
-    droplevels()
-
-  cells <- by_call |>
-    dplyr::inner_join(problems, by = "call_no", relationship = "many-to-many") |>
-    dplyr::count(service, category) |>
-    tidyr::pivot_wider(names_from = category, values_from = n, values_fill = 0L,
-                       names_expand = TRUE)
-
-  by_call |>
-    dplyr::summarise(calls = dplyr::n(),
-                     any_problem = sum(call_no %in% problems$call_no),
-                     .by = service) |>
-    dplyr::filter(any_problem > 0 | service == none_label) |>
-    dplyr::left_join(cells, by = "service") |>
-    dplyr::mutate(dplyr::across(-service, \(x) dplyr::coalesce(x, 0L))) |>
-    dplyr::arrange(service == none_label, dplyr::desc(any_problem), service)
+    dplyr::left_join(calls, by = "topic") |>
+    dplyr::filter(shared >= min_calls, shared / calls >= min_share) |>
+    dplyr::arrange(topic, dplyr::desc(shared), topic_with)
 }
 
 # Calls per topic per reported week, for the download. Topics outside the

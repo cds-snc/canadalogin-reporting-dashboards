@@ -350,12 +350,11 @@ test_that("topics_in_weeks is empty when there are no weeks", {
 # Call topics page ------------------------------------------------------------
 
 # One row per topic per call, categorised
-topic_rows <- function(call_no, topic, call_date = "2026-09-01", service = NA) {
+topic_rows <- function(call_no, topic, call_date = "2026-09-01") {
   tibble::tibble(
     call_no = call_no,
     call_date = as.Date(call_date),
-    topic = topic,
-    service = service
+    topic = topic
   ) |>
     dplyr::mutate(category = support$topic_category(topic))
 }
@@ -441,33 +440,25 @@ test_that("topic_cooccurrence drops pairs under the floor", {
   expect_identical(nrow(support$topic_cooccurrence(topics)), 0L)
 })
 
-test_that("topic_cooccurrence keeps the top topics, most shared first", {
+test_that("topic_cooccurrence drops a topic under the share of calls", {
+  # create is on 20 calls; forgot shares 3 of them (15%), passkey 2 (10%)
   topics <- topic_rows(
-    c(rep(1:3, each = 2), rep(4:7, each = 2)),
-    c(rep(c(create, forgot), 3), rep(c(create, passkey), 4))
+    c(1:20, 1:3, 4:5),
+    c(rep(create, 20), rep(forgot, 3), rep(passkey, 2))
   )
-  pairs <- support$topic_cooccurrence(topics, top_n = 1)
-  expect_identical(dplyr::filter(pairs, topic == create)$topic_with, passkey)
+  pairs <- support$topic_cooccurrence(topics, min_calls = 2, min_share = 0.12)
+  expect_identical(dplyr::filter(pairs, topic == create)$topic_with, forgot)
+  expect_identical(dplyr::filter(pairs, topic == create)$calls, 20L)
 })
 
-test_that("service_problem_counts counts calls by service and problem", {
+test_that("topic_cooccurrence lists every topic over the cutoff, most shared first", {
   topics <- topic_rows(
-    c(1, 1, 2, 3, 3),
-    c("MyCGC", forgot, "MyCGC", passkey, forgot),
-    service = c("MyCGC", NA, "MyCGC", NA, NA)
+    c(rep(1:4, 3), 1:3),
+    c(rep(create, 4), rep(forgot, 4), rep(passkey, 4), rep(no_codes, 3))
   )
-  counts <- support$service_problem_counts(topics)
-  expect_identical(counts$service, c("MyCGC", "No service named"))
-  expect_identical(counts$calls, c(2L, 1L))
-  expect_identical(counts$any_problem, c(1L, 1L))
-  expect_identical(counts[["Sign-in problems"]], c(1L, 1L))
-  expect_identical(counts[["2-step verification problems"]], c(0L, 1L))
-})
-
-test_that("service_problem_counts leaves out a service with no problem calls", {
-  topics <- topic_rows(1:2, c("MyCGC", create), service = c("MyCGC", NA))
-  counts <- support$service_problem_counts(topics)
-  expect_identical(counts$service, "No service named")
+  pairs <- dplyr::filter(support$topic_cooccurrence(topics), topic == create)
+  expect_identical(pairs$topic_with, c(passkey, forgot, no_codes))
+  expect_identical(pairs$shared, c(4L, 4L, 3L))
 })
 
 test_that("topic_weekly_counts places calls in their reported week", {
