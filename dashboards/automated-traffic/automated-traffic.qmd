@@ -52,7 +52,10 @@ known_bot_days <- tibble::tribble(
   as.Date("2026-09-17"), TRUE, TRUE,      TRUE,  FALSE,  TRUE,
   as.Date("2026-09-24"), TRUE, TRUE,      TRUE,  FALSE,  TRUE,
   # Ran without a browser, or blocked GA, so no error trail.
-  as.Date("2026-09-30"), TRUE, TRUE,      TRUE,  TRUE,   FALSE
+  as.Date("2026-09-30"), TRUE, TRUE,      TRUE,  TRUE,   FALSE,
+  # SMS from outside Canada and the US; only the SMS methods fired.
+  as.Date("2026-10-31"), TRUE, TRUE,      FALSE, FALSE,  FALSE,
+  as.Date("2026-11-01"), TRUE, TRUE,      FALSE, FALSE,  FALSE
 )
 
 # Setup -----------------------------------------------------------------------
