@@ -88,13 +88,19 @@ support_with_data <- function(weeks = support_weeks(),
                               psom = support_psom(),
                               psom_sla = support_psom_sla(),
                               logins = support_app_logins(),
-                              internal = support_internal()) {
+                              internal = support_internal(),
+                              services = c(none = NA_character_)) {
   env <- load_dashboard("support")
   if (is.null(topics)) topics <- support_topics(weeks, env = env)
   stub(
     env,
     call_weeks = function(con) weeks,
     call_topics = function(con) topics,
+    # `services` maps a topic to the service its alias names
+    topic_service_lookup = function(con) {
+      tibble::tibble(topic = unique(topics$topic),
+                     service = unname(services[unique(topics$topic)]))
+    },
     daily_active_users = function(con) users,
     psom_snapshots = function(con) psom,
     psom_sla_snapshots = function(con) psom_sla,

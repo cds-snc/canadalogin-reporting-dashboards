@@ -347,6 +347,139 @@ test_that("topics_in_weeks is empty when there are no weeks", {
   expect_identical(nrow(support$topics_in_weeks(topics, support_weeks(1)[0, ])), 0L)
 })
 
+# Call topics page ------------------------------------------------------------
+
+# One row per topic per call, categorised
+topic_rows <- function(call_no, topic, call_date = "2026-09-01", service = NA) {
+  tibble::tibble(
+    call_no = call_no,
+    call_date = as.Date(call_date),
+    topic = topic,
+    service = service
+  ) |>
+    dplyr::mutate(category = support$topic_category(topic))
+}
+
+# nolint start: line_length_linter. Real topic strings.
+passkey <- "Difficulties When Signing In With 2-Step Verification - Difficulties Signing In With a Passkey"
+no_codes <- "Difficulties When Signing in With 2-Step Verification - The Client is Not Receiving 2-Step Verification Codes"
+forgot <- "Difficulties When Signing in - The Client Has Forgotten Their Password (Password Reset Function)"
+# nolint end
+wicl <- "What is CanadaLogin?"
+create <- "How to Create a CanadaLogin Account"
+
+test_that("topic_table_rows counts a call with two topics in a category once", {
+  topics <- topic_rows(c(1, 1, 2), c(passkey, no_codes, passkey))
+  rows <- support$topic_table_rows(topics, topics)
+  category <- dplyr::filter(rows, level == "category")
+  expect_identical(category$all, 2L)
+  expect_identical(dplyr::filter(rows, topic == passkey)$all, 2L)
+})
+
+test_that("topic_table_rows puts the default category last, whatever its count", {
+  topics <- topic_rows(c(1, 2, 3, 4), c(wicl, wicl, wicl, forgot))
+  rows <- support$topic_table_rows(topics, topics)
+  expect_identical(dplyr::filter(rows, level == "category")$category,
+                   c("Sign-in problems", "What is CanadaLogin"))
+})
+
+test_that("topic_table_rows sorts on recent calls and gives absent ones zero", {
+  all <- topic_rows(1:4, c(create, create, create, forgot))
+  recent <- all[4, ]
+  rows <- support$topic_table_rows(all, recent)
+  expect_identical(dplyr::filter(rows, level == "category")$category,
+                   c("Sign-in problems", "Account setup and how-to"))
+  expect_identical(dplyr::filter(rows, topic == create)$recent, 0L)
+})
+
+test_that("topic_table_rows puts each category's topics right under it", {
+  topics <- topic_rows(1:3, c(create, forgot, passkey))
+  rows <- support$topic_table_rows(topics, topics)
+  expect_identical(rows$level, rep(c("category", "topic"), 3))
+  expect_identical(rows$category[c(1, 2)], rows$category[c(2, 1)])
+})
+
+test_that("topic_short_label drops a lead-in shared within a category", {
+  labels <- support$topic_short_label(
+    c(passkey, no_codes),
+    rep("2-step verification problems", 2)
+  )
+  expect_identical(labels, c("Difficulties Signing In With a Passkey",
+                             "The Client is Not Receiving 2-Step Verification Codes"))
+})
+
+test_that("topic_short_label keeps a lead-in no other topic shares", {
+  expect_identical(support$topic_short_label(forgot, "Sign-in problems"), forgot)
+})
+
+test_that("topic_short_label keeps a shared lead-in that says more than a problem", {
+  lead_in <- "Technical Difficulties Related to Migration - "
+  migration <- paste0(lead_in, c("Signing In with a GCKey",
+                                 "Signing In with an Interac Sign-in Partner"))
+  expect_identical(support$topic_short_label(migration, rep("Sign-in problems", 2)),
+                   migration)
+})
+
+test_that("topic_short_label does not match lead-ins across categories", {
+  labels <- support$topic_short_label(c(passkey, forgot), c("A", "B"))
+  expect_identical(labels, c(passkey, forgot))
+})
+
+test_that("topic_cooccurrence counts shared calls and skips the default category", {
+  topics <- topic_rows(
+    rep(1:3, each = 3),
+    rep(c(create, forgot, wicl), 3)
+  )
+  pairs <- support$topic_cooccurrence(topics)
+  expect_identical(pairs$topic, c(forgot, create))
+  expect_identical(pairs$topic_with, c(create, forgot))
+  expect_identical(pairs$shared, c(3L, 3L))
+})
+
+test_that("topic_cooccurrence drops pairs under the floor", {
+  topics <- topic_rows(rep(1:2, each = 2), rep(c(create, forgot), 2))
+  expect_identical(nrow(support$topic_cooccurrence(topics)), 0L)
+})
+
+test_that("topic_cooccurrence keeps the top topics, most shared first", {
+  topics <- topic_rows(
+    c(rep(1:3, each = 2), rep(4:7, each = 2)),
+    c(rep(c(create, forgot), 3), rep(c(create, passkey), 4))
+  )
+  pairs <- support$topic_cooccurrence(topics, top_n = 1)
+  expect_identical(dplyr::filter(pairs, topic == create)$topic_with, passkey)
+})
+
+test_that("service_problem_counts counts calls by service and problem", {
+  topics <- topic_rows(
+    c(1, 1, 2, 3, 3),
+    c("MyCGC", forgot, "MyCGC", passkey, forgot),
+    service = c("MyCGC", NA, "MyCGC", NA, NA)
+  )
+  counts <- support$service_problem_counts(topics)
+  expect_identical(counts$service, c("MyCGC", "No service named"))
+  expect_identical(counts$calls, c(2L, 1L))
+  expect_identical(counts$any_problem, c(1L, 1L))
+  expect_identical(counts[["Sign-in problems"]], c(1L, 1L))
+  expect_identical(counts[["2-step verification problems"]], c(0L, 1L))
+})
+
+test_that("service_problem_counts leaves out a service with no problem calls", {
+  topics <- topic_rows(1:2, c("MyCGC", create), service = c("MyCGC", NA))
+  counts <- support$service_problem_counts(topics)
+  expect_identical(counts$service, "No service named")
+})
+
+test_that("topic_weekly_counts places calls in their reported week", {
+  weeks <- support_weeks(2)
+  topics <- topic_rows(1:3, create, call_date = c(weeks$week[1], weeks$week_end[2],
+                                                  weeks$week_end[2] + 1))
+  counts <- support$topic_weekly_counts(topics, weeks)
+  expect_identical(counts$week_ending, weeks$week_end)
+  expect_identical(counts$calls, c(1L, 1L))
+  expect_identical(counts$type, rep("Informational", 2))
+})
+
 # PSOM ------------------------------------------------------------------------
 
 test_that("week_of returns the Monday of the week", {

@@ -15,7 +15,7 @@ test_that("every check keeps its slug", {
     c("call-centre-freshness", "call-centre-continuity", "topic-coverage",
       "topic-categories", "topic-lookup", "call-rate-coverage", "psom-freshness",
       "psom-sla", "plausibility", "app-login-freshness", "escalation-field",
-      "daily-share-sample")
+      "daily-share-sample", "topic-services")
   )
 })
 
@@ -260,4 +260,30 @@ test_that("the daily share sample counts application-months", {
   result <- run_support_preflight(support_with_data())
   expect_match(check_named(result, "daily-share-sample")$details,
                "12 application-month(s)", fixed = TRUE)
+})
+
+# topic-services --------------------------------------------------------------
+
+test_that("topic services fail on a partner topic with no alias", {
+  weeks <- support_weeks()
+  topics <- support_topics(weeks, topic = "MyCGC", env = support)
+  result <- run_support_preflight(support_with_data(weeks, topics = topics))
+  expect_identical(failed_slugs(result), "topic-services")
+  expect_match(check_named(result, "topic-services")$details, '"MyCGC"', fixed = TRUE)
+})
+
+test_that("topic services pass a partner topic with an alias", {
+  weeks <- support_weeks()
+  topics <- support_topics(weeks, topic = "MyCGC", env = support)
+  result <- run_support_preflight(
+    support_with_data(weeks, topics = topics, services = c(MyCGC = "MyCGC"))
+  )
+  expect_true(result$passed)
+})
+
+test_that("topic services pass the 1 800 O-Canada referral", {
+  weeks <- support_weeks()
+  topics <- support_topics(weeks, topic = "SCA - 1 800 O-Canada", env = support)
+  result <- run_support_preflight(support_with_data(weeks, topics = topics))
+  expect_true(result$passed)
 })

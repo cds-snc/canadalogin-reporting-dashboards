@@ -314,6 +314,28 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
                    "{daily_share_months} complete months")
   )
 
+  # Check 13 - topic services ---------------------------------------------------
+  #
+  # A partner topic with no rp alias names no service, so its calls would count
+  # under "No service named". The fix is a row in the relying party sheet.
+
+  unaliased <- call_topic_services(con) |>
+    dplyr::filter(category == "Partner and other services", is.na(service),
+                  topic != referral_topic) |>
+    dplyr::count(topic, sort = TRUE)
+
+  record_check(
+    "topic-services",
+    "Every partner topic must name a service in rp.alias",
+    passed = nrow(unaliased) == 0,
+    details = if (nrow(unaliased) == 0) {
+      "every partner topic resolves to a service"
+    } else {
+      glue("no alias for: ",
+           "{glue_collapse(glue('\"{unaliased$topic}\" ({unaliased$n})'), sep = '; ')}")
+    }
+  )
+
   for (i in seq_along(checks)) {
     check <- checks[[i]]
     mark <- if (isTRUE(check$advisory)) "NOTE" else if (check$passed) "PASS" else "FAIL"
