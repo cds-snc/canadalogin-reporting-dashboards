@@ -34,8 +34,7 @@ snapshot_date <- psom_snapshot_date(con)
 psom_through <- snapshot_date - 1L
 
 # How far back every weekly chart runs
-chart_from <- seq(as.Date(format(max(data_through, psom_through), "%Y-%m-01")),
-                  by = "-2 months", length.out = 2)[2]
+chart_from <- chart_span_start(data_through, psom_through)
 
 # For a card title, where the exact dates are on the axis below it.
 chart_span_label <- "last three months"
@@ -865,14 +864,10 @@ daily_share <- application_daily_share(
 # Steps 2 and 3: four reported weeks at a time, since escalation began
 ratio_weeks <- weeks |> filter(week_end >= escalation_start)
 weekly_rate <- call_rate(ratio_weeks, daily_active_users(con))
-windows <- rolling_windows(ratio_weeks)
-window_rates <- window_call_rate(weekly_rate, windows) |>
-  left_join(
-    # Not `topics`, which the Partner support page has taken over by now
-    window_escalation_rate(call_topics(con), windows) |>
-      select(window_end, dump_calls = calls, escalations, escalation_rate),
-    by = "window_end"
-  ) |>
+# Not `topics`, which the Partner support page has taken over by now
+window_rates <- ratio_stretches(
+  ratio_weeks, daily_active_users(con), call_topics(con)
+) |>
   # Drawn at the centre of its last week, beside that week's own dot
   mutate(x = window_end - 6L + week_offset)
 
@@ -970,7 +965,7 @@ plan before a large service joins CanadaLogin. This page uses two:
 - **Share of calls escalated to PSO**: of those calls, the share the call centre
   passes to PSO for a callback.
 
-Both are taken over four weeks at a time, from the `r chart_span_label`. The
+We calculate both over four weeks at a time, from the `r chart_span_label`. The
 diagram starts from how often a service's users sign in, then applies each
 support ratio in turn.
 
@@ -1076,7 +1071,7 @@ ratio_chart(
 
 ::: {.figure-note}
 This counts calls, not callers: one person can call more than once, and a
-caller may not have signed in that day. Elsewhere this is published as calls
+caller may not have signed in that day. Elsewhere we publish this as calls
 per 100 daily active users, so 0.5% here is 0.5 calls per 100.
 :::
 

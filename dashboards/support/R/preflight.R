@@ -314,6 +314,30 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
                    "{daily_share_months} complete months")
   )
 
+  # Check 13 - ratio stretch sample ---------------------------------------------
+  #
+  # Advisory: the call and escalation ranges draw from the four-week stretches
+  # in the page's span, and fall short when the call centre report lags.
+
+  span_start <- chart_span_start(newest_week_end, snapshot - 1L)
+  stretches <- ratio_stretches(
+    dplyr::filter(weeks, week_end >= escalation_start),
+    daily_active_users(con), topics
+  ) |>
+    dplyr::filter(window_end >= span_start)
+  usable_stretches <- sum(!is.na(stretches$calls_per_100) &
+                            !is.na(stretches$escalation_rate))
+
+  record_check(
+    "ratio-stretch-sample",
+    glue("The call and escalation ratios must have at least ",
+         "{ratio_stretch_min_sample} four-week stretches to draw from"),
+    passed = usable_stretches >= ratio_stretch_min_sample,
+    advisory = TRUE,
+    details = glue("{usable_stretches} four-week stretch(es) with both rates, ",
+                   "ending {format_date(span_start)} or later")
+  )
+
   for (i in seq_along(checks)) {
     check <- checks[[i]]
     mark <- if (isTRUE(check$advisory)) "NOTE" else if (check$passed) "PASS" else "FAIL"

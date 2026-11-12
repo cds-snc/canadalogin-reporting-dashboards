@@ -69,8 +69,9 @@
 - funnel: migration_existing_to_cl
   description: >-
     **Note.** This funnel measures users who are migrating a legacy credential
-    to CanadaLogin and already have a CanadaLogin account. As of August 2026,
-    this is a low volume funnel, since most users are creating a new account.
+    to CanadaLogin and already have a CanadaLogin account. It is the smaller
+    migration funnel, about 30 percent of migration starters in the four weeks
+    before migration was turned off.
 
 - funnel: migration_new_to_cl
   description: >-
@@ -81,6 +82,12 @@
   start: 2026-09-02
   description: >-
     ATIP's two services started using CanadaLogin.
+
+- funnel: [migration_existing_to_cl, migration_new_to_cl]
+  start: 2026-11-06
+  description: >-
+    Migration was turned off in production. These funnels have almost no
+    starters after this date.
 
 - funnel: sign_up
   start: 2026-09-17
