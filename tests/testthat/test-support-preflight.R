@@ -15,7 +15,7 @@ test_that("every check keeps its slug", {
     c("call-centre-freshness", "call-centre-continuity", "topic-coverage",
       "topic-categories", "topic-lookup", "call-rate-coverage", "psom-freshness",
       "psom-sla", "plausibility", "app-login-freshness", "escalation-field",
-      "daily-share-sample")
+      "daily-share-sample", "ratio-stretch-sample")
   )
 })
 
@@ -260,4 +260,23 @@ test_that("the daily share sample counts application-months", {
   result <- run_support_preflight(support_with_data())
   expect_match(check_named(result, "daily-share-sample")$details,
                "12 application-month(s)", fixed = TRUE)
+})
+
+# ratio-stretch-sample --------------------------------------------------------
+
+test_that("a short history is reported but does not fail the render", {
+  # Five weeks hold two four-week stretches, short of the minimum
+  weeks <- support_weeks(n = 5L)
+  result <- run_support_preflight(support_with_data(weeks))
+  expect_false(check_named(result, "ratio-stretch-sample")$passed)
+  expect_true(result$passed)
+})
+
+test_that("the stretch sample counts the stretches in the span", {
+  weeks <- support_weeks(n = 12L, through = as.Date("2026-09-12"))
+  result <- run_support_preflight(support_with_data(weeks))
+  check <- check_named(result, "ratio-stretch-sample")
+  expect_true(check$passed)
+  expect_match(check$details, "8 four-week stretch(es)", fixed = TRUE)
+  expect_match(check$details, "Jul 01", fixed = TRUE)
 })

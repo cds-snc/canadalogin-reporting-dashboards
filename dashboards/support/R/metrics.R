@@ -194,6 +194,10 @@ escalation_start <- as.Date("2026-06-29")
 # The call and escalation rates are over this many reported weeks at a time
 rate_window_weeks <- 4L
 
+# Fewer four-week stretches than this in the page's span and the call and
+# escalation ranges are thin
+ratio_stretch_min_sample <- 6L
+
 # The daily share of monthly users is over this many complete months, from
 # applications with at least this many monthly users. Pilots and test
 # applications have a handful of users and any ratio at all.
@@ -248,6 +252,26 @@ application_daily_share <- function(logins, internal, as_of,
     dplyr::select(month, application_name, users, user_days, days_in_month,
                   daily_share) |>
     dplyr::arrange(month, application_name)
+}
+
+# How far back every weekly chart runs: the 1st of the month two months before
+# the newest data on either source.
+chart_span_start <- function(...) {
+  newest <- max(...)
+  seq(as.Date(format(newest, "%Y-%m-01")), by = "-2 months", length.out = 2)[2]
+}
+
+# Every four-week stretch since escalation began, with the call and escalation
+# rates the diagram draws from. Takes `weeks` already limited to those weeks.
+ratio_stretches <- function(weeks, users, topics) {
+  windows <- rolling_windows(weeks)
+  window_call_rate(call_rate(weeks, users), windows) |>
+    dplyr::left_join(
+      window_escalation_rate(topics, windows) |>
+        dplyr::select(window_end, dump_calls = calls, escalations,
+                      escalation_rate),
+      by = "window_end"
+    )
 }
 
 # Rolling windows of `size` reported weeks, one ending on each week from the
