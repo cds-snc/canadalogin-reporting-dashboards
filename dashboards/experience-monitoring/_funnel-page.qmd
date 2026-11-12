@@ -160,10 +160,12 @@ rows <- bind_rows(overall, per_rp) |>
     noise_7d = change_noise(rate_7d, starters_7d, prior_7d, prior_starters_7d),
     noise_long = change_noise(rate_long, entered, prior_long, prior_entered),
     rate_7d = rate_change_cell(
-      rate_7d, delta_7d, is_meaningful_change(delta_7d, noise_7d)
+      rate_7d, delta_7d,
+      is_meaningful_change(delta_7d, noise_7d, starters_7d, prior_starters_7d)
     ),
     rate_long = rate_change_cell(
-      rate_long, delta_long, is_meaningful_change(delta_long, noise_long)
+      rate_long, delta_long,
+      is_meaningful_change(delta_long, noise_long, entered, prior_entered)
     )
   ) |>
   select(Service, Operator, entered, finished, rate_7d, rate_long)

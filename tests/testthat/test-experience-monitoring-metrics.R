@@ -252,14 +252,22 @@ test_that("change noise is NA without starters on both sides", {
 
 test_that("a change is meaningful only past the noise band", {
   expect_identical(
-    expmon$is_meaningful_change(c(0.05, -0.05, 0.01), 0.02),
+    expmon$is_meaningful_change(c(0.05, -0.05, 0.01), 0.02, 100, 100),
     c(TRUE, TRUE, FALSE)
   )
 })
 
 test_that("a change with no delta or no noise is not meaningful", {
   expect_identical(
-    expmon$is_meaningful_change(c(NA, 0.05), c(0.02, NA)), c(FALSE, FALSE)
+    expmon$is_meaningful_change(c(NA, 0.05), c(0.02, NA), 100, 100),
+    c(FALSE, FALSE)
+  )
+})
+
+test_that("a change is not meaningful with too few starters in either window", {
+  expect_identical(
+    expmon$is_meaningful_change(1, 0.02, c(3, 100, 30, NA), c(100, 3, 30, 100)),
+    c(FALSE, FALSE, TRUE, FALSE)
   )
 })
 

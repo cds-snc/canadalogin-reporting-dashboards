@@ -211,9 +211,14 @@ change_noise <- function(rate, starters, prior_rate, prior_starters) {
 # minimum for text; the rate beside it carries the figure.
 quiet_change_colour <- "#8A9299"
 
+# Fewest starters either window needs for a meaningful change. Below this the
+# normal approximation behind change_noise() breaks down.
+min_change_starters <- 30
+
 # FALSE where either side is missing, so an unmeasured change reads grey.
-is_meaningful_change <- function(delta, noise) {
-  dplyr::coalesce(abs(delta) > noise_multiple * noise, FALSE)
+is_meaningful_change <- function(delta, noise, starters, prior_starters) {
+  enough <- pmin(starters, prior_starters) >= min_change_starters
+  dplyr::coalesce(enough & abs(delta) > noise_multiple * noise, FALSE)
 }
 
 # One table cell as HTML: the rate, then its change in whole points, such as
