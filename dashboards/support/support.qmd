@@ -246,6 +246,95 @@ brand_figure(p)
 
 :::
 
+## Row {height="420px"}
+
+::: {.card title="`r glue('Why users called ({window_label})')`"}
+
+```{r topics-chart}
+#| fig-width: 12
+#| fig-height: 3.5
+#| fig-alt: |
+#|   Two horizontal bar charts side by side, sharing a calls axis: informational
+#|   topics on the left, troubleshooting topics on the right. Each shows up to five
+#|   groups of calls over the last four weeks by what they were about, sorted from
+#|   most to least common, each bar labelled with its count of calls and its share
+#|   of all calls in the window. "What is CanadaLogin" is left out.
+
+window_topics <- topics_in_weeks(topics, current)
+
+topic_types <- c("Informational", "Troubleshooting")
+panel_slots <- 5L
+
+# distinct() so a call recorded against two topics in one category counts once
+by_category <- window_topics |>
+  distinct(call_no, category) |>
+  count(category, name = "calls") |>
+  # Keep every named category on the axis so the chart always has the same rows
+  complete(category = factor(topic_category_levels, levels = topic_category_levels),
+           fill = list(calls = 0L)) |>
+  filter(category != "Other" | calls > 0, category != default_topic_category) |>
+  mutate(category = as.character(category),
+         type = factor(topic_category_type(category), levels = topic_types)) |>
+  group_by(type) |>
+  # A tie at fifth place is broken alphabetically, so a panel never shows six
+  arrange(desc(calls), category, .by_group = TRUE) |>
+  slice_head(n = panel_slots) |>
+  ungroup()
+
+# Each panel has five slots, so a bar is the same thickness in both however many
+# categories a type has. A slot with no category is a blank row, named with a
+# distinct run of spaces so the rows stay apart on the axis.
+empty_slots <- by_category |>
+  count(type, name = "used", .drop = FALSE) |>
+  mutate(missing = panel_slots - used) |>
+  filter(missing > 0) |>
+  tidyr::uncount(missing, .id = "slot") |>
+  mutate(category = strrep(" ", as.integer(type) * panel_slots + slot),
+         calls = NA_integer_) |>
+  select(type, category, calls)
+
+by_category <- bind_rows(by_category, empty_slots) |>
+  # Blank rows first, so they sit at the foot of the panel
+  arrange(!is.na(calls), calls, desc(category)) |>
+  mutate(category = factor(category, levels = category))
+
+bars <- filter(by_category, !is.na(calls))
+
+# Calls the report counted that the topic dump has no reason
+calls_without_topic <- calls_now - n_distinct(window_topics$call_no)
+
+p <- ggplot(by_category, aes(calls, category)) +
+  geom_blank() +
+  geom_col(data = bars, aes(fill = type), width = 0.7, show.legend = FALSE) +
+  geom_text(data = bars,
+            aes(label = paste0(calls, " (", round(100 * calls / calls_now), "%)")),
+            hjust = -0.2, size = 3.2, colour = "grey30") +
+  # Fixed x so the two panels compare directly
+  facet_wrap(~type, nrow = 1, scales = "free_y", drop = FALSE) +
+  scale_x_continuous(breaks = pretty_breaks(4),
+                     expand = expansion(mult = c(0, 0.3))) +
+  scale_fill_manual(values = c(Troubleshooting = accent,
+                               Informational = accent_light)) +
+  theme_cds() +
+  # Every bar is labelled, and a tick on a blank slot would point at nothing
+  theme(panel.grid.major.y = element_blank(),
+        axis.ticks.y = element_blank()) +
+  labs(x = "Calls", y = NULL,
+       subtitle = glue("Calls by what they were about, {window_weeks_label}, ",
+                       "from the topics the call centre recorded."))
+
+brand_figure(p)
+```
+
+::: {.figure-note}
+Each bar counts **calls**, not topic records. One call may have many topics, one or 
+none. Because of that, the percentages do not necessarily add to 100%. "What is
+CanadaLogin" is left out: the call centre records it on most calls, so it says little
+about why anyone called. For more detail, see the [Call topics](#call-topics) page.
+:::
+
+:::
+
 ## Row
 
 ::: {.card title="`r glue('Call metrics ({window_label})')`"}
@@ -398,93 +487,6 @@ history_label <- glue("since {format_short_date(min(topic_services$call_date))}"
 sentence_case <- function(x) paste0(toupper(substr(x, 1, 1)), substring(x, 2))
 ```
 
-## Row {height="420px"}
-
-::: {.card title="`r glue('Why users called ({window_label})')`"}
-
-```{r topics-chart}
-#| fig-width: 12
-#| fig-height: 3.5
-#| fig-alt: |
-#|   Two horizontal bar charts side by side, sharing a calls axis: informational
-#|   topics on the left, troubleshooting topics on the right. Each shows up to five
-#|   groups of calls over the last four weeks by what they were about, sorted from
-#|   most to least common, each bar labelled with its count of calls and its share
-#|   of all calls in the window. "What is CanadaLogin" is left out.
-
-topic_types <- c("Informational", "Troubleshooting")
-panel_slots <- 5L
-
-# distinct() so a call recorded against two topics in one category counts once
-by_category <- window_topics |>
-  distinct(call_no, category) |>
-  count(category, name = "calls") |>
-  # Keep every named category on the axis so the chart always has the same rows
-  complete(category = factor(topic_category_levels, levels = topic_category_levels),
-           fill = list(calls = 0L)) |>
-  filter(category != "Other" | calls > 0, category != default_topic_category) |>
-  mutate(category = as.character(category),
-         type = factor(topic_category_type(category), levels = topic_types)) |>
-  group_by(type) |>
-  # A tie at fifth place is broken alphabetically, so a panel never shows six
-  arrange(desc(calls), category, .by_group = TRUE) |>
-  slice_head(n = panel_slots) |>
-  ungroup()
-
-# Each panel has five slots, so a bar is the same thickness in both however many
-# categories a type has. A slot with no category is a blank row, named with a
-# distinct run of spaces so the rows stay apart on the axis.
-empty_slots <- by_category |>
-  count(type, name = "used", .drop = FALSE) |>
-  mutate(missing = panel_slots - used) |>
-  filter(missing > 0) |>
-  tidyr::uncount(missing, .id = "slot") |>
-  mutate(category = strrep(" ", as.integer(type) * panel_slots + slot),
-         calls = NA_integer_) |>
-  select(type, category, calls)
-
-by_category <- bind_rows(by_category, empty_slots) |>
-  # Blank rows first, so they sit at the foot of the panel
-  arrange(!is.na(calls), calls, desc(category)) |>
-  mutate(category = factor(category, levels = category))
-
-bars <- filter(by_category, !is.na(calls))
-
-# Calls the report counted that the topic dump has no reason
-calls_without_topic <- calls_now - n_distinct(window_topics$call_no)
-
-p <- ggplot(by_category, aes(calls, category)) +
-  geom_blank() +
-  geom_col(data = bars, aes(fill = type), width = 0.7, show.legend = FALSE) +
-  geom_text(data = bars,
-            aes(label = paste0(calls, " (", round(100 * calls / calls_now), "%)")),
-            hjust = -0.2, size = 3.2, colour = "grey30") +
-  # Fixed x so the two panels compare directly
-  facet_wrap(~type, nrow = 1, scales = "free_y", drop = FALSE) +
-  scale_x_continuous(breaks = pretty_breaks(4),
-                     expand = expansion(mult = c(0, 0.3))) +
-  scale_fill_manual(values = c(Troubleshooting = accent,
-                               Informational = accent_light)) +
-  theme_cds() +
-  # Every bar is labelled, and a tick on a blank slot would point at nothing
-  theme(panel.grid.major.y = element_blank(),
-        axis.ticks.y = element_blank()) +
-  labs(x = "Calls", y = NULL,
-       subtitle = glue("Calls by what they were about, {window_weeks_label}, ",
-                       "from the topics the call centre recorded."))
-
-brand_figure(p)
-```
-
-::: {.figure-note}
-Each bar counts **calls**, not topic records. One call may have many topics, one or 
-none. Because of that, the percentages do not necessarily add to 100%. "What is
-CanadaLogin" is left out: the call centre records it on most calls, so it says little
-about why anyone called.
-:::
-
-:::
-
 ## Row {height="auto"}
 
 ::: {.card title="`r glue('Problems by service ({history_label})')`"}
@@ -530,26 +532,28 @@ topic_rows <- topic_table_rows(topic_services, window_topics)
 
 topic_calls <- topic_rows |>
   filter(level == "topic") |>
-  select(topic, all)
+  mutate(short = topic_short_label(topic, category)) |>
+  select(topic, all, short)
 
-# "<li>How to Create a CanadaLogin Account: on 48 of 171 calls</li>" for each
-# topic most often on the same calls, in one string per topic
+# One string per topic: for each topic most often on the same calls, its share
+# of this topic's calls, then its name. The count is in the tooltip.
 most_often_with <- topic_cooccurrence(topic_services) |>
-  left_join(topic_calls, by = "topic") |>
-  mutate(item = glue("<li>{htmltools::htmlEscape(topic_with)}: ",
-                     "<span class='topic-with-count'>on {shared} of {all} ",
-                     "calls</span></li>")) |>
+  left_join(select(topic_calls, topic, all), by = "topic") |>
+  left_join(select(topic_calls, topic_with = topic, short), by = "topic_with") |>
+  mutate(full = htmltools::htmlEscape(topic_with, attribute = TRUE),
+         item = glue("<span class='with-share' title='on {shared} of {all} calls'>",
+                     "{round(100 * shared / all)}%</span>",
+                     "<span title='{full}'>{htmltools::htmlEscape(short)}</span>")) |>
   summarise(items = paste(item, collapse = ""), .by = topic)
 
-none_shared <- glue("<p>No other topic is on {cooccurrence_min_calls} or more of ",
-                    "its calls.</p>")
+none_shared <- glue("<span class='with-none'>No other topic on ",
+                    "{cooccurrence_min_calls} or more of its calls</span>")
 
 # A topic opens to show what came up with it. The full name is in the tooltip.
 topic_label <- function(level, category, topic, items) {
   short <- htmltools::htmlEscape(topic_short_label(topic, category))
   full <- htmltools::htmlEscape(topic, attribute = TRUE)
-  listing <- if_else(is.na(items), none_shared,
-                     glue("<p>Most often on the same call:</p><ul>{items}</ul>"))
+  listing <- coalesce(items, none_shared)
   case_when(
     level == "category" ~ htmltools::htmlEscape(category),
     category == default_topic_category ~
@@ -578,10 +582,13 @@ topic_rows |>
     # Indented as a block, so a long topic's second line lines up with its first
     "#topic-table .topic { margin: 0 0 0 16px; }",
     "#topic-table summary { cursor: pointer; color: inherit; }",
-    "#topic-table .topic-with { font-size: 13px; color: #444; margin: 4px 0 0 18px; }",
-    "#topic-table .topic-with p { margin: 0; }",
-    "#topic-table .topic-with ul { margin: 0; padding-left: 14px; }",
-    "#topic-table .topic-with-count { color: #5C6670; }"
+    # Share, then topic, in two columns; a rule ties the list to its topic
+    paste("#topic-table .topic-with { display: grid; grid-template-columns: 3em 1fr;",
+          "column-gap: 10px; row-gap: 2px; margin: 4px 0 6px 5px; padding-left: 10px;",
+          "border-left: 2px solid #DFE2E5; font-size: 13px; color: #444; }"),
+    paste("#topic-table .with-share { text-align: right; color: #5C6670;",
+          "font-variant-numeric: tabular-nums; }"),
+    "#topic-table .with-none { grid-column: 1 / -1; color: #5C6670; }"
   )) |>
   fmt_passthrough(columns = c(label, bar), escape = FALSE) |>
   cols_hide(level) |>
@@ -612,8 +619,9 @@ of its topics fall there. Shares are of all calls in the last four weeks, so the
 more than 100%. "What is CanadaLogin" sits last, whatever its count.
 
 Select a topic to see the topics most often recorded on the same calls
-`r history_label`, leaving out "What is CanadaLogin". A topic is listed only if it is on
-`r cooccurrence_min_calls` or more of the same calls. Where several topics in a category
+`r history_label`, leaving out "What is CanadaLogin". Each percentage is the share of the
+selected topic's calls that also carried the one listed; hover over it for the count. A
+topic is listed only if it is on `r cooccurrence_min_calls` or more of the same calls. Where several topics in a category
 start "Difficulties When", that start is dropped; hover over a topic for its full name.
 [Download](`r topics_href`){download="`r topics_name`"} the calls per topic per week as
 a CSV.
