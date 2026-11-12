@@ -69,8 +69,8 @@
 - funnel: migration_existing_to_cl
   description: >-
     **Note.** This funnel measures users who are migrating a legacy credential
-    to CanadaLogin and already have a CanadaLogin account. As of August 2026,
-    this is a low volume funnel, since most users are creating a new account.
+    to CanadaLogin and already have a CanadaLogin account. It is the smaller
+    migration funnel, about 30 percent of migration starters as of November 2026.
 
 - funnel: migration_new_to_cl
   description: >-
