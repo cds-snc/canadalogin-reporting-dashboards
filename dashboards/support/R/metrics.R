@@ -427,6 +427,95 @@ topics_in_weeks <- function(topics, weeks) {
   dplyr::filter(topics, call_date >= min(weeks$week), call_date <= max(weeks$week_end))
 }
 
+# Call topics page -----------------------------------------------------------
+
+# Recorded on most calls, so it says little about why anyone called
+default_topic_category <- "What is CanadaLogin"
+
+# "Most often with" lists every topic on at least this many of a topic's calls
+# and this share of them. Below 3 calls a pair is noise; below 5% a big topic
+# lists every article that ever came up beside it.
+cooccurrence_min_calls <- 3L
+cooccurrence_min_share <- 0.05
+
+# Calls per category, then per topic, in `recent` and in `all`. A call with two
+# topics in one category counts once for the category. Categories run most
+# recent calls first, the default category last; topics likewise within their
+# category.
+topic_table_rows <- function(all, recent) {
+  tally <- function(by) {
+    count_calls <- function(rows, name) {
+      rows |>
+        dplyr::mutate(category = as.character(category)) |>
+        dplyr::summarise("{name}" := dplyr::n_distinct(call_no),
+                         .by = dplyr::all_of(by))
+    }
+    dplyr::full_join(count_calls(all, "all"), count_calls(recent, "recent"),
+                     by = by) |>
+      dplyr::mutate(dplyr::across(c(all, recent), \(x) dplyr::coalesce(x, 0L)))
+  }
+
+  categories <- tally("category") |>
+    dplyr::arrange(category == default_topic_category, dplyr::desc(recent),
+                   dplyr::desc(all), category) |>
+    dplyr::mutate(level = "category", rank = 0L)
+  topics <- tally(c("category", "topic")) |>
+    dplyr::arrange(dplyr::desc(recent), dplyr::desc(all), topic) |>
+    dplyr::mutate(level = "topic", rank = dplyr::row_number())
+
+  dplyr::bind_rows(categories, topics) |>
+    dplyr::mutate(order = match(category, categories$category)) |>
+    dplyr::arrange(order, rank) |>
+    dplyr::select(level, category, topic, recent, all)
+}
+
+# A topic without the "Difficulties When ... - " it shares with another topic in
+# its category. That lead-in only says the caller had a problem, which the
+# category already does; others, such as "Related to Migration", are kept.
+# Topics must be unique.
+topic_short_label <- function(topic, category) {
+  parts <- stringr::str_match(topic, "^(Difficulties When .+?) - (.+)$")
+  lead_in <- paste(category, tolower(parts[, 2]))
+  shared <- !is.na(parts[, 2]) & lead_in %in% lead_in[duplicated(lead_in)]
+  ifelse(shared, parts[, 3], topic)
+}
+
+# For each topic, the topics recorded on enough of the same calls: `shared` of
+# the topic's `calls`, most shared first. Topics in the default category are
+# never listed.
+topic_cooccurrence <- function(topics, min_calls = cooccurrence_min_calls,
+                               min_share = cooccurrence_min_share) {
+  calls <- topics |>
+    dplyr::summarise(calls = dplyr::n_distinct(call_no), .by = topic)
+  kept <- topics |>
+    dplyr::filter(category != default_topic_category) |>
+    dplyr::distinct(call_no, topic)
+
+  kept |>
+    dplyr::inner_join(kept, by = "call_no", suffix = c("", "_with"),
+                      relationship = "many-to-many") |>
+    dplyr::filter(topic != topic_with) |>
+    dplyr::count(topic, topic_with, name = "shared") |>
+    dplyr::left_join(calls, by = "topic") |>
+    dplyr::filter(shared >= min_calls, shared / calls >= min_share) |>
+    dplyr::arrange(topic, dplyr::desc(shared), topic_with)
+}
+
+# Calls per topic per reported week, for the download. Topics outside the
+# reported weeks are left out.
+topic_weekly_counts <- function(topics, weeks) {
+  weeks <- dplyr::arrange(weeks, week)
+  i <- findInterval(topics$call_date, weeks$week)
+  in_week <- i > 0 & topics$call_date <= weeks$week_end[pmax(i, 1L)]
+
+  topics[in_week, ] |>
+    dplyr::mutate(week_ending = weeks$week_end[i[in_week]],
+                  category = as.character(category)) |>
+    dplyr::summarise(calls = dplyr::n_distinct(call_no),
+                     .by = c(week_ending, topic, category)) |>
+    dplyr::arrange(week_ending, dplyr::desc(calls), topic)
+}
+
 # PSOM -----------------------------------------------------------------------
 
 # A ticket in one of these is complete

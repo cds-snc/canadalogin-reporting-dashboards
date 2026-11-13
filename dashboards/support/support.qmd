@@ -100,6 +100,11 @@ week_axis <- function(weeks, limits = NULL, max_labels = 14L,
 # Goes with week_axis(), which labels a bar with the last day it covers.
 week_axis_title <- "Week ending"
 
+# A bar as wide as the share
+share_bar <- function(share, fill = accent) {
+  glue("<div style='background:{fill};width:{round(100 * share)}%;height:14px'></div>")
+}
+
 table_options <- function(table) {
   tab_options(
     table,
@@ -143,6 +148,9 @@ CanadaLogin support line. The call centre sends a weekly report covering
 Sunday to Saturday, a few days after the week ends, so the newest week here is
 usually last week's. Each call's reason is recorded as a *topic*. One call may
 cover several topics, and some calls have no topic recorded at all.
+
+The **Call topics** page shows what calls were about: every topic as the call centre
+recorded it, and the topics that come up on the same calls.
 
 The **Partner support** page counts tickets on the Partner Success and
 Operations (PSOM) Jira board, where departments integrating a service with
@@ -246,6 +254,7 @@ brand_figure(p)
 #|   Horizontal bar chart of calls over the last four weeks by what they were
 #|   about, one bar per topic category, sorted from most to least common, each bar
 #|   labelled with its count of calls and its share of all calls in the window.
+#|   "What is CanadaLogin" is left out.
 
 window_topics <- topics_in_weeks(topics, current)
 
@@ -256,7 +265,7 @@ by_category <- window_topics |>
   # Keep every named category on the axis so the chart always has the same rows
   complete(category = factor(topic_category_levels, levels = topic_category_levels),
            fill = list(calls = 0L)) |>
-  filter(category != "Other" | calls > 0) |>
+  filter(category != "Other" | calls > 0, category != default_topic_category) |>
   # Most calls at the top
   arrange(calls, desc(category)) |>
   mutate(category = factor(as.character(category), levels = as.character(category)))
@@ -283,7 +292,9 @@ brand_figure(p)
 
 ::: {.figure-note}
 Each bar counts **calls**, not topic records. One call may have many topics, one or 
-none. Because of that, the percentages do not necessarily add to 100%.
+none. Because of that, the percentages do not necessarily add to 100%. "What is
+CanadaLogin" is left out: the call centre records it on most calls, so it says little
+about why anyone called. For more detail, see the [Call topics](#call-topics) page.
 :::
 
 :::
@@ -420,6 +431,134 @@ so they are coloured grey.
 *Accepted* is every call that reached the queue, answered or abandoned. *Calls* is 
 accepted minus test calls. Averages are the call centre's own weekly figures.
 
+:::
+
+:::
+
+# Call topics
+
+```{r topics-summary}
+#| include: false
+
+# Topic rows through the newest reported week
+history_topics <- filter(topics, call_date <= data_through)
+window_topics <- topics_in_weeks(history_topics, current)
+
+history_label <- glue("since {format_short_date(min(history_topics$call_date))}")
+
+# "last four weeks" as a heading
+sentence_case <- function(x) paste0(toupper(substr(x, 1, 1)), substring(x, 2))
+```
+
+## Row {height="auto"}
+
+::: {.card title="How to read this page"}
+Every topic the call centre recorded, grouped by category and sorted by calls in the
+last four weeks.
+
+- **Counts are calls.** A call can have several topics, so it can count in more than
+  one row, and the shares add to more than 100%. A category counts each call once.
+- **Share** is the share of all calls in the last four weeks.
+- **Click on a topic** to see the other topics recorded on the same calls
+  `r history_label`. The percentage is how many of the selected topic's calls also had
+  that topic; hover over it for the count. A topic is listed only if it is on at least
+  `r cooccurrence_min_calls` of those calls and `r scales::percent(cooccurrence_min_share)`
+  of them.
+- **"What is CanadaLogin" is listed last.** It is recorded on most calls, so it says little
+  about why people called, and it is never listed as a related topic.
+- **Hover over a topic for its full name.** Where several topics in a category start
+  "Difficulties When", that start is dropped.
+:::
+
+## Row {height="auto"}
+
+::: {.card title="Every call topic"}
+
+```{r topics-table}
+topic_rows <- topic_table_rows(history_topics, window_topics)
+
+topic_calls <- topic_rows |>
+  filter(level == "topic") |>
+  mutate(short = topic_short_label(topic, category)) |>
+  select(topic, all, short)
+
+# One string per topic: for each topic most often on the same calls, its share
+# of this topic's calls, then its name. The count is in the tooltip.
+most_often_with <- topic_cooccurrence(history_topics) |>
+  left_join(select(topic_calls, topic_with = topic, short), by = "topic_with") |>
+  mutate(full = htmltools::htmlEscape(topic_with, attribute = TRUE),
+         item = glue("<span class='with-share' title='on {shared} of {calls} calls'>",
+                     "{round(100 * shared / calls)}%</span>",
+                     "<span title='{full}'>{htmltools::htmlEscape(short)}</span>")) |>
+  summarise(items = paste(item, collapse = ""), .by = topic)
+
+none_shared <- paste0("<span class='with-none'>No other topic on enough of the same ",
+                      "calls</span>")
+
+# A topic opens to show what came up with it. The full name is in the tooltip.
+topic_label <- function(level, category, topic, items) {
+  short <- htmltools::htmlEscape(topic_short_label(topic, category))
+  full <- htmltools::htmlEscape(topic, attribute = TRUE)
+  listing <- coalesce(items, none_shared)
+  case_when(
+    level == "category" ~ htmltools::htmlEscape(category),
+    category == default_topic_category ~
+      glue("<div class='topic' title='{full}'>{short}</div>"),
+    .default = glue("<details class='topic'><summary title='{full}'>{short}</summary>",
+                    "<div class='topic-with'>{listing}</div></details>")
+  )
+}
+
+topic_rows |>
+  left_join(most_often_with, by = "topic") |>
+  mutate(
+    label = topic_label(level, category, topic, items),
+    share = recent / calls_now,
+    # A call or two is under half a per cent, and "0%" would read as none
+    share_label = case_when(recent > 0 & round(100 * share) < 1 ~ "<1%",
+                            .default = sprintf("%.0f%%", round(100 * share))),
+    bar = share_bar(pmin(share, 1))
+  ) |>
+  select(label, recent, share = share_label, bar, all, level) |>
+  gt(id = "topic-table") |>
+  opt_css(paste(
+    "#topic-table table > tbody > tr > * { --bs-table-bg-type: transparent; }",
+    # Indented as a block, so a long topic's second line lines up with its first
+    "#topic-table .topic { margin: 0 0 0 16px; }",
+    "#topic-table summary { cursor: pointer; color: inherit; }",
+    # Share, then topic, in two columns; a rule ties the list to its topic
+    paste("#topic-table .topic-with { display: grid; grid-template-columns: 3em 1fr;",
+          "column-gap: 10px; row-gap: 2px; margin: 4px 0 6px 5px; padding-left: 10px;",
+          "border-left: 2px solid #DFE2E5; font-size: 13px; color: #444; }"),
+    paste("#topic-table .with-share { text-align: right; color: #5C6670;",
+          "font-variant-numeric: tabular-nums; }"),
+    "#topic-table .with-none { grid-column: 1 / -1; color: #5C6670; }"
+  )) |>
+  fmt_passthrough(columns = c(label, bar), escape = FALSE) |>
+  cols_hide(level) |>
+  cols_label(label = "", recent = "Calls", share = "Share", bar = "",
+             all = "Calls") |>
+  tab_spanner(glue("{sentence_case(window_label)} ({window_weeks_label})"),
+              columns = c(recent, share, bar)) |>
+  tab_spanner(sentence_case(history_label), columns = all) |>
+  cols_align("left", columns = c(label, bar)) |>
+  cols_align("right", columns = c(recent, share, all)) |>
+  cols_width(label ~ pct(55), bar ~ pct(20)) |>
+  tab_style(list(cell_text(weight = "bold"), cell_fill("#EEF0F2")),
+            cells_body(rows = level == "category")) |>
+  table_options()
+
+# The download is embedded in the page: publishing copies only the HTML file.
+topics_file <- tempfile(fileext = ".csv")
+utils::write.csv(topic_weekly_counts(history_topics, weeks), topics_file,
+                 row.names = FALSE)
+topics_href <- paste0("data:text/csv;base64,", base64enc::base64encode(topics_file))
+topics_name <- glue("call-topics-{data_through}.csv")
+```
+
+::: {.figure-note}
+[Download](`r topics_href`){download="`r topics_name`"} the calls per topic per week as
+a CSV.
 :::
 
 :::
@@ -616,11 +755,6 @@ still judged on the old ones.
 ::: {.card title="`r glue('What tickets were about ({window_label})')`"}
 
 ```{r psom-topics}
-# A bar as wide as the share
-share_bar <- function(share, fill = accent) {
-  glue("<div style='background:{fill};width:{round(100 * share)}%;height:14px'></div>")
-}
-
 # Shares are of all tickets opened, not of the section
 topic_share <- function(rows) {
   mutate(rows, share = tickets / nrow(handled), bar = share_bar(share))

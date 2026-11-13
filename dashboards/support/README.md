@@ -4,7 +4,9 @@ An internal-only dashboard reporting the support CanadaLogin provides, from two
 sources:
 
 - **Call centre**, calls from the public to the CanadaLogin support line: weekly
-  volume, calls as a share of daily users, wait times, and why people called.
+  volume, calls as a share of daily users, and wait times. A **Call topics** page
+  shows why people called: every topic the call centre recorded, and the topics
+  that come up on the same calls.
 - **Partner support** (in development), tickets on the Partner Success and Operations (PSOM) Jira
   board, where departments integrating with CanadaLogin ask for help. 
 Definitions come from the
