@@ -419,18 +419,6 @@ topic_category <- function(topic) {
   factor(out, levels = topic_category_levels)
 }
 
-# Informational or troubleshooting, from the type column of topic-categories.csv.
-# A category with no type, or with both, is troubleshooting.
-topic_category_type <- function(category) {
-  category <- as.character(category)
-  informational <- topic_lookup_rows |>
-    dplyr::distinct(category, type) |>
-    dplyr::group_by(category) |>
-    dplyr::filter(dplyr::n() == 1, type == "Informational") |>
-    dplyr::pull(category)
-  ifelse(category %in% informational, "Informational", "Troubleshooting")
-}
-
 # Topic rows for the calls placed inside a set of reported weeks.
 topics_in_weeks <- function(topics, weeks) {
   if (nrow(weeks) == 0) {
