@@ -296,14 +296,14 @@ test_that("fmt_rounded rounds to the unit with thousands separators", {
 test_that("a topic in the lookup table takes the table's category", {
   expect_identical(
     as.character(support$topic_category("CanadaLogin Password Criteria")),
-    "What is CanadaLogin"
+    "Account setup and how-to"
   )
 })
 
 test_that("a topic's extra whitespace does not stop it matching the table", {
   expect_identical(
     as.character(support$topic_category("  CanadaLogin   Password Criteria ")),
-    "What is CanadaLogin"
+    "Account setup and how-to"
   )
 })
 
@@ -468,7 +468,6 @@ test_that("topic_weekly_counts places calls in their reported week", {
   counts <- support$topic_weekly_counts(topics, weeks)
   expect_identical(counts$week_ending, weeks$week_end)
   expect_identical(counts$calls, c(1L, 1L))
-  expect_identical(counts$type, rep("Informational", 2))
 })
 
 # PSOM ------------------------------------------------------------------------

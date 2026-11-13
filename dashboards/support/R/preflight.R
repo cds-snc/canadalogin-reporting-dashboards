@@ -131,36 +131,21 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
 
   # Check 5 - topic duplicates ------------------------------------------------------
   #
-  # Ensure no duplicates in the topic lookup table, which would cause double-counting,
-  # and no category with rows giving both types, which draws as troubleshooting.
+  # Ensure no duplicates in the topic lookup table, which would cause double-counting.
 
   squished <- stringr::str_squish(topic_lookup_rows$topic)
   repeated <- unique(squished[duplicated(squished)])
 
-  typed <- unique(topic_lookup_rows[c("category", "type")])
-  mixed <- unique(typed$category[duplicated(typed$category)])
-
-  problems <- c(
-    if (length(repeated) > 0) {
-      glue("more than one row for: ",
-           "{glue_collapse(glue('\"{repeated}\"'), sep = '; ')}")
-    },
-    if (length(mixed) > 0) {
-      glue("more than one type for: ",
-           "{glue_collapse(glue('\"{mixed}\"'), sep = '; ')}")
-    }
-  )
-
   record_check(
     "topic-lookup",
-    glue("No topic may have more than one row, and no category more than one type, ",
-         "in {topic_categories_file}"),
-    passed = length(problems) == 0,
+    glue("No topic may have more than one row in {topic_categories_file}"),
+    passed = length(repeated) == 0,
     advisory = TRUE,
-    details = if (length(problems) > 0) {
-      glue_collapse(problems, sep = "; ")
+    details = if (length(repeated) > 0) {
+      glue("more than one row for: ",
+           "{glue_collapse(glue('\"{repeated}\"'), sep = '; ')}")
     } else {
-      glue("{length(topic_lookup)} row(s), no topic repeated, one type per category")
+      glue("{length(topic_lookup)} row(s), no topic repeated")
     }
   )
 
@@ -312,6 +297,30 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
     details = glue("{share_sample} application-month(s) with at least ",
                    "{daily_share_min_users} users over the last ",
                    "{daily_share_months} complete months")
+  )
+
+  # Check 13 - ratio stretch sample ---------------------------------------------
+  #
+  # Advisory: the call and escalation ranges draw from the four-week stretches
+  # in the page's span, and fall short when the call centre report lags.
+
+  span_start <- chart_span_start(newest_week_end, snapshot - 1L)
+  stretches <- ratio_stretches(
+    dplyr::filter(weeks, week_end >= escalation_start),
+    daily_active_users(con), topics
+  ) |>
+    dplyr::filter(window_end >= span_start)
+  usable_stretches <- sum(!is.na(stretches$calls_per_100) &
+                            !is.na(stretches$escalation_rate))
+
+  record_check(
+    "ratio-stretch-sample",
+    glue("The call and escalation ratios must have at least ",
+         "{ratio_stretch_min_sample} four-week stretches to draw from"),
+    passed = usable_stretches >= ratio_stretch_min_sample,
+    advisory = TRUE,
+    details = glue("{usable_stretches} four-week stretch(es) with both rates, ",
+                   "ending {format_date(span_start)} or later")
   )
 
   for (i in seq_along(checks)) {

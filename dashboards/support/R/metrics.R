@@ -194,6 +194,10 @@ escalation_start <- as.Date("2026-06-29")
 # The call and escalation rates are over this many reported weeks at a time
 rate_window_weeks <- 4L
 
+# Fewer four-week stretches than this in the page's span and the call and
+# escalation ranges are thin
+ratio_stretch_min_sample <- 6L
+
 # The daily share of monthly users is over this many complete months, from
 # applications with at least this many monthly users. Pilots and test
 # applications have a handful of users and any ratio at all.
@@ -248,6 +252,26 @@ application_daily_share <- function(logins, internal, as_of,
     dplyr::select(month, application_name, users, user_days, days_in_month,
                   daily_share) |>
     dplyr::arrange(month, application_name)
+}
+
+# How far back every weekly chart runs: the 1st of the month two months before
+# the newest data on either source.
+chart_span_start <- function(...) {
+  newest <- max(...)
+  seq(as.Date(format(newest, "%Y-%m-01")), by = "-2 months", length.out = 2)[2]
+}
+
+# Every four-week stretch since escalation began, with the call and escalation
+# rates the diagram draws from. Takes `weeks` already limited to those weeks.
+ratio_stretches <- function(weeks, users, topics) {
+  windows <- rolling_windows(weeks)
+  window_call_rate(call_rate(weeks, users), windows) |>
+    dplyr::left_join(
+      window_escalation_rate(topics, windows) |>
+        dplyr::select(window_end, dump_calls = calls, escalations,
+                      escalation_rate),
+      by = "window_end"
+    )
 }
 
 # Rolling windows of `size` reported weeks, one ending on each week from the
@@ -352,9 +376,9 @@ topic_lookup <- stats::setNames(topic_lookup_rows$category,
 # Fallback regular expression for topics that haven't made it into topic-categories.csv
 # nolint start: line_length_linter. Keep one regex alternation per line.
 topic_patterns <- c(
-  "What is CanadaLogin\\?|What is 2-Step Verification|What Is a Passkey|Password Criteria" =
+  "What is CanadaLogin\\?" =
     "What is CanadaLogin",
-  "^How to |^Changing |^Deleting " =
+  "^How to |^Changing |^Deleting |^What [Ii]s |Password Criteria" =
     "Account setup and how-to",
   "2-Step|Passkey" =
     "2-step verification problems",
@@ -393,18 +417,6 @@ topic_category <- function(topic) {
   uncovered <- is.na(out)
   out[uncovered] <- topic_category_fallback(topic[uncovered])
   factor(out, levels = topic_category_levels)
-}
-
-# Informational or troubleshooting, from the type column of topic-categories.csv.
-# A category with no type, or with both, is troubleshooting.
-topic_category_type <- function(category) {
-  category <- as.character(category)
-  informational <- topic_lookup_rows |>
-    dplyr::distinct(category, type) |>
-    dplyr::group_by(category) |>
-    dplyr::filter(dplyr::n() == 1, type == "Informational") |>
-    dplyr::pull(category)
-  ifelse(category %in% informational, "Informational", "Troubleshooting")
 }
 
 # Topic rows for the calls placed inside a set of reported weeks.
@@ -498,10 +510,9 @@ topic_weekly_counts <- function(topics, weeks) {
 
   topics[in_week, ] |>
     dplyr::mutate(week_ending = weeks$week_end[i[in_week]],
-                  category = as.character(category),
-                  type = topic_category_type(category)) |>
+                  category = as.character(category)) |>
     dplyr::summarise(calls = dplyr::n_distinct(call_no),
-                     .by = c(week_ending, topic, category, type)) |>
+                     .by = c(week_ending, topic, category)) |>
     dplyr::arrange(week_ending, dplyr::desc(calls), topic)
 }
 
