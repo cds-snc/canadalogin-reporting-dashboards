@@ -254,7 +254,6 @@ brand_figure(p)
 #|   Horizontal bar chart of calls over the last four weeks by what they were
 #|   about, one bar per topic category, sorted from most to least common, each bar
 #|   labelled with its count of calls and its share of all calls in the window.
-#|   "What is CanadaLogin" is left out.
 
 window_topics <- topics_in_weeks(topics, current)
 
@@ -265,7 +264,7 @@ by_category <- window_topics |>
   # Keep every named category on the axis so the chart always has the same rows
   complete(category = factor(topic_category_levels, levels = topic_category_levels),
            fill = list(calls = 0L)) |>
-  filter(category != "Other" | calls > 0, category != default_topic_category) |>
+  filter(category != "Other" | calls > 0) |>
   # Most calls at the top
   arrange(calls, desc(category)) |>
   mutate(category = factor(as.character(category), levels = as.character(category)))
@@ -292,9 +291,7 @@ brand_figure(p)
 
 ::: {.figure-note}
 Each bar counts **calls**, not topic records. One call may have many topics, one or 
-none. Because of that, the percentages do not necessarily add to 100%. "What is
-CanadaLogin" is left out: the call centre records it on most calls, so it says little
-about why anyone called. For more detail, see the [Call topics](#call-topics) page.
+none. Because of that, the percentages do not necessarily add to 100%.
 :::
 
 :::
