@@ -291,7 +291,8 @@ brand_figure(p)
 
 ::: {.figure-note}
 Each bar counts **calls**, not topic records. One call may have many topics, one or 
-none. Because of that, the percentages do not necessarily add to 100%.
+none. Because of that, the percentages do not necessarily add to 100%. For more
+detail, see the [Call topics](#call-topics) page.
 :::
 
 :::
