@@ -376,9 +376,9 @@ topic_lookup <- stats::setNames(topic_lookup_rows$category,
 # Fallback regular expression for topics that haven't made it into topic-categories.csv
 # nolint start: line_length_linter. Keep one regex alternation per line.
 topic_patterns <- c(
-  "What is CanadaLogin\\?|What is 2-Step Verification|What Is a Passkey|Password Criteria" =
+  "What is CanadaLogin\\?" =
     "What is CanadaLogin",
-  "^How to |^Changing |^Deleting " =
+  "^How to |^Changing |^Deleting |^What [Ii]s |Password Criteria" =
     "Account setup and how-to",
   "2-Step|Passkey" =
     "2-step verification problems",
