@@ -376,9 +376,9 @@ topic_lookup <- stats::setNames(topic_lookup_rows$category,
 # Fallback regular expression for topics that haven't made it into topic-categories.csv
 # nolint start: line_length_linter. Keep one regex alternation per line.
 topic_patterns <- c(
-  "What is CanadaLogin\\?|What is 2-Step Verification|What Is a Passkey|Password Criteria" =
+  "What is CanadaLogin\\?" =
     "What is CanadaLogin",
-  "^How to |^Changing |^Deleting " =
+  "^How to |^Changing |^Deleting |^What [Ii]s |Password Criteria" =
     "Account setup and how-to",
   "2-Step|Passkey" =
     "2-step verification problems",
@@ -417,18 +417,6 @@ topic_category <- function(topic) {
   uncovered <- is.na(out)
   out[uncovered] <- topic_category_fallback(topic[uncovered])
   factor(out, levels = topic_category_levels)
-}
-
-# Informational or troubleshooting, from the type column of topic-categories.csv.
-# A category with no type, or with both, is troubleshooting.
-topic_category_type <- function(category) {
-  category <- as.character(category)
-  informational <- topic_lookup_rows |>
-    dplyr::distinct(category, type) |>
-    dplyr::group_by(category) |>
-    dplyr::filter(dplyr::n() == 1, type == "Informational") |>
-    dplyr::pull(category)
-  ifelse(category %in% informational, "Informational", "Troubleshooting")
 }
 
 # Topic rows for the calls placed inside a set of reported weeks.

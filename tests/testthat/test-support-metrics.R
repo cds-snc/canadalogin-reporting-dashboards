@@ -296,14 +296,14 @@ test_that("fmt_rounded rounds to the unit with thousands separators", {
 test_that("a topic in the lookup table takes the table's category", {
   expect_identical(
     as.character(support$topic_category("CanadaLogin Password Criteria")),
-    "What is CanadaLogin"
+    "Account setup and how-to"
   )
 })
 
 test_that("a topic's extra whitespace does not stop it matching the table", {
   expect_identical(
     as.character(support$topic_category("  CanadaLogin   Password Criteria ")),
-    "What is CanadaLogin"
+    "Account setup and how-to"
   )
 })
 
