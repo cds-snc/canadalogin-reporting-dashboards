@@ -86,11 +86,11 @@ test_that("service coverage fails when a service with traffic goes quiet", {
   expect_match(check_named(result, "service-coverage")$details, "^Service B:")
 })
 
-test_that("service coverage covers internal services too", {
+test_that("service coverage ignores an internal service going quiet", {
   apps <- dplyr::filter(ibm_apps(), !(application_name == "cl-admin" &
                                         date > as.Date("2026-08-19")))
   result <- run_ibm_preflight(ibm_with_data(apps = apps))
-  expect_true("service-coverage" %in% failed_slugs(result))
+  expect_true(result$passed)
 })
 
 # rp-resolution ---------------------------------------------------------------
@@ -131,6 +131,15 @@ test_that("plausibility fails when a busy service's traffic collapses", {
   expect_identical(failed_slugs(result), "plausibility")
   expect_match(check_named(result, "plausibility")$details,
                "Service B: SSO events fell from 1,400 to 56", fixed = TRUE)
+})
+
+test_that("plausibility ignores a collapse in an internal service", {
+  apps <- ibm_apps() |>
+    dplyr::mutate(total_logins = dplyr::if_else(
+      application_name == "cl-admin" & date > as.Date("2026-08-19"), 2, total_logins
+    ))
+  result <- run_ibm_preflight(ibm_with_data(apps = apps))
+  expect_true(result$passed)
 })
 
 test_that("plausibility ignores a collapse in a service below the minimum volume", {

@@ -110,9 +110,11 @@ run_preflight_safety_check <- function(con,
   # Check 2 - service coverage ---------------------------------------------------
   #
   # An application that quietly stops reporting while the tables stay current
-  # renders as a service nobody used, not as a gap.
+  # renders as a service nobody used, not as a gap. Internal services are low
+  # volume and exempt, here and in check 5; unlabelled ones count as external.
   service_window_sso_events <- function(as_of) {
     labelled_app_logins(con) |>
+      filter(!coalesce(is_internal, FALSE)) |>
       in_window(as_of) |>
       group_by(service_name) |>
       summarise(sso_events = sum(total_logins), .groups = "drop")
@@ -127,11 +129,11 @@ run_preflight_safety_check <- function(con,
 
   record_check(
     "service-coverage",
-    glue("Every service with traffic in the preceding ",
+    glue("Every external service with traffic in the preceding ",
          "{summary_window_days} days must still have traffic"),
     passed = nrow(went_quiet) == 0,
     details = if (nrow(went_quiet) == 0) {
-      glue("{nrow(current)} service(s) reporting SSO events in the ",
+      glue("{nrow(current)} external service(s) reporting SSO events in the ",
            "{summary_window_days} days ending {format_date(as_of)}")
     } else {
       glue(
@@ -246,8 +248,8 @@ run_preflight_safety_check <- function(con,
   record_check(
     "plausibility",
     glue("Authentication success rate must be at or above ",
-         "{as_percent(min_auth_success_rate)}, with no service's SSO events ",
-         "collapsing"),
+         "{as_percent(min_auth_success_rate)}, with no external service's ",
+         "SSO events collapsing"),
     passed = length(plausibility_problems) == 0,
     details = if (length(plausibility_problems) == 0) {
       glue("authentication success rate is {as_percent(success_rate)} over the ",
