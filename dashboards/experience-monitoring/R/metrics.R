@@ -26,6 +26,19 @@ funnel_entry_steps <- list(
   migration_new_to_cl = "migration_not_skipped"
 )
 
+# Funnels switched off in production, with the date they went off. Preflight
+# skips the checks that need starters for these, and fails once one has
+# starters again: delete its entry then, and annotate the restart.
+paused_funnels <- c(
+  migration_existing_to_cl = "2026-11-06",   # gc-signin-terraform #643
+  migration_new_to_cl = "2026-11-06"
+)
+
+# Required funnels that are not paused.
+live_funnels <- function(paused = paused_funnels) {
+  setdiff(required_funnels, names(paused))
+}
+
 # Labels, local until the pipeline emits a label column. Keyed by funnel id so
 # a mismatch fails rather than heading a page with another funnel's numbers.
 # Each funnel's notes are in annotations.yml.

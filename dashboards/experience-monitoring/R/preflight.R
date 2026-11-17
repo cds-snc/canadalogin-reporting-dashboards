@@ -48,6 +48,41 @@ largest_starter_drops <- function(current, previous, n = 3L) {
     utils::head(n)
 }
 
+# The `paused` funnels with at least `min_starters` 7-day starters at their
+# entry step in the window ending `as_of`. `entry_counts` has funnel_id,
+# funnelstepname, window_end, breakdown_value and activeusers.
+resumed_funnels <- function(entry_counts, as_of, paused, min_starters) {
+  entry <- unlist(funnel_entry_steps[entry_counts$funnel_id], use.names = FALSE)
+  totals <- entry_counts[entry_counts$funnel_id %in% names(paused) &
+                           entry_counts$funnelstepname == entry &
+                           entry_counts$window_end == as_of &
+                           entry_counts$breakdown_value == "RESERVED_TOTAL", ]
+  sort(unique(totals$funnel_id[totals$activeusers >= min_starters]))
+}
+
+# Each of `funnels`' 7-day entry-step starters in the window ending `as_of`
+# (current), and the median of the four windows ending one to four weeks
+# earlier (baseline). A window with no row had no starters. `entry_counts` as
+# for resumed_funnels().
+starter_volume <- function(entry_counts, as_of, funnels) {
+  entry <- unlist(funnel_entry_steps[entry_counts$funnel_id], use.names = FALSE)
+  totals <- entry_counts[entry_counts$funnelstepname == entry &
+                           entry_counts$breakdown_value == "RESERVED_TOTAL", ]
+  starters_on <- function(funnel, end) {
+    sum(totals$activeusers[totals$funnel_id == funnel & totals$window_end == end])
+  }
+  baseline_of <- function(funnel) {
+    stats::median(vapply(as_of - 7L * 1:4, \(end) starters_on(funnel, end),
+                         numeric(1)))
+  }
+  tibble::tibble(
+    funnel_id = funnels,
+    current = vapply(funnels, starters_on, numeric(1), end = as_of,
+                     USE.NAMES = FALSE),
+    baseline = vapply(funnels, baseline_of, numeric(1), USE.NAMES = FALSE)
+  )
+}
+
 # The `expected_days` with no RESERVED_TOTAL row for `funnel` in any window.
 # A day with no starters has no 1-day row but still ends the longer windows,
 # so only a day with no rows at all is a gap.
@@ -62,7 +97,10 @@ run_preflight_safety_check <- function(con,
                                        ga_export_lag_days = 2L,
                                        lookback_days = 14L,
                                        min_task_success_rate = 0.02,
-                                       max_unattributed_share = 0.10) {
+                                       max_unattributed_share = 0.10,
+                                       min_starter_share = 0.25,
+                                       min_baseline_starters = 30,
+                                       min_resumed_starters = 30) {
 
   # Helpers --------------------------------------------------------------------
 
@@ -74,6 +112,11 @@ run_preflight_safety_check <- function(con,
                              "%a %b %d")
     labels
   }
+
+  # "10%" for a round share, "68.4%" otherwise.
+  as_percent <- function(x) sub("\\.0%$", "%", sprintf("%.1f%%", x * 100))
+  n_days <- function(n) paste(n, if (n == 1) "day" else "days")
+  list_of <- function(x) glue_collapse(x, sep = ", ")
 
   # Accumulated so every check runs, rather than stopping at the first problem.
   checks <- list()
@@ -94,6 +137,10 @@ run_preflight_safety_check <- function(con,
   lookup_start <- as_of - (long_window_days - 1L)
   long_window <- as.character(long_window_days)
 
+  # Paused funnels have no starters to check; the paused-funnels check watches
+  # for their return instead.
+  live <- live_funnels()
+
   # One query over the widest span any check needs; the checks then run in R.
   raw <- tbl(
     con, in_schema("google_analytics", "funnel_metrics_current")
@@ -110,54 +157,45 @@ run_preflight_safety_check <- function(con,
     mutate(window_end = as.Date(window_end))
 
   # Check 1 - GA freshness (no gaps over the lookback) --------------------------
-
+  #
+  # A funnel with no rows at all is reported as gone rather than as a run of
+  # missing days, since the likely cause is a renamed or dropped funnel id.
   freshness_problems <- character()
   expected_days <- seq(freshness_start, as_of, by = "day")
-  for (funnel in required_funnels) {
+  for (funnel in live) {
     missing <- funnel_missing_days(raw, funnel, expected_days)
-    if (length(missing) > 0) {
+    if (!funnel %in% raw$funnel_id) {
+      freshness_problems <- c(
+        freshness_problems,
+        glue("{funnel}: no data at all in the last {long_window_days} days; ",
+             "check whether its funnel id was renamed or dropped in the ",
+             "pipeline")
+      )
+    } else if (length(missing) > 0) {
       # Capped: the full list would overflow the banner.
       shown <- format_date(utils::head(missing, 5))
       freshness_problems <- c(
         freshness_problems,
-        glue("{funnel}: no rows for {length(missing)} day(s), ",
-             "including {glue_collapse(shown, sep = ', ')}")
+        glue("{funnel}: {n_days(length(missing))} missing, ",
+             "including {list_of(shown)}")
       )
     }
   }
 
   record_check(
     "ga-freshness",
-    glue("Rows must reach {format_date(as_of)} ",
-         "with no gaps over the last {lookback_days} days"),
+    glue("Task success data must run through {format_date(as_of)} ",
+         "with no missing days"),
     passed = length(freshness_problems) == 0,
     details = if (length(freshness_problems) == 0) {
-      glue("funnel_metrics_current is current through {format_date(as_of)} ",
-           "for {glue_collapse(required_funnels, sep = ', ')}")
+      glue("no missing days in the {lookback_days} days through ",
+           "{format_date(as_of)} for {list_of(live)}")
     } else {
       freshness_problems
     }
   )
 
-  # Check 2 - required funnels present ------------------------------------------
-
-  funnels_present <- unique(raw$funnel_id)
-  missing_funnels <- setdiff(required_funnels, funnels_present)
-
-  record_check(
-    "funnels-present",
-    "Every required funnel must be present",
-    passed = length(missing_funnels) == 0,
-    details = if (length(missing_funnels) == 0) {
-      glue("all required funnels found: ",
-           "{glue_collapse(required_funnels, sep = ', ')}")
-    } else {
-      glue("missing required funnel(s): ",
-           "{glue_collapse(missing_funnels, sep = ', ')}")
-    }
-  )
-
-  # Check 3 - relying-party lookup complete -------------------------------------
+  # Check 2 - relying-party lookup complete -------------------------------------
   #
   # Aliases are added to the source sheet by hand, so a GA rp_name can appear
   # before anyone records it. Left join and check for nulls: an inner join
@@ -188,12 +226,12 @@ run_preflight_safety_check <- function(con,
     }
   )
 
-  # Check 4 - long window present -----------------------------------------------
+  # Check 3 - long window present -----------------------------------------------
   #
   # Without it the table's rate, counts and comparison all read n/a at once,
   # which looks like a broken page rather than a late pipeline run.
   window_problems <- character()
-  for (funnel in required_funnels) {
+  for (funnel in live) {
     ends_present <- raw |>
       filter(funnel_id == funnel,
              window_days == long_window,
@@ -209,26 +247,25 @@ run_preflight_safety_check <- function(con,
       }
       window_problems <- c(
         window_problems,
-        glue("{funnel}: no complete {long_window}-day window ending ",
-             "{format_date(as_of)} ({newest})")
+        glue("{funnel}: no {long_window}-day total ending ",
+             "{format_date(as_of)}; {newest}")
       )
     }
   }
 
   record_check(
     "long-window",
-    glue("A complete {long_window}-day window must end ",
-         "{format_date(as_of)}"),
+    glue("The {long_window}-day totals must run through {format_date(as_of)}"),
     passed = length(window_problems) == 0,
     details = if (length(window_problems) == 0) {
-      glue("{long_window}-day window current through {format_date(as_of)} ",
-           "for {glue_collapse(required_funnels, sep = ', ')}")
+      glue("{long_window}-day totals run through {format_date(as_of)} ",
+           "for {list_of(live)}")
     } else {
       window_problems
     }
   )
 
-  # Check 5 - entry steps present in funnels_current -----------------------------
+  # Check 4 - entry steps present in funnels_current -----------------------------
   #
   # Starters are read by step name, so a step renamed upstream returns no rows
   # rather than an error, and the table's counts go blank. The rate itself is
@@ -262,17 +299,16 @@ run_preflight_safety_check <- function(con,
 
   record_check(
     "entry-steps",
-    "Every funnel's entry step must be readable",
+    "Every funnel's first step must still be in the data",
     passed = length(step_problems) == 0,
     details = if (length(step_problems) == 0) {
-      glue("entry steps found for ",
-           "{glue_collapse(required_funnels, sep = ', ')}")
+      glue("first steps found for {list_of(required_funnels)}")
     } else {
       step_problems
     }
   )
 
-  # Check 6 - help site stream reporting -----------------------------------------
+  # Check 5 - help site stream reporting -----------------------------------------
   #
   # Nothing else on the dashboard reads page_traffic, so a stream that stopped
   # reporting would render an empty tab rather than raise anything.
@@ -303,7 +339,7 @@ run_preflight_safety_check <- function(con,
     }
   )
 
-  # Check 7 - help site stream identity ------------------------------------------
+  # Check 6 - help site stream identity ------------------------------------------
   #
   # The tab filters on the stream id alone, so an id that came to mean a
   # different stream would report another site's pages under this heading.
@@ -332,7 +368,7 @@ run_preflight_safety_check <- function(con,
     }
   )
 
-  # Check 8 - task success rate implausibly low ---------------------------------
+  # Check 7 - task success rate implausibly low ---------------------------------
   #
   # An exit step that stops reporting reads as 0%, not as missing. A floor
   # rather than a zero test, because one stray event lifts a broken funnel off
@@ -340,13 +376,12 @@ run_preflight_safety_check <- function(con,
   # de-duplicate within a window, so it is not a blend of the 7-day ones.
   low_rates <- raw |>
     filter(
+      funnel_id %in% live,
       breakdown_value == "RESERVED_TOTAL",
       !is.na(value),                       # NULL is undefined, not low
       value < min_task_success_rate,
       window_days == "7" | (window_days == long_window & window_end == as_of)
     )
-
-  as_percent <- function(x) sprintf("%.2f%%", x * 100)
 
   rate_problems <- character()
   for (funnel in unique(low_rates$funnel_id)) {
@@ -359,31 +394,28 @@ run_preflight_safety_check <- function(con,
     rate_problems <- c(
       rate_problems,
       glue(
-        "{funnel}: {nrow(hits)} window(s) below ",
-        "{as_percent(min_task_success_rate)}, worst {as_percent(worst$value)} ",
-        "on the {worst$window_days}-day window ending ",
-        "{format_date(worst$window_end)}; a rate this low means the funnel's ",
-        "exit step stopped reporting, not that users stopped succeeding"
+        "{funnel}: under {as_percent(min_task_success_rate)} in ",
+        "{nrow(hits)} window(s), lowest {as_percent(worst$value)} in the ",
+        "{worst$window_days} days ending {format_date(worst$window_end)}. ",
+        "A rate this low usually means the last step stopped reporting"
       )
     )
   }
 
   record_check(
     "plausibility",
-    glue("Every funnel must stay at or above ",
-         "{as_percent(min_task_success_rate)} on a displayed window"),
+    glue("No task success rate shown may fall below ",
+         "{as_percent(min_task_success_rate)}"),
     passed = length(rate_problems) == 0,
     details = if (length(rate_problems) == 0) {
-      glue("every 7-day window in the last {long_window_days} days, and the ",
-           "{long_window_days}-day window ending {format_date(as_of)}, is at ",
-           "or above {as_percent(min_task_success_rate)} for ",
-           "{glue_collapse(required_funnels, sep = ', ')}")
+      glue("every rate shown is {as_percent(min_task_success_rate)} or more ",
+           "for {list_of(live)}")
     } else {
       rate_problems
     }
   )
 
-  # Check 9 - starters with no relying party ------------------------------------
+  # Check 8 - starters with no relying party ------------------------------------
   #
   # From 2026-09-22 GA stopped recording rp_name for two services and their
   # traffic moved to "(not set)". Every check passed and the table showed them
@@ -406,7 +438,8 @@ run_preflight_safety_check <- function(con,
       funnelstepname %in% !!unique(entry_steps),
       window_days == "7",
       !window_incomplete,
-      as.Date(window_end) >= as.Date(!!as.character(prior_end)),
+      # Back four weeks for the starter-volume baseline.
+      as.Date(window_end) >= as.Date(!!as.character(as_of - 28L)),
       as.Date(window_end) <= as.Date(!!as.character(as_of))
     ) |>
     select(funnel_id, funnelstepname, window_end, breakdown_value, activeusers) |>
@@ -418,7 +451,7 @@ run_preflight_safety_check <- function(con,
   attribution_shares <- numeric()
   statuses <- character()
   crossed_on <- as.Date(character())
-  for (funnel in required_funnels) {
+  for (funnel in live) {
     entry <- funnel_entry_steps[[funnel]]
     funnel_counts <- entry_counts[entry_counts$funnel_id == funnel &
                                     entry_counts$funnelstepname == entry, ]
@@ -440,19 +473,15 @@ run_preflight_safety_check <- function(con,
   }
 
   shares_of <- \(funnels) {
-    glue_collapse(glue("{funnels} {as_percent(attribution_shares[funnels])}"),
-                  sep = ", ")
+    list_of(glue("{funnels} {as_percent(attribution_shares[funnels])}"))
   }
   no_total <- names(statuses)[is.na(statuses)]
   onset <- names(statuses)[statuses %in% "onset"]
   ongoing <- names(statuses)[statuses %in% "ongoing"]
 
-  no_total_entries <- vapply(
-    no_total, \(f) funnel_entry_steps[[f]], character(1)
-  )
   attribution_problems <- as.character(glue(
-    "{no_total}: no 7-day '{no_total_entries}' total ending ",
-    "{format_date(as_of)}"
+    "{no_total}: no starters in the 7 days ending {format_date(as_of)}, so ",
+    "the share with no service cannot be worked out"
   ))
   if (length(onset) > 0) {
     # The services that fell are named from the largest crossing funnel only;
@@ -465,44 +494,110 @@ run_preflight_safety_check <- function(con,
     drops <- largest_starter_drops(windows[[lead]]$current,
                                    windows[[lead]]$previous)
     fell <- if (nrow(drops) == 0) {
-      "no relying party lost starters"
+      "no service lost starters"
     } else {
-      glue("{lead} starters fell most for ",
-           "{glue_collapse(glue('{drops$breakdown_value} ",
-           "({drops$activeusers_previous} to {drops$activeusers_current})'), ",
-           "sep = ', ')}")
+      list_of(glue("{drops$breakdown_value} ",
+                   "{drops$activeusers_previous} to {drops$activeusers_current}"))
     }
     attribution_problems <- c(
       attribution_problems,
-      glue("7-day starters with no rp_name first passed ",
-           "{as_percent(max_unattributed_share)} in the window ending ",
-           "{format_date(min(crossed_on[onset]))}, and by ",
-           "{format_date(as_of)} reached {shares_of(onset)}; against the 7 days ",
-           "ending {format_date(prior_end)}, {fell}; per-service rates are ",
-           "unreliable until attribution is restored")
+      glue("starters with no service recorded (GA rp_name) passed ",
+           "{as_percent(max_unattributed_share)} in the 7 days ending ",
+           "{format_date(min(crossed_on[onset]))}"),
+      glue("7 days ending {format_date(as_of)}: {shares_of(onset)}"),
+      glue("{lead} starters fell most for: {fell} ",
+           "(7 days ending {format_date(prior_end)} to {format_date(as_of)})"),
+      "per-service rates are unreliable until GA records the service again"
     )
   }
 
   attribution_details <- if (length(ongoing) > 0) {
-    glue("not raised again: 7-day starters ending {format_date(as_of)} with no ",
-         "rp_name were {shares_of(ongoing)}, already over ",
-         "{as_percent(max_unattributed_share)} in the 7 days ending ",
-         "{format_date(prior_end)}; per-service rates stay unreliable until ",
-         "attribution is restored")
+    c(glue("still over {as_percent(max_unattributed_share)} with no service ",
+           "recorded, not failed again because it already was last week: ",
+           "{shares_of(ongoing)} in the 7 days ending {format_date(as_of)}"),
+      "per-service rates stay unreliable until GA records the service again")
   }
   if (length(attribution_problems) == 0 && length(ongoing) == 0) {
     attribution_details <- glue(
-      "7-day starters ending {format_date(as_of)} with no rp_name: ",
-      "{shares_of(names(attribution_shares))}"
+      "starters with no service recorded, 7 days ending ",
+      "{format_date(as_of)}: {shares_of(names(attribution_shares))}"
     )
   }
 
   record_check(
     "rp-attribution",
-    glue("No more than {as_percent(max_unattributed_share)} of starters may ",
-         "newly lack a relying party"),
+    glue("Starters with no service recorded must stay under ",
+         "{as_percent(max_unattributed_share)}"),
     passed = length(attribution_problems) == 0,
     details = c(attribution_problems, attribution_details)
+  )
+
+  # Check 9 - starter volume -----------------------------------------------------
+  #
+  # A funnel whose entry step stops firing keeps a plausible rate on falling
+  # counts, and a partial drop passes every other check. From Jul 13 to Nov 15,
+  # 2026, no live funnel's 7-day starters fell below 42% of the median of the
+  # four weeks before (recover_password on Oct 27, after a surge), so 25% sits
+  # clear of normal weeks. A zero outage crosses it about five days in. Only
+  # funnels with rows ending on as_of are judged: a missing day is ga-freshness's
+  # to report, not a fall to zero.
+  reported <- live[vapply(live, \(f) {
+    length(funnel_missing_days(raw, f, as_of)) == 0
+  }, logical(1))]
+  volume <- starter_volume(entry_counts, as_of, reported)
+  judged <- volume[volume$baseline >= min_baseline_starters, ]
+  judged$share <- judged$current / judged$baseline
+  fallen <- judged[judged$share < min_starter_share, ]
+  too_few <- volume$funnel_id[volume$baseline < min_baseline_starters]
+  count <- \(x) format(round(x), big.mark = ",", trim = TRUE)
+
+  record_check(
+    "starter-volume",
+    glue("No funnel's weekly starters may fall below ",
+         "{as_percent(min_starter_share)} of usual"),
+    passed = nrow(fallen) == 0,
+    details = c(
+      if (nrow(fallen) > 0) {
+        glue("{fallen$funnel_id}: {count(fallen$current)} starters in the 7 ",
+             "days ending {format_date(as_of)}, {as_percent(fallen$share)} of ",
+             "the usual {count(fallen$baseline)}; check that its first step ",
+             "still fires")
+      } else if (nrow(judged) > 0) {
+        glue("7 days ending {format_date(as_of)} as a share of the usual ",
+             "(median of the 4 weeks before): ",
+             "{list_of(glue('{judged$funnel_id} {as_percent(judged$share)}'))}")
+      },
+      if (length(too_few) > 0) {
+        glue("not judged, under {min_baseline_starters} starters a week: ",
+             "{list_of(too_few)}")
+      }
+    )
+  )
+
+  # Check 10 - paused funnels still paused --------------------------------------
+  #
+  # The checks above skip paused funnels, so one that restarts is unchecked
+  # until its paused_funnels entry goes. A floor rather than any starter, so a
+  # stray event does not raise a banner.
+  resumed <- resumed_funnels(entry_counts, as_of, paused_funnels,
+                             min_resumed_starters)
+  paused <- names(paused_funnels)
+
+  record_check(
+    "paused-funnels",
+    glue("Paused funnels must stay paused (under {min_resumed_starters} ",
+         "starters a week)"),
+    passed = length(resumed) == 0,
+    details = if (length(paused) == 0) {
+      "no funnels are paused"
+    } else if (length(resumed) == 0) {
+      glue("{paused}: paused since {format_date(as.Date(paused_funnels))}, ",
+           "so the starter checks skip it")
+    } else {
+      glue("{resumed}: {min_resumed_starters} or more starters in the 7 days ",
+           "ending {format_date(as_of)}, so it looks restarted. Remove it from ",
+           "paused_funnels in R/metrics.R and annotate the restart")
+    }
   )
 
   for (i in seq_along(checks)) {
@@ -516,10 +611,10 @@ run_preflight_safety_check <- function(con,
   if (length(failed_checks) > 0) {
     failed_slugs <- purrr::map_chr(failed_checks, "slug")
     warning(
-      glue("Data quality check failed: ",
+      glue("Data quality checks failed: ",
            "{glue_collapse(failed_slugs, sep = ', ', last = ' and ')} ",
-           "did not hold (see the checklist above). The dashboard will still ",
-           "render, with a banner across the top; do not publish it."),
+           "(see the checklist above). The page still renders, with a banner ",
+           "across the top."),
       call. = FALSE
     )
   }
