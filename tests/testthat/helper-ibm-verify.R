@@ -14,14 +14,13 @@ ibm_auth <- function(days = ibm_days, successful = 800, failed = 200) {
   )
 }
 
-ibm_applications <- c("app-a", "app-b", "cl-admin")
-
 ibm_names <- tibble::tribble(
-  ~alias,      ~service_name, ~is_internal,
-  "app-a",     "Service A",   FALSE,
-  "app-b",     "Service B",   FALSE,
-  "cl-admin",  "Admin",       TRUE
+  ~alias,     ~service_name, ~is_internal,
+  "app-a",    "Service A",   FALSE,
+  "app-b",    "Service B",   FALSE,
+  "cl-admin", "Admin",       TRUE
 )
+ibm_applications <- ibm_names$alias
 
 # Each application under its name and its ID, as in rp.alias.
 ibm_lookup <- dplyr::bind_rows(
@@ -39,6 +38,21 @@ ibm_apps <- function(days = ibm_days, applications = ibm_applications) {
       mtd_unique_users = 400,
       ytd_unique_users = 1000
     )
+}
+
+# app-a renamed to app-a-renamed from September 2, under the same ID
+ibm_renamed_apps <- function() {
+  ibm_apps() |>
+    dplyr::mutate(application_name = dplyr::if_else(
+      application_name == "app-a" & date > as.Date("2026-09-01"),
+      "app-a-renamed", application_name
+    ))
+}
+
+# ibm_lookup plus one alias of Service A
+ibm_lookup_with <- function(alias) {
+  dplyr::add_row(ibm_lookup, alias = alias, service_name = "Service A",
+                 is_internal = FALSE)
 }
 
 ibm_mfa <- function(days = ibm_days) {

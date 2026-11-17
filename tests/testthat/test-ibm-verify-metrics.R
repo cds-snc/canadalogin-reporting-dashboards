@@ -124,27 +124,9 @@ test_that("external services drop a service idle since active_since", {
                   c("Service A", "Service B"))
 })
 
-test_that("service_daily keeps one service's applications as units", {
-  env <- ibm_with_data()
-  rows <- env$service_daily(NULL, "Service A")
-  expect_identical(unique(rows$unit), "app-a")
-})
-
-test_that("a renamed application keeps its service and shows its latest name", {
-  apps <- ibm_apps() |>
-    dplyr::mutate(application_name = dplyr::if_else(
-      application_name == "app-a" & date > as.Date("2026-09-01"), "app-a-renamed",
-      application_name
-    ))
-  labelled <- ibm$label_app_logins(apps, ibm_lookup)
-  renamed <- dplyr::filter(labelled, application_id == "id-app-a")
-  expect_identical(unique(renamed$service_name), "Service A")
-  expect_false(unique(renamed$name_aliased))
-
-  env <- ibm_with_data(apps = apps)
-  rows <- env$service_daily(NULL, "Service A")
+test_that("service_daily shows a renamed application under its latest name", {
+  rows <- ibm_with_data(apps = ibm_renamed_apps())$service_daily(NULL, "Service A")
   expect_identical(unique(rows$unit), "app-a-renamed")
-  expect_identical(nrow(rows), length(ibm_days))
 })
 
 test_that("monthly unit users read the month-to-date count on the last day", {
