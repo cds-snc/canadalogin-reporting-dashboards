@@ -96,21 +96,40 @@ test_that("service coverage ignores an internal service going quiet", {
 # rp-resolution ---------------------------------------------------------------
 
 test_that("relying-party resolution fails on an unlabelled application", {
-  apps <- ibm_apps(applications = c(ibm_lookup$application_name, "new-app"))
+  apps <- ibm_apps(applications = c(ibm_applications, "new-app"))
   result <- run_ibm_preflight(ibm_with_data(apps = apps))
   expect_identical(failed_slugs(result), "rp-resolution")
-  expect_match(check_named(result, "rp-resolution")$details, "new-app", fixed = TRUE)
+  expect_match(check_named(result, "rp-resolution")$details,
+               "id-new-app (new-app)", fixed = TRUE)
+})
+
+test_that("relying-party resolution fails on a rename with no alias for the new name", {
+  result <- run_ibm_preflight(ibm_with_data(apps = ibm_renamed_apps()))
+  expect_identical(failed_slugs(result), "rp-resolution")
+  expect_match(check_named(result, "rp-resolution")$details,
+               "likely a rename: app-a-renamed", fixed = TRUE)
+})
+
+test_that("relying-party resolution passes a rename once the new name is added", {
+  env <- ibm_with_data(apps = ibm_renamed_apps(),
+                       lookup = ibm_lookup_with("app-a-renamed"))
+  expect_true(run_ibm_preflight(env)$passed)
+})
+
+test_that("relying-party resolution ignores events with no application ID", {
+  unknown <- ibm_apps(applications = "UNKNOWN") |>
+    dplyr::mutate(application_id = "UNKNOWN")
+  env <- ibm_with_data(apps = dplyr::bind_rows(ibm_apps(), unknown))
+  expect_true(run_ibm_preflight(env)$passed)
 })
 
 # application-ids -------------------------------------------------------------
 
-test_that("application ids fail when one name spans two ids", {
-  apps <- ibm_apps() |>
-    dplyr::mutate(application_id = dplyr::if_else(
-      application_name == "app-a" & date > as.Date("2026-09-01"), "id-new",
-      application_id
-    ))
-  result <- run_ibm_preflight(ibm_with_data(apps = apps))
+test_that("application ids fail when two ids share a current name", {
+  twin <- ibm_apps(applications = "app-a") |> dplyr::mutate(application_id = "id-new")
+  env <- ibm_with_data(apps = dplyr::bind_rows(ibm_apps(), twin),
+                       lookup = ibm_lookup_with("id-new"))
+  result <- run_ibm_preflight(env)
   expect_identical(failed_slugs(result), "application-ids")
   expect_match(check_named(result, "application-ids")$details, "app-a", fixed = TRUE)
 })

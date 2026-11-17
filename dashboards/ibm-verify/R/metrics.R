@@ -40,10 +40,8 @@ auth_totals <- read_once("events_auth_total_logins", \(x) {
   )
 })
 
-# Daily counts per application. A row is one application_id, and the
-# application_name on it is the newest name seen for that id. The
-# `application-ids` preflight check fails if a name ever spans two ids, since
-# everything here groups on the name.
+# Daily counts, one row per application_id. application_name is that day's
+# name, so group on the ID.
 app_logins <- read_once("events_app_login_counts", \(x) {
   dplyr::select(
     x, date, application_id, application_name, total_logins, unique_users,
@@ -131,18 +129,30 @@ latest_per_unit <- function(rows, from, to) {
 
 # Services --------------------------------------------------------------------
 
-# Daily application rows with the service each belongs to. An application
-# missing from rp.alias is NA rather than dropped; `rp-resolution` fails on it.
+# Application rows labelled by application_id, so a rename changes nothing.
+# app_label is the ID's newest name; name_aliased is whether that name is in
+# rp.alias too. An unknown ID is NA, and fails `rp-resolution`.
+label_app_logins <- function(apps, lookup) {
+  labels <- apps |>
+    dplyr::group_by(application_id) |>
+    dplyr::slice_max(date, n = 1, with_ties = FALSE) |>
+    dplyr::ungroup() |>
+    dplyr::transmute(application_id, app_label = application_name,
+                     name_aliased = app_label %in% lookup$alias)
+  services <- dplyr::select(lookup, application_id = alias, service_name,
+                            is_internal)
+  apps |>
+    dplyr::left_join(labels, by = "application_id") |>
+    dplyr::left_join(services, by = "application_id")
+}
+
 labelled_app_logins <- local({
   cached <- NULL
   function(con) {
     if (!is.null(cached)) {
       return(cached)
     }
-    lookup <- relying_party_lookup(con) |>
-      dplyr::select(application_name = alias, service_name, is_internal)
-    cached <<- app_logins(con) |>
-      dplyr::left_join(lookup, by = "application_name")
+    cached <<- label_app_logins(app_logins(con), relying_party_lookup(con))
     cached
   }
 })
@@ -175,12 +185,11 @@ external_services <- function(con, active_since = NULL) {
   services_by_volume(rows)
 }
 
-# Daily rows for one service, where `unit` is the application name its chart
-# stacks and its table lists
+# Daily rows for one service; `unit` is each application's current name.
 service_daily <- function(con, service) {
   labelled_app_logins(con) |>
     dplyr::filter(service_name == service) |>
-    dplyr::mutate(unit = application_name) |>
+    dplyr::mutate(unit = app_label) |>
     dplyr::select(date, unit, total_logins, unique_users, successful_logins,
                   failed_logins, mtd_unique_users, ytd_unique_users)
 }

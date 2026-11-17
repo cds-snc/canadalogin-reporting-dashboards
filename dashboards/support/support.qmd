@@ -1136,7 +1136,7 @@ htmltools::div(
 Each box multiplies the one before it by a support ratio, calculated below.
 **Sign in on a typical day** is the
 [daily share of monthly users](https://cds-snc.github.io/canadalogin-metrics-cookbook/cookbook/ibm_verify/daily-share-of-monthly-users.html)
-of `r n_distinct(daily_share$application_name)` public applications, with small
+of `r n_distinct(daily_share$application_id)` public applications, with small
 applications left out. This math assumes new services behave like a median
 service, but a new service may not behave like any of these!
 :::

@@ -46,13 +46,13 @@ support_app_logins <- function(from = as.Date("2026-05-15"),
                                apps = paste("App", 1:4)) {
   tidyr::expand_grid(
     date = seq(from, through, by = "day"),
-    application_name = apps
+    application_id = apps
   ) |>
     dplyr::mutate(unique_users = 10, mtd_unique_users = 100)
 }
 
 support_internal <- function(apps = paste("App", 1:4)) {
-  tibble::tibble(application_name = apps, is_internal = FALSE)
+  tibble::tibble(application_id = apps, is_internal = FALSE)
 }
 
 support_psom <- function(snapshot = support_today - 1L) {

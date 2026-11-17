@@ -14,14 +14,20 @@ ibm_auth <- function(days = ibm_days, successful = 800, failed = 200) {
   )
 }
 
-ibm_lookup <- tibble::tribble(
-  ~application_name, ~service_name, ~is_internal,
-  "app-a",           "Service A",   FALSE,
-  "app-b",           "Service B",   FALSE,
-  "cl-admin",        "Admin",       TRUE
+ibm_names <- tibble::tribble(
+  ~alias,     ~service_name, ~is_internal,
+  "app-a",    "Service A",   FALSE,
+  "app-b",    "Service B",   FALSE,
+  "cl-admin", "Admin",       TRUE
+)
+ibm_applications <- ibm_names$alias
+
+# Each application under its name and its ID, as in rp.alias.
+ibm_lookup <- dplyr::bind_rows(
+  ibm_names, dplyr::mutate(ibm_names, alias = paste0("id-", alias))
 )
 
-ibm_apps <- function(days = ibm_days, applications = ibm_lookup$application_name) {
+ibm_apps <- function(days = ibm_days, applications = ibm_applications) {
   tidyr::expand_grid(date = days, application_name = applications) |>
     dplyr::mutate(
       application_id = paste0("id-", application_name),
@@ -34,18 +40,34 @@ ibm_apps <- function(days = ibm_days, applications = ibm_lookup$application_name
     )
 }
 
+# app-a renamed to app-a-renamed from September 2, under the same ID
+ibm_renamed_apps <- function() {
+  ibm_apps() |>
+    dplyr::mutate(application_name = dplyr::if_else(
+      application_name == "app-a" & date > as.Date("2026-09-01"),
+      "app-a-renamed", application_name
+    ))
+}
+
+# ibm_lookup plus one alias of Service A
+ibm_lookup_with <- function(alias) {
+  dplyr::add_row(ibm_lookup, alias = alias, service_name = "Service A",
+                 is_internal = FALSE)
+}
+
 ibm_mfa <- function(days = ibm_days) {
   tidyr::expand_grid(date = days, mfa_type = c("sms_otp", "fido2", "email_otp"),
                      result = c("success", "failure")) |>
     dplyr::mutate(count = 10)
 }
 
-# Join labels here to match labelled_app_logins().
+# Labels through the real label_app_logins(), so the join is tested too.
 ibm_with_data <- function(auth = ibm_auth(), apps = ibm_apps(), mfa = ibm_mfa(),
                           lookup = ibm_lookup) {
-  labelled <- dplyr::left_join(apps, lookup, by = "application_name")
+  env <- load_dashboard("ibm-verify")
+  labelled <- env$label_app_logins(apps, lookup)
   stub(
-    load_dashboard("ibm-verify"),
+    env,
     auth_totals = function(con) auth,
     app_logins = function(con) apps,
     mfa_activity = function(con) mfa,

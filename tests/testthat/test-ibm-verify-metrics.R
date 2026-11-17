@@ -124,10 +124,9 @@ test_that("external services drop a service idle since active_since", {
                   c("Service A", "Service B"))
 })
 
-test_that("service_daily keeps one service's applications as units", {
-  env <- ibm_with_data()
-  rows <- env$service_daily(NULL, "Service A")
-  expect_identical(unique(rows$unit), "app-a")
+test_that("service_daily shows a renamed application under its latest name", {
+  rows <- ibm_with_data(apps = ibm_renamed_apps())$service_daily(NULL, "Service A")
+  expect_identical(unique(rows$unit), "app-a-renamed")
 })
 
 test_that("monthly unit users read the month-to-date count on the last day", {
