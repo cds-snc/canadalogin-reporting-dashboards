@@ -184,16 +184,17 @@ utc_seconds_sql <- function(column) {
   dplyr::sql(glue::glue("to_unixtime({utc_time_sql(column)})"))
 }
 
-# Application names that belong to a public partner service. Unknown names
-# count as public, as in is_internal_rp().
+# Application IDs of public partner services. Unknown IDs count as public.
 public_applications <- function(con) {
   apps <- dplyr::tbl(
     con, dbplyr::in_schema("ibm_verify_events_raw", "application_usage")
   ) |>
-    dplyr::distinct(applicationname) |>
+    dplyr::distinct(applicationid) |>
     dplyr::collect() |>
-    dplyr::pull(applicationname)
-  apps[!is.na(apps) & !is_internal_rp(con, apps)]
+    dplyr::pull(applicationid)
+  apps <- apps[!is.na(apps) & apps != "" &
+                 !apps %in% ibm_excluded_application_ids]
+  apps[!is_internal_rp(con, apps)]
 }
 
 # Accounts counted per pair of days: first seen, and first signed in to a
@@ -213,7 +214,7 @@ account_pairs <- read_once(\(con) {
     con, dbplyr::in_schema("ibm_verify_events_raw", "application_usage")
   ) |>
     dplyr::filter(result == "success", !is.na(userid), userid != "",
-                  applicationname %in% !!public_apps) |>
+                  applicationid %in% !!public_apps) |>
     dplyr::group_by(user = userid) |>
     dplyr::summarise(service_time = min(time), .groups = "drop") |>
     dplyr::mutate(service_day = !!toronto_day_sql("service_time"))

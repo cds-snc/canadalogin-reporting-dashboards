@@ -1,18 +1,14 @@
-#' Relying-party labelling, from the rp.alias and rp.service lookup tables in
-#' the data lake. rp.alias maps each source-system string (GA's rp_name
-#' included) to an rp_id; rp.service holds the service's name, operator and
-#' is_internal. Both are synced each weekday from a hand-maintained sheet by
-#' the rp-sync Lambda in the pipeline repo. Operators are abbreviated through
-#' common/gcorg.R. Each dashboard's own preflight (rp-resolution, in both
-#' Experience Monitoring and Sign-In Activity) fails the render on any
-#' unlabelled rp_name.
+#' Relying-party labels from rp.alias and rp.service, synced each weekday from
+#' a hand-kept sheet. An alias is a GA rp_name, or an IBM Verify application
+#' name or ID.
 
-# What GA reports when the rp_name custom event did not fire. Not relying
-# parties, so exempt from labelling and from the lookup gate.
+# GA's value when the rp_name event did not fire. Not a relying party.
 ga_excluded_rp_names <- c("", "(not set)")
 
-# alias -> service_name, operator, is_internal. Small and read many times per
-# render, so fetched once and cached for the session.
+# IBM Verify's value for an event with no application ID. Not a relying party.
+ibm_excluded_application_ids <- "UNKNOWN"
+
+# alias -> service_name, operator, is_internal. Cached for the session.
 relying_party_lookup <- local({
   cached <- NULL
   function(con) {
@@ -25,13 +21,11 @@ relying_party_lookup <- local({
       dplyr::select(rp_id, service_name = service_name_en, operator,
                     gc_orgid, is_internal)
 
-    # Join on alias alone; `source` records where a name was first seen, not
-    # which system it belongs to, so never filter on it.
+    # Never filter on `source`: it records where an alias was first seen.
     cached <<- aliases |>
       dplyr::inner_join(services, by = "rp_id") |>
       dplyr::select(-rp_id) |>
       dplyr::collect() |>
-      # Inside the cached lookup, so a render makes one resolver call.
       dplyr::mutate(
         operator_abbr = dplyr::coalesce(gcorg_abbreviations(gc_orgid), operator)
       )
@@ -39,18 +33,16 @@ relying_party_lookup <- local({
   }
 })
 
-# One row per service, keyed by the service name shown in tables. is_internal
-# is a service-level column in this schema, so distinct() loses nothing.
+# One row per service, keyed by service name.
 relying_party_services <- function(con) {
   relying_party_lookup(con) |>
     dplyr::distinct(service_name, .keep_all = TRUE) |>
     dplyr::select(service_name, operator, operator_abbr, is_internal)
 }
 
-# service_name, operator and is_internal for each rp_name. One row per input,
-# in input order; an unknown name is NA rather than dropped.
-label_relying_parties <- function(con, rp_names) {
-  dplyr::tibble(alias = rp_names) |>
+# Labels for each alias, in input order; an unknown alias is NA.
+label_relying_parties <- function(con, aliases) {
+  dplyr::tibble(alias = aliases) |>
     dplyr::left_join(relying_party_lookup(con), by = "alias")
 }
 
@@ -61,8 +53,7 @@ service_operators <- function(con, service_names) {
     dplyr::pull(operator_abbr)
 }
 
-# "Full operator name (ABBR)" for each service name. Falls back to the bare
-# name when there is no abbreviation.
+# "Full operator name (ABBR)", or the bare name with no abbreviation.
 service_operator_labels <- function(con, service_names) {
   rows <- dplyr::tibble(service_name = service_names) |>
     dplyr::left_join(relying_party_services(con), by = "service_name")
@@ -71,9 +62,9 @@ service_operator_labels <- function(con, service_names) {
          paste0(rows$operator, " (", rows$operator_abbr, ")"))
 }
 
-# TRUE for each rp_name belonging to an internal service. Unknown names count
-# as external: they are real, unattributed users.
-is_internal_rp <- function(con, rp_names) {
-  labels <- label_relying_parties(con, rp_names)
+# TRUE for each alias of an internal service. Unknown aliases count as
+# external.
+is_internal_rp <- function(con, aliases) {
+  labels <- label_relying_parties(con, aliases)
   !is.na(labels$is_internal) & labels$is_internal
 }

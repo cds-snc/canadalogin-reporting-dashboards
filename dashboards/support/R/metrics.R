@@ -78,22 +78,23 @@ daily_active_users <- read_once(
   }
 )
 
-# Daily and month-to-date users per application, for the daily share of
+# Daily and month-to-date users per application_id, for the daily share of
 # monthly users
 app_logins <- read_once(
   "ibm_verify_events_transformed", "events_app_login_counts",
   \(x) {
     x |>
-      dplyr::transmute(date = as.Date(date), application_name, unique_users,
+      dplyr::filter(!application_id %in% ibm_excluded_application_ids) |>
+      dplyr::transmute(date = as.Date(date), application_id, unique_users,
                        mtd_unique_users) |>
       dplyr::arrange(date)
   }
 )
 
-# Whether each application name is an internal CanadaLogin component
+# Whether each application ID is an internal CanadaLogin component
 application_is_internal <- function(con) {
   relying_party_lookup(con) |>
-    dplyr::distinct(application_name = alias, is_internal)
+    dplyr::distinct(application_id = alias, is_internal)
 }
 
 # Every snapshot of the board. `key` recurs once per snapshot.
@@ -226,13 +227,13 @@ application_daily_share <- function(logins, internal, as_of,
   from <- seq(after, by = "-1 month", length.out = months + 1L)[months + 1L]
 
   first_seen <- logins |>
-    dplyr::group_by(application_name) |>
+    dplyr::group_by(application_id) |>
     dplyr::summarise(first_seen = min(date), .groups = "drop")
 
   logins |>
     dplyr::filter(date >= from, date < after) |>
     dplyr::mutate(month = month_of(date)) |>
-    dplyr::group_by(application_name, month) |>
+    dplyr::group_by(application_id, month) |>
     dplyr::summarise(
       user_days = sum(unique_users, na.rm = TRUE),
       # Grows through the month, so the maximum is the month's total even
@@ -240,8 +241,8 @@ application_daily_share <- function(logins, internal, as_of,
       users = max(mtd_unique_users, na.rm = TRUE),
       .groups = "drop"
     ) |>
-    dplyr::left_join(first_seen, by = "application_name") |>
-    dplyr::left_join(internal, by = "application_name") |>
+    dplyr::left_join(first_seen, by = "application_id") |>
+    dplyr::left_join(internal, by = "application_id") |>
     # An application missing from the registry is kept, as in the cookbook
     dplyr::filter(first_seen < month, !dplyr::coalesce(is_internal, FALSE),
                   users >= min_users) |>
@@ -249,9 +250,9 @@ application_daily_share <- function(logins, internal, as_of,
       days_in_month = as.integer(month_of(month + 31L) - month),
       daily_share = user_days / days_in_month / users
     ) |>
-    dplyr::select(month, application_name, users, user_days, days_in_month,
+    dplyr::select(month, application_id, users, user_days, days_in_month,
                   daily_share) |>
-    dplyr::arrange(month, application_name)
+    dplyr::arrange(month, application_id)
 }
 
 # How far back every weekly chart runs: the 1st of the month two months before

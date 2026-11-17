@@ -146,50 +146,58 @@ run_preflight_safety_check <- function(con,
 
   # Check 3 - relying-party resolution -------------------------------------------
   #
-  # Aliases are added to the source sheet by hand, so a name can appear in IBM
-  # Verify before anyone records it
-  unmapped <- labelled_app_logins(con) |>
-    filter(is.na(service_name)) |>
-    distinct(application_name) |>
-    pull(application_name)
-
-  applications <- unique(app_logins(con)$application_name)
-
-  record_check(
-    "rp-resolution",
-    "Every application name must be labelled",
-    passed = length(unmapped) == 0,
-    details = if (length(unmapped) == 0) {
-      glue("{length(applications)} application name(s) in events_app_login_counts, ",
-           "all resolved through rp.alias to ",
-           "{length(all_services(con))} service(s)")
-    } else {
-      glue("Application name(s) with no row in rp.alias: ",
-           "{glue_collapse(unmapped, sep = ', ')}; ",
+  # The sheet is kept by hand. Labels match on ID, but the current name needs
+  # a row too: the Partner Portal export and Slack metrics match on name.
+  applications <- labelled_app_logins(con) |>
+    filter(!application_id %in% ibm_excluded_application_ids) |>
+    distinct(application_id, app_label, service_name, name_aliased)
+  unmapped <- filter(applications, is.na(service_name))
+  unaliased <- filter(applications, !is.na(service_name), !name_aliased)
+  rp_problems <- c(
+    if (nrow(unmapped) > 0) {
+      ids <- glue("{unmapped$application_id} ({unmapped$app_label})")
+      glue("Application ID(s) with no row in rp.alias: ",
+           "{glue_collapse(ids, sep = ', ')}; ",
+           "add them to the CanadaLogin Relying Parties sheet")
+    },
+    if (nrow(unaliased) > 0) {
+      glue("Current application name(s) with no row in rp.alias, likely a ",
+           "rename: {glue_collapse(unaliased$app_label, sep = ', ')}; ",
            "add them to the CanadaLogin Relying Parties sheet")
     }
   )
 
-  # Check 4 - one application id per name ---------------------------------------
+  record_check(
+    "rp-resolution",
+    "Every application ID and current name must be labelled",
+    passed = length(rp_problems) == 0,
+    details = if (length(rp_problems) == 0) {
+      glue("{nrow(applications)} application(s) in events_app_login_counts, ",
+           "all resolved by ID and by current name through rp.alias to ",
+           "{length(all_services(con))} service(s)")
+    } else {
+      rp_problems
+    }
+  )
+
+  # Check 4 - one application id per current name --------------------------------
   #
-  # A row is one application_id, but every page groups on application_name. A
-  # name on two ids would sum their unique users and double-count anyone who
-  # used both, and latest_per_unit() would keep only one id's running total.
-  shared_names <- app_logins(con) |>
-    distinct(application_name, application_id) |>
-    count(application_name, name = "ids") |>
+  # Units are current names, so two IDs sharing one would merge and
+  # double-count users.
+  shared_names <- applications |>
+    count(app_label, name = "ids") |>
     filter(ids > 1)
 
   record_check(
     "application-ids",
-    "Every application name must belong to one application ID",
+    "Every current application name must belong to one application ID",
     passed = nrow(shared_names) == 0,
     details = if (nrow(shared_names) == 0) {
-      glue("{length(applications)} application name(s), each on one ",
-           "application ID")
+      glue("{nrow(applications)} application ID(s), each with its own name")
     } else {
-      glue("{shared_names$application_name}: {shared_names$ids} application ",
-           "IDs; group on application_id before counting unique users")
+      glue("{shared_names$app_label}: {shared_names$ids} application IDs ",
+           "share this name; rename one in IBM Verify or add a way to tell ",
+           "them apart")
     }
   )
 

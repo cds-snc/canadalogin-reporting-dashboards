@@ -69,7 +69,7 @@ test_that("call_rate gives no rate for a week the sign-in data only part covers"
 share_logins <- function(rows) {
   tibble::tibble(
     date = as.Date(rows$date),
-    application_name = rows$app,
+    application_id = rows$app,
     unique_users = rows$unique_users,
     mtd_unique_users = rows$mtd_unique_users
   )
@@ -84,7 +84,7 @@ daily_logins <- function(app = "App", through = as.Date("2026-09-16"),
                     mtd_unique_users = mtd_unique_users))
 }
 
-public <- function(apps) tibble::tibble(application_name = apps, is_internal = FALSE)
+public <- function(apps) tibble::tibble(application_id = apps, is_internal = FALSE)
 
 test_that("daily share takes the last complete months before as_of", {
   share <- support$application_daily_share(daily_logins(), public("App"),
@@ -116,17 +116,17 @@ test_that("daily share takes the month's largest month-to-date count", {
 
 test_that("daily share leaves out internal applications", {
   logins <- dplyr::bind_rows(daily_logins("Public"), daily_logins("Internal"))
-  internal <- tibble::tibble(application_name = c("Public", "Internal"),
+  internal <- tibble::tibble(application_id = c("Public", "Internal"),
                              is_internal = c(FALSE, TRUE))
   share <- support$application_daily_share(logins, internal,
                                            as.Date("2026-09-16"), months = 1)
-  expect_identical(share$application_name, "Public")
+  expect_identical(share$application_id, "Public")
 })
 
 test_that("daily share keeps an application missing from the registry", {
   share <- support$application_daily_share(daily_logins("Unknown"), public("App"),
                                            as.Date("2026-09-16"), months = 1)
-  expect_identical(share$application_name, "Unknown")
+  expect_identical(share$application_id, "Unknown")
 })
 
 test_that("daily share leaves out a month the application was not live for in full", {
@@ -142,7 +142,7 @@ test_that("daily share leaves out an application under the user floor", {
   share <- support$application_daily_share(logins, public(c("Big", "Small")),
                                            as.Date("2026-09-16"), months = 1,
                                            min_users = 25)
-  expect_identical(share$application_name, "Big")
+  expect_identical(share$application_id, "Big")
 })
 
 test_that("rolling_windows gives one window per week from the week holding from", {
