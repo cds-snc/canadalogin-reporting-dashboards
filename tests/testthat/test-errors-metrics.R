@@ -44,8 +44,8 @@ test_that("a code at twice its usual rate on enough events is flagged", {
   expect_true(row$flagged)
   expect_identical(row$events, 70)
   expect_equal(row$change, 1)
-  # Flagged codes lead the table.
-  expect_identical(codes$error_code[1], "CSIBN0021E")
+  # Listed by volume, not ahead of busier codes.
+  expect_identical(match("CSIBN0021E", codes$error_code), 4L)
 })
 
 test_that("a doubling on too few events is not flagged", {
@@ -85,7 +85,7 @@ test_that("a code quiet for the history weeks but seen before is returning", {
     tibble::tibble(day = as.Date("2026-09-01"), error_code = "FID024E",
                    form_id = "add_passkey", events = 2),
     tibble::tibble(day = errors_week$start, error_code = "FID024E",
-                   form_id = "add_passkey", events = 1)
+                   form_id = "add_passkey", events = 5)
   )
   row <- dplyr::filter(errors_codes(env, errors), error_code == "FID024E")
   expect_true(row$new)
@@ -110,13 +110,17 @@ test_that("a typical week of zero, with some history, flags from zero", {
                                    row$events), "▲ from 0")
 })
 
-test_that("the codes table lists flagged and new codes, then the busiest", {
-  quiet <- purrr::map_dfr(sprintf("Q%02d", 1:12), \(code) {
-    errors_code(code, "signin", 1)
-  })
-  codes <- errors_codes(env, dplyr::bind_rows(errors_rows(), quiet))
-  expect_identical(nrow(codes), errors_thresholds$top_codes)
-  expect_identical(codes$error_code[1:3], c("26", "CSIAH3315E", "CSIAQ0287E"))
+test_that("the codes table lists new codes, then the rest from a minimum, by volume", {
+  errors <- dplyr::bind_rows(
+    errors_rows(),
+    errors_code("QUIET", "signin", 2),
+    tibble::tibble(day = errors_week$start, error_code = "BRAND_NEW",
+                   form_id = "signin", events = 6)
+  )
+  codes <- errors_codes(env, errors)
+  # QUIET has 14 a week, under the minimum of 20.
+  expect_identical(codes$error_code,
+                   c("BRAND_NEW", "26", "CSIAH3315E", "CSIAQ0287E"))
 })
 
 # Features --------------------------------------------------------------------
@@ -145,9 +149,12 @@ test_that("a feature's top codes carry their share of its errors", {
                                          "passwordrecovery", 0.1))
   row <- dplyr::filter(errors_features(env, errors),
                        feature == "Password recovery")
-  expect_match(row$codes, "<code>26</code> 100%", fixed = TRUE)
-  expect_match(row$codes, "<code>PHONE_VALIDATION_ERROR</code> <1%",
+  expect_match(row$codes, '--share: 99.9%"></span><code>26</code>', fixed = TRUE)
+  expect_match(row$codes, 'aria-label="<1% of errors" style="--share: 0.1%"',
                fixed = TRUE)
+  # Busiest first.
+  expect_lt(regexpr("<code>26</code>", row$codes),
+            regexpr("<code>PHONE_VALIDATION_ERROR</code>", row$codes))
 })
 
 test_that("the overall rate is every GA error over sessions", {
@@ -268,4 +275,15 @@ test_that("for errors a rise is bad, a fall good, and a new code has no verdict"
                       typical = c(10, 10, 10, 0, 0), events = c(15, 5, 10, 60, 3)),
     c("bad", "good", "flat", "bad", NA)
   )
+})
+
+test_that("a new code below the event minimum is left out of the table", {
+  errors <- dplyr::bind_rows(
+    errors_rows(),
+    tibble::tibble(day = errors_week$start, error_code = c("RARE", "ENOUGH"),
+                   form_id = "signin", events = c(4, 5))
+  )
+  codes <- errors_codes(env, errors)
+  expect_false("RARE" %in% codes$error_code)
+  expect_true("ENOUGH" %in% codes$error_code)
 })

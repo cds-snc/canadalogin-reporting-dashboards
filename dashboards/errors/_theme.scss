@@ -43,3 +43,34 @@ $navbar-hl: #FFFFFF;
   align-content: start;
 }
 
+// A feature's top codes, one a line, each behind a bar for its share of the
+// feature's errors. Every bar has the same grey track, so bars line up down
+// the column; a share too small to see still shows as a sliver. Spans, not
+// divs: Quarto makes every div in a card a flex column.
+.code-share {
+  display: block;
+  white-space: nowrap;
+}
+
+.share-bar {
+  background: #E4E6E9;
+  border-radius: 2px;
+  display: inline-block;
+  height: 8px;
+  margin-right: 0.5em;
+  position: relative;
+  vertical-align: middle;
+  width: 56px;
+}
+
+.share-bar::after {
+  background: #962F2F;
+  border-radius: 2px;
+  bottom: 0;
+  content: "";
+  left: 0;
+  position: absolute;
+  top: 0;
+  width: max(2px, var(--share));
+}
+

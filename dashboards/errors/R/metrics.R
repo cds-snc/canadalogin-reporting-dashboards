@@ -225,8 +225,9 @@ feature_html <- function(feature) {
 
 # Tables ---------------------------------------------------------------------
 
-# The top codes in each feature this week as HTML, "CSIAH3315E 88%, ...", each
-# code and its share kept on one line.
+# The top codes in each feature this week as HTML, one per line: a bar for the
+# code's share of the feature's errors, then the code. The bar has no number,
+# so codes like 26 are never read as one; a screen reader hears the share.
 top_codes <- function(errors, week_start, n, messages = no_messages) {
   errors |>
     dplyr::filter(day >= week_start, day <= week_start + 6L) |>
@@ -237,9 +238,12 @@ top_codes <- function(errors, week_start, n, messages = no_messages) {
     dplyr::arrange(dplyr::desc(events), error_code, .by_group = TRUE) |>
     dplyr::slice_head(n = n) |>
     dplyr::summarise(
-      codes = paste0('<span style="white-space: nowrap">',
-                     code_html(error_code, messages), " ", fmt_share(share),
-                     "</span>", collapse = ", "),
+      codes = paste0(
+        '<span class="code-share"><span class="share-bar" role="img" ',
+        'aria-label="', fmt_share(share), ' of errors" style="--share: ',
+        round(share * 100, 1), '%"></span>', code_html(error_code, messages),
+        "</span>", collapse = ""
+      ),
       .groups = "drop"
     )
 }
@@ -276,7 +280,11 @@ main_feature <- function(errors, week_start) {
     dplyr::select(error_code, feature)
 }
 
-# Flagged codes, then new ones, then the busiest of the rest up to `top_codes`.
+# New and returning codes with at least `new_min_events` events (a single
+# stray error is not worth a row), then every other code with at least
+# `list_min_events`, each part by volume. A minimum, not a rank: below it the
+# changes swing on a handful of errors. Flagged codes need more events than
+# either, so they are always listed.
 code_table <- function(errors, sessions, week, thresholds) {
   weeks <- weeks_needed(week, thresholds)
   rates <- weekly_rates(dplyr::transmute(errors, day, key = error_code, events),
@@ -286,16 +294,14 @@ code_table <- function(errors, sessions, week, thresholds) {
     dplyr::rename(error_code = key) |>
     dplyr::filter(events > 0)
 
-  standouts <- scored |>
-    dplyr::filter(flagged | new) |>
-    dplyr::arrange(dplyr::desc(flagged), dplyr::desc(ratio),
-                   dplyr::desc(events), error_code)
-  busiest <- scored |>
-    dplyr::filter(!flagged, !new) |>
-    dplyr::arrange(dplyr::desc(events), error_code) |>
-    dplyr::slice_head(n = thresholds$top_codes)
+  arrivals <- scored |>
+    dplyr::filter(new, events >= thresholds$new_min_events) |>
+    dplyr::arrange(dplyr::desc(events), error_code)
+  regulars <- scored |>
+    dplyr::filter(!new, events >= thresholds$list_min_events) |>
+    dplyr::arrange(dplyr::desc(events), error_code)
 
-  dplyr::bind_rows(standouts, busiest) |>
+  dplyr::bind_rows(arrivals, regulars) |>
     dplyr::left_join(main_feature(errors, week$start), by = "error_code")
 }
 

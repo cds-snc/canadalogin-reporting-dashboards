@@ -11,7 +11,8 @@ errors_thresholds <- list(
   min_events = 50,
   history_weeks = 4L,
   trend_weeks = 12L,
-  top_codes = 10L,
+  new_min_events = 5L,
+  list_min_events = 20L,
   feature_codes = 3L,
   sessions_floor = 0.2
 )
