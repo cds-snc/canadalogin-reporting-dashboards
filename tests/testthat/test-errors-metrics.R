@@ -166,6 +166,11 @@ test_that("the overall rate is every GA error over sessions", {
 
 # Formatting ------------------------------------------------------------------
 
+test_that("rates show three significant figures", {
+  expect_identical(env$fmt_rate(c(170.886, 59.757, 1.5674, 0.0392, 2, NA)),
+                   c("171", "59.8", "1.57", "0.0392", "2.00", "-"))
+})
+
 test_that("small shares read as under one per cent", {
   expect_identical(env$fmt_share(c(0.004, 0.88)), c("<1%", "88%"))
 })
@@ -241,25 +246,6 @@ test_that("feature top codes carry the tooltips", {
   expect_match(row$codes, 'title="No account."', fixed = TRUE)
 })
 
-# Value boxes -----------------------------------------------------------------
-
-test_that("codes seen this week compare with the median of the weeks before", {
-  errors <- dplyr::bind_rows(
-    errors_rows(),
-    tibble::tibble(day = as.Date("2026-10-20"), error_code = "ONCE",
-                   form_id = "signin", events = 1)
-  )
-  active <- env$active_codes(errors, errors_week, errors_thresholds)
-  expect_identical(active$now, 3L)
-  expect_equal(active$typical, 3)
-})
-
-test_that("the busiest feature has the most errors, with its share", {
-  busiest <- env$busiest_feature(errors_features(env))
-  expect_identical(busiest$feature, "Password recovery")
-  expect_equal(busiest$share, 100 / 170)
-})
-
 test_that("a feature's tooltip lists every form the map gives it", {
   html <- env$feature_html(c("Passkey setup", "brand_new_form"))
   expect_match(html[1], 'title="fido2_enrollment_form&#10;add_passkey"',
@@ -286,4 +272,19 @@ test_that("a new code below the event minimum is left out of the table", {
   codes <- errors_codes(env, errors)
   expect_false("RARE" %in% codes$error_code)
   expect_true("ENOUGH" %in% codes$error_code)
+})
+
+test_that("the charts start at the first whole week of data, up to a limit", {
+  # Data from a Friday: the chart starts the Monday after.
+  span <- env$chart_span(errors_week, errors_thresholds, as.Date("2026-07-10"))
+  expect_identical(span[1], as.Date("2026-07-13"))
+  expect_identical(max(span), errors_week$start)
+  # Data from a Monday starts that Monday.
+  expect_identical(
+    env$chart_span(errors_week, errors_thresholds, as.Date("2026-07-13"))[1],
+    as.Date("2026-07-13")
+  )
+  # Plenty of data: capped at chart_weeks.
+  long <- env$chart_span(errors_week, errors_thresholds, as.Date("2025-01-01"))
+  expect_length(long, errors_thresholds$chart_weeks)
 })

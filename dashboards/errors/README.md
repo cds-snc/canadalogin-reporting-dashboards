@@ -9,7 +9,7 @@ It reads Google Analytics only: errors from `google_analytics.error_events`,
 and sessions from `google_analytics.property_traffic`. Every rate is errors
 per 1,000 site-wide sessions.
 
-After an About page, the dashboard has two pages, each a table under three
+After an Overview page, the dashboard has two pages, each a table under three
 value boxes:
 
 - **By Feature**: one row per part of CanadaLogin where errors happen, such as

@@ -36,6 +36,8 @@ thresholds <- list(
   history_weeks = 4L,
   # Weeks in each trend line, ending with the report week.
   trend_weeks = 12L,
+  # Longest span of the charts; until there is that much data, all of it.
+  chart_weeks = 26L,
   # New and returning codes are listed from this many events in the week.
   new_min_events = 5L,
   # Every other code is listed from this many events in the week.
@@ -61,7 +63,8 @@ preflight <- run_preflight_safety_check(con, thresholds)
 write_preflight_status(preflight)
 
 week <- report_week(toronto_today())
-from <- min(weeks_needed(week, thresholds))
+from <- min(weeks_needed(week, thresholds),
+            week$start - 7L * (thresholds$chart_weeks - 1L))
 
 errors <- dplyr::filter(error_rows(con, from), day <= week$end)
 sessions <- dplyr::filter(session_days(con, from), day <= week$end)
@@ -73,8 +76,6 @@ messages <- code_messages(private_data("error-codes.yml", read = yaml::read_yaml
 features <- feature_table(errors, sessions, week, thresholds, messages)
 codes <- code_table(errors, sessions, week, thresholds)
 overall <- overall_rate(errors, sessions, week, thresholds)
-active <- active_codes(errors, week, thresholds)
-busiest <- busiest_feature(features)
 unlabelled <- unlabelled_forms(dplyr::filter(errors, day >= week$start))
 overall_weeks <- chart_weeks(errors, sessions, week, thresholds)
 feature_weeks <- chart_weeks(errors, sessions, week, thresholds, by_feature = TRUE)
@@ -98,9 +99,9 @@ cat(
 # Presentation ---------------------------------------------------------------
 
 # Mirrors _theme.scss: brand red only for what was flagged.
-ink <- list(flag = "#AB2328", trend = "#962F2F", quiet = "#5C6670")
+ink <- list(flag = "#AB2328", trend = "#952535", quiet = "#5C6670")
 
-trend_label <- glue("Errors per 1,000 sessions, last {thresholds$trend_weeks} weeks")
+trend_label <- "Errors per 1,000 sessions, weekly"
 against_label <- glue("Against the {thresholds$history_weeks} weeks before")
 
 table_options <- function(gt_table) {
@@ -132,7 +133,10 @@ rate_columns <- function(gt_table) {
       options = nanoplot_options(
         data_bar_fill_color = ink$trend,
         data_bar_stroke_color = ink$trend,
-        show_data_points = FALSE
+        show_data_points = FALSE,
+        # The values shown on hover, formatted like every other rate.
+        y_val_fmt_fn = fmt_rate,
+        y_axis_fmt_fn = fmt_rate
       )
     ) |>
     colour_changes("against", "verdict") |>
@@ -205,19 +209,20 @@ rate_scale <- function() {
                      expand = expansion(mult = c(0, 0.08)))
 }
 
-# All errors each week, the report week marked.
+# All errors each week, the report week marked and labelled with its rate.
 overall_chart <- function(rows) {
   latest <- dplyr::filter(rows, week == max(week))
   p <- ggplot(rows, aes(week_end_of(week), rate)) +
     geom_line(colour = ink$trend, linewidth = 0.8) +
     geom_point(data = latest, colour = ink$trend, size = 2.6) +
+    geom_text(data = latest, aes(label = fmt_rate(rate)), vjust = -1.1,
+              size = 3.6, colour = "grey20") +
     week_scale() +
     rate_scale() +
     theme_cds() +
     theme(panel.grid.minor = element_blank()) +
     labs(x = "Week ending", y = "Errors per 1,000 sessions",
-         title = "All errors per 1,000 sessions, by week",
-         subtitle = "The dot is the latest week.")
+         title = "All errors per 1,000 sessions, by week")
   brand_figure(p)
 }
 
@@ -264,10 +269,22 @@ flag_line <- function(names) {
 }
 
 flagged_features <- flag_line(features$feature[features$flagged])
+
+# One feature's rate and change, for its value box; dashes if it had no errors
+# in the weeks the page reads.
+feature_box <- function(name) {
+  row <- dplyr::filter(features, feature == name)
+  if (nrow(row) == 0) return(list(rate = "-", change = "-"))
+  list(rate = nbsp(fmt_rate(row$rate)),
+       change = change_html(row$change, good = "down"))
+}
+
+sign_in_box <- feature_box("Sign in")
+sign_up_box <- feature_box("Sign up")
 flagged_codes <- flag_line(codes$error_code[codes$flagged])
 ```
 
-# About
+# Overview
 
 ## Row {height="auto"}
 
@@ -340,19 +357,19 @@ Features flagged
 :::
 
 ::: {.valuebox color="info"}
-Errors per 1,000 sessions
+Sign-in errors per 1,000 sessions
 
-`r nbsp(fmt_rate(overall$rate))`
+`r sign_in_box$rate`
 
-`r change_html(overall$change, good = "down")` on the `r thresholds$history_weeks` weeks before
+`r sign_in_box$change` on the `r thresholds$history_weeks` weeks before
 :::
 
 ::: {.valuebox color="secondary"}
-Most errors
+Sign-up errors per 1,000 sessions
 
-`r nbsp(busiest$feature)`
+`r sign_up_box$rate`
 
-`r scales::percent(busiest$share, accuracy = 1)` of this week's errors
+`r sign_up_box$change` on the `r thresholds$history_weeks` weeks before
 :::
 
 ### Column {width="76%"}
@@ -399,19 +416,19 @@ Codes flagged
 :::
 
 ::: {.valuebox color="info"}
+Errors per 1,000 sessions
+
+`r nbsp(fmt_rate(overall$rate))`
+
+`r change_html(overall$change, good = "down")` on the `r thresholds$history_weeks` weeks before
+:::
+
+::: {.valuebox color="secondary"}
 New or returning codes
 
 `r sum(codes$new)`
 
 At least `r thresholds$new_min_events` errors, none in the `r thresholds$history_weeks` weeks before
-:::
-
-::: {.valuebox color="secondary"}
-Codes seen this week
-
-`r active$now`
-
-`r scales::number(active$typical, accuracy = 1)` a week over the `r thresholds$history_weeks` weeks before
 :::
 
 ### Column {width="76%"}

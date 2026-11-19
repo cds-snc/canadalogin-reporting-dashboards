@@ -305,27 +305,6 @@ code_table <- function(errors, sessions, week, thresholds) {
     dplyr::left_join(main_feature(errors, week$start), by = "error_code")
 }
 
-# Distinct codes in the report week, and the median over the history weeks.
-active_codes <- function(errors, week, thresholds) {
-  weeks <- weeks_needed(week, thresholds)
-  history <- utils::tail(weeks, thresholds$history_weeks + 1L)
-  counts <- errors |>
-    dplyr::filter(events > 0) |>
-    dplyr::mutate(week = monday_of(day)) |>
-    dplyr::filter(week %in% history) |>
-    dplyr::distinct(week, error_code) |>
-    dplyr::count(week) |>
-    tidyr::complete(week = history, fill = list(n = 0L))
-  list(now = counts$n[counts$week == week$start],
-       typical = stats::median(counts$n[counts$week < week$start]))
-}
-
-# The feature with the most errors this week, and its share of them.
-busiest_feature <- function(features) {
-  top <- dplyr::slice_max(features, events, n = 1, with_ties = FALSE)
-  list(feature = top$feature, share = top$events / sum(features$events))
-}
-
 # All GA errors per 1,000 sessions: the report week and its typical week.
 overall_rate <- function(errors, sessions, week, thresholds) {
   weeks <- weeks_needed(week, thresholds)
@@ -334,12 +313,21 @@ overall_rate <- function(errors, sessions, week, thresholds) {
   score_weeks(rates, week$start, thresholds)
 }
 
-# Errors per 1,000 sessions for every week the page reads, for the charts:
-# all errors as one series, or one series per feature.
+# The Mondays the charts span: up to `chart_weeks` weeks ending with the report
+# week, from the first whole week of error data on. A longer view than the
+# tables', which only need their trend and its history.
+chart_span <- function(week, thresholds, first_day) {
+  from <- max(week$start - 7L * (thresholds$chart_weeks - 1L),
+              first_day + (8L - as.integer(format(first_day, "%u"))) %% 7L)
+  seq(from, week$start, by = "week")
+}
+
+# Errors per 1,000 sessions for every week the charts span: all errors as one
+# series, or one series per feature.
 chart_weeks <- function(errors, sessions, week, thresholds, by_feature = FALSE) {
   key <- if (by_feature) feature_label(errors$form_id) else rep("all", nrow(errors))
   weekly_rates(tibble::tibble(day = errors$day, key = key, events = errors$events),
-               sessions, weeks_needed(week, thresholds))
+               sessions, chart_span(week, thresholds, min(errors$day)))
 }
 
 # Formatting -----------------------------------------------------------------
@@ -357,9 +345,13 @@ format_long_date <- function(d) {
          format(d, "%Y"))
 }
 
-# Errors per 1,000 sessions: one decimal, which small rates need.
+# Errors per 1,000 sessions to three significant figures: "171", "59.8",
+# "0.0392". A fixed decimal turned small rates into "0.0". Trailing zeros stay,
+# so every rate shows three figures ("2.00").
 fmt_rate <- function(x) {
-  ifelse(is.na(x), "-", formatC(x, format = "f", digits = 1, big.mark = ","))
+  ifelse(is.na(x), "-",
+         trimws(formatC(signif(x, 3), format = "fg", digits = 3, flag = "#",
+                        big.mark = ",")))
 }
 
 # "▲ +150%" against the typical week; "New" or "Returning" with no errors in
