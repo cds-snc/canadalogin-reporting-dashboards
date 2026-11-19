@@ -1,18 +1,14 @@
 // This dashboard's accent. Every dashboard shares the CDS palette in
 // ../../_brand.yml and overrides only what makes it distinct.
 //
-// A dark crimson navbar, with brand red kept for what was flagged. Darker and
-// cooler than brand red, which would sit on the red failure banner and hide
-// it. OKLCH hue 18: a red at hue 24 read as orange, and a greyer one at 14 as
-// purple. White text is 8.1:1 on the primary.
+// A dark crimson, darker and cooler than brand red so the red failure banner
+// still stands out. White text is 8.1:1 on it.
 
 /*-- scss:defaults --*/
 
 $primary: #952535;
 
 $info: #F6E6E6;
-
-$flag: #AB2328;
 
 $navbar-hl: #FFFFFF;
 
@@ -29,25 +25,22 @@ $navbar-hl: #FFFFFF;
   text-underline-offset: 2px;
 }
 
-// A message can list several texts, one per line.
+// A feature's tooltip lists one form a line.
 .tooltip-inner {
   max-width: 360px;
   text-align: left;
   white-space: pre-line;
 }
 
-// The value boxes sit in a column beside a chart, and Quarto shares the
-// column's height equally between them. Packed to the top instead, as in
-// Experience Monitoring; !important beats Quarto's inline grid style.
+// Value boxes packed to the top of their column rather than sharing its
+// height; !important beats Quarto's inline grid style.
 .bslib-grid:has(> .bslib-value-box) {
   grid-template-rows: repeat(3, auto) !important;
   align-content: start;
 }
 
-// A feature's top codes, one a line, each behind a bar for its share of the
-// feature's errors. Every bar has the same grey track, so bars line up down
-// the column; a share too small to see still shows as a sliver. Spans, not
-// divs: Quarto makes every div in a card a flex column.
+// A feature's top codes, one a line, each after a bar for its share on a
+// shared grey track. Spans, not divs: Quarto makes card divs flex columns.
 .code-share {
   display: block;
   white-space: nowrap;
@@ -65,7 +58,7 @@ $navbar-hl: #FFFFFF;
 }
 
 .share-bar::after {
-  background: #952535;
+  background: $primary;
   border-radius: 2px;
   bottom: 0;
   content: "";

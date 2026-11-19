@@ -8,8 +8,8 @@ format:
     include-before-body: page-header.html
     include-after-body:
       - analytics-tag.html # see _analytics.qmd
-      # Bootstrap tooltips on codes and feature names. A native title tooltip is slow, and
-      # some browsers and previews never show it. On body, so no card clips it.
+      # Bootstrap tooltips, on the body so no card clips them; some browsers
+      # never show a native title tooltip.
       - text: |
           <script>
           window.addEventListener("load", () => {
@@ -98,8 +98,8 @@ cat(
 
 # Presentation ---------------------------------------------------------------
 
-# Mirrors _theme.scss: brand red only for what was flagged.
-ink <- list(flag = "#AB2328", trend = "#952535", quiet = "#5C6670")
+# $primary in _theme.scss; ggplot and gt cannot read the scss.
+accent <- "#952535"
 
 trend_label <- "Errors per 1,000 sessions, weekly"
 against_label <- glue("Against the {thresholds$history_weeks} weeks before")
@@ -131,10 +131,9 @@ rate_columns <- function(gt_table) {
       new_col_name = "trend",
       new_col_label = trend_label,
       options = nanoplot_options(
-        data_bar_fill_color = ink$trend,
-        data_bar_stroke_color = ink$trend,
+        data_bar_fill_color = accent,
+        data_bar_stroke_color = accent,
         show_data_points = FALSE,
-        # The values shown on hover, formatted like every other rate.
         y_val_fmt_fn = fmt_rate,
         y_axis_fmt_fn = fmt_rate
       )
@@ -213,8 +212,8 @@ rate_scale <- function() {
 overall_chart <- function(rows) {
   latest <- dplyr::filter(rows, week == max(week))
   p <- ggplot(rows, aes(week_end_of(week), rate)) +
-    geom_line(colour = ink$trend, linewidth = 0.8) +
-    geom_point(data = latest, colour = ink$trend, size = 2.6) +
+    geom_line(colour = accent, linewidth = 0.8) +
+    geom_point(data = latest, colour = accent, size = 2.6) +
     geom_text(data = latest, aes(label = fmt_rate(rate)), vjust = -1.1,
               size = 3.6, colour = "grey20") +
     week_scale() +
@@ -232,8 +231,8 @@ overall_chart <- function(rows) {
 feature_chart <- function(rows, features) {
   rows <- dplyr::mutate(rows, key = factor(key, levels = features$feature))
   p <- ggplot(rows, aes(week_end_of(week), rate)) +
-    geom_area(fill = ink$trend, alpha = 0.15) +
-    geom_line(colour = ink$trend, linewidth = 0.7) +
+    geom_area(fill = accent, alpha = 0.15) +
+    geom_line(colour = accent, linewidth = 0.7) +
     facet_wrap(~key, ncol = 3) +
     scale_x_date(date_breaks = "1 month", date_labels = "%b") +
     rate_scale() +

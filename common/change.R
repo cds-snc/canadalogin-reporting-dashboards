@@ -35,11 +35,9 @@ delta_colours <- c(up = "#0F7B32", down = "#AB2328", flat = "#5C6670")
 
 # Colouring a change -----------------------------------------------------------
 
-# Whether a change is good news, bad news, or neither: "good" / "bad" / "flat".
-# `good` is the direction that is good for this metric, "up" or "down", or NA
-# where neither is. `meaningful` is each dashboard's own test of whether a move
-# is big enough to colour, such as a noise band; FALSE reads as "flat". A flat
-# or uncalculable change is always "flat".
+# "good", "bad" or "flat": `good` is the direction that is good news ("up",
+# "down", or NA for neither); `meaningful = FALSE`, a dashboard's own noise
+# test, makes any change "flat".
 change_verdict <- function(delta, good = "up", meaningful = TRUE, points = FALSE) {
   direction <- delta_direction(delta, points)
   dplyr::case_when(
@@ -49,8 +47,7 @@ change_verdict <- function(delta, good = "up", meaningful = TRUE, points = FALSE
   )
 }
 
-# The colour for each verdict, from delta_colours: good news green, bad news
-# red, neither grey.
+# Good news green, bad news red, neither grey.
 verdict_colours <- c(
   good = delta_colours[["up"]], bad = delta_colours[["down"]],
   flat = delta_colours[["flat"]]

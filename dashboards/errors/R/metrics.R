@@ -1,16 +1,14 @@
-# Errors metric layer: GA error events per 1,000 site-wide sessions, by week,
-# for each feature and each error code. Google Analytics only. The
-# thresholds are set at the top of the qmd setup chunk and passed in, so this
-# file holds no tunable numbers.
+# Errors metric layer: Google Analytics error events per 1,000 site-wide
+# sessions, by week, for each feature and each error code. Thresholds come from
+# the qmd setup chunk, so this file holds no tunable numbers.
 
 # GA exports each day two days late: a Wednesday render sees Monday.
 ga_lag_days <- 2L
 
 local_tz <- "America/Toronto"
 
-# Features as readers know them, by GA form_id. A form missing here still gets
-# its own row, labelled with the form_id, so an out-of-date map only costs a
-# friendlier name.
+# Features as readers know them, by GA form_id. A form missing here keeps its
+# own row under its form_id, so the map only renames and never filters.
 feature_of_form <- c(
   signin = "Sign in",
   signup = "Sign up",
@@ -63,8 +61,7 @@ weeks_needed <- function(week, thresholds) {
 
 # Reads ----------------------------------------------------------------------
 
-# Cache a read for the session. Every table reads the same rows, and the data
-# cannot change mid-render.
+# Caches a read for the session, keyed by its start date.
 read_once <- function(read) {
   cache <- new.env(parent = emptyenv())
   function(con, from) {
@@ -134,8 +131,7 @@ weekly_rates <- function(errors, sessions, weeks) {
 # - new: no events in any of the history weeks, and some this week.
 # - returning: new, but with events in an earlier week the page read.
 # - flagged: not new, at least `min_events` events, and a rate at least
-#   `ratio` times the typical week. A typical week of zero with events in the
-#   history still counts, as an infinite ratio.
+#   `ratio` times the typical week, a typical week of zero included.
 # - change: the rate against the typical week, NA when that is zero.
 # - trend: the rate for each of the last `trend_weeks` weeks, oldest first.
 score_weeks <- function(rates, week_start, thresholds) {
@@ -144,8 +140,8 @@ score_weeks <- function(rates, week_start, thresholds) {
 
   rates |>
     dplyr::group_by(key) |>
-    # The history first: summarise() sees each new column, so `rate` and
-    # `events` must still be the weekly ones when it is read.
+    # History first: summarise() sees each new column, so `rate` and `events`
+    # must still be weekly when read.
     dplyr::summarise(
       typical = stats::median(rate[week >= history_from & week < week_start]),
       history_events = sum(events[week >= history_from & week < week_start]),
@@ -158,9 +154,8 @@ score_weeks <- function(rates, week_start, thresholds) {
     dplyr::mutate(
       new = history_events == 0 & events > 0,
       returning = new & earlier_events > 0,
-      ratio = rate / typical,
       flagged = !new & events >= thresholds$min_events &
-        !is.na(ratio) & ratio >= thresholds$ratio,
+        dplyr::coalesce(rate >= thresholds$ratio * typical, FALSE),
       change = ifelse(typical > 0, rate / typical - 1, NA_real_)
     )
 }
@@ -169,15 +164,13 @@ score_weeks <- function(rates, week_start, thresholds) {
 
 no_messages <- tibble::tibble(error_code = character(), message = character())
 
-# In brackets, so it cannot be read as the message itself: it is the dashboard
-# not knowing the code.
+# Bracketed so it is not read as the message itself.
 no_message <- "(No error message on record)"
 
-# One message per code, from the error code catalogue in the publishing repo.
-# The text users see, newest first: gadrift's latest dated capture, else the
-# first place the software defines it. Failing that, IBM Verify's reference
-# text, marked as IBM's. No messages without the catalogue. gadrift's captures
-# lead with the id ("006: Invalid ..."), which is dropped.
+# One message per code from the error code catalogue: the newest dated capture
+# of the text users see, else its first definition, else IBM Verify's own text,
+# marked. Captures lead with the id ("006: Invalid ..."), which is dropped. No
+# messages without a catalogue.
 code_messages <- function(catalogue) {
   entries <- catalogue$codes
   if (length(entries) == 0) return(no_messages)
@@ -204,16 +197,15 @@ tip_html <- function(html, tip) {
   )
 }
 
-# A code as HTML, with its message as a hover tooltip. A code missing from the
-# catalogue says so; with no catalogue at all, codes have no tooltip.
+# A code as HTML with its message as a tooltip. A code the catalogue lacks says
+# so; with no catalogue, codes have no tooltip.
 code_html <- function(code, messages = no_messages) {
   message <- messages$message[match(code, messages$error_code)]
   if (nrow(messages) > 0) message[is.na(message)] <- no_message
   tip_html(paste0("<code>", htmltools::htmlEscape(code), "</code>"), message)
 }
 
-# A feature name as HTML, with what it counts as a hover tooltip: every form
-# the map assigns it, whether or not they had errors this week.
+# A feature name as HTML with a tooltip listing every form the map gives it.
 feature_html <- function(feature) {
   tip <- purrr::map_chr(feature, \(name) {
     forms <- names(feature_of_form)[feature_of_form == name]
@@ -225,13 +217,25 @@ feature_html <- function(feature) {
 
 # Tables ---------------------------------------------------------------------
 
-# The top codes in each feature this week as HTML, one per line: a bar for the
-# code's share of the feature's errors, then the code. The bar has no number,
-# so codes like 26 are never read as one; a screen reader hears the share.
-top_codes <- function(errors, week_start, n, messages = no_messages) {
+# Each key's report week scored against its history; `key` runs alongside
+# `errors`, naming the feature, code or total each event counts towards.
+score_by <- function(errors, key, sessions, week, thresholds) {
+  rows <- tibble::tibble(day = errors$day, key = key, events = errors$events)
+  weekly_rates(rows, sessions, weeks_needed(week, thresholds)) |>
+    score_weeks(week$start, thresholds)
+}
+
+# The report week's errors, each with its feature.
+week_errors <- function(errors, week_start) {
   errors |>
     dplyr::filter(day >= week_start, day <= week_start + 6L) |>
-    dplyr::mutate(feature = feature_label(form_id)) |>
+    dplyr::mutate(feature = feature_label(form_id))
+}
+
+# The top codes in each feature this week as HTML, one a line: a bar for the
+# code's share, then the code. No number, so a code like 26 is not read as one.
+top_codes <- function(errors, week_start, n, messages = no_messages) {
+  week_errors(errors, week_start) |>
     dplyr::group_by(feature, error_code) |>
     dplyr::summarise(events = sum(events), .groups = "drop_last") |>
     dplyr::mutate(share = events / sum(events)) |>
@@ -248,19 +252,11 @@ top_codes <- function(errors, week_start, n, messages = no_messages) {
     )
 }
 
-# One row per feature: the mapped forms and any unlabelled form. Flagged
-# first, then by events.
+# One row per feature, flagged first, then by events.
 feature_table <- function(errors, sessions, week, thresholds,
                           messages = no_messages) {
-  weeks <- weeks_needed(week, thresholds)
-
-  ga <- errors |>
-    dplyr::transmute(day, key = feature_label(form_id), events)
-
-  rates <- weekly_rates(ga, sessions, weeks)
   codes <- top_codes(errors, week$start, thresholds$feature_codes, messages)
-
-  score_weeks(rates, week$start, thresholds) |>
+  score_by(errors, feature_label(errors$form_id), sessions, week, thresholds) |>
     dplyr::rename(feature = key) |>
     dplyr::left_join(codes, by = "feature") |>
     dplyr::mutate(codes = dplyr::coalesce(codes, "-")) |>
@@ -269,9 +265,7 @@ feature_table <- function(errors, sessions, week, thresholds,
 
 # Where a code happened most this week, by feature.
 main_feature <- function(errors, week_start) {
-  errors |>
-    dplyr::filter(day >= week_start, day <= week_start + 6L) |>
-    dplyr::mutate(feature = feature_label(form_id)) |>
+  week_errors(errors, week_start) |>
     dplyr::group_by(error_code, feature) |>
     dplyr::summarise(events = sum(events), .groups = "drop_last") |>
     dplyr::arrange(dplyr::desc(events), feature, .by_group = TRUE) |>
@@ -280,17 +274,10 @@ main_feature <- function(errors, week_start) {
     dplyr::select(error_code, feature)
 }
 
-# New and returning codes with at least `new_min_events` events (a single
-# stray error is not worth a row), then every other code with at least
-# `list_min_events`, each part by volume. A minimum, not a rank: below it the
-# changes swing on a handful of errors. Flagged codes need more events than
-# either, so they are always listed.
+# New and returning codes from `new_min_events`, then every other code from
+# `list_min_events`, each by volume. Flagged codes clear both minimums.
 code_table <- function(errors, sessions, week, thresholds) {
-  weeks <- weeks_needed(week, thresholds)
-  rates <- weekly_rates(dplyr::transmute(errors, day, key = error_code, events),
-                        sessions, weeks)
-
-  scored <- score_weeks(rates, week$start, thresholds) |>
+  scored <- score_by(errors, errors$error_code, sessions, week, thresholds) |>
     dplyr::rename(error_code = key) |>
     dplyr::filter(events > 0)
 
@@ -305,17 +292,13 @@ code_table <- function(errors, sessions, week, thresholds) {
     dplyr::left_join(main_feature(errors, week$start), by = "error_code")
 }
 
-# All GA errors per 1,000 sessions: the report week and its typical week.
+# All errors per 1,000 sessions: the report week and its typical week.
 overall_rate <- function(errors, sessions, week, thresholds) {
-  weeks <- weeks_needed(week, thresholds)
-  rates <- weekly_rates(dplyr::transmute(errors, day, key = "all", events),
-                        sessions, weeks)
-  score_weeks(rates, week$start, thresholds)
+  score_by(errors, rep("all", nrow(errors)), sessions, week, thresholds)
 }
 
 # The Mondays the charts span: up to `chart_weeks` weeks ending with the report
-# week, from the first whole week of error data on. A longer view than the
-# tables', which only need their trend and its history.
+# week, starting no earlier than the first whole week of data.
 chart_span <- function(week, thresholds, first_day) {
   from <- max(week$start - 7L * (thresholds$chart_weeks - 1L),
               first_day + (8L - as.integer(format(first_day, "%u"))) %% 7L)
@@ -345,9 +328,8 @@ format_long_date <- function(d) {
          format(d, "%Y"))
 }
 
-# Errors per 1,000 sessions to three significant figures: "171", "59.8",
-# "0.0392". A fixed decimal turned small rates into "0.0". Trailing zeros stay,
-# so every rate shows three figures ("2.00").
+# Errors per 1,000 sessions to three significant figures, trailing zeros kept:
+# "171", "59.8", "0.0392", "2.00".
 fmt_rate <- function(x) {
   ifelse(is.na(x), "-",
          trimws(formatC(signif(x, 3), format = "fg", digits = 3, flag = "#",
@@ -371,9 +353,8 @@ fmt_share <- function(x) {
   ifelse(x < 0.005, "<1%", scales::percent(x, accuracy = 1))
 }
 
-# The shared change_verdict() for errors, where down is good. Rising from a
-# typical week of zero counts as a rise; a new or returning code has no arrow,
-# so no verdict.
+# change_verdict() for errors, where down is good. Rising from a typical week
+# of zero is a rise; a new or returning code has no verdict.
 error_verdict <- function(change, new, typical, events) {
   delta <- ifelse(!new & typical == 0 & events > 0, Inf, change)
   verdict <- change_verdict(delta, good = "down")

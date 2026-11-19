@@ -9,15 +9,15 @@ It reads Google Analytics only: errors from `google_analytics.error_events`,
 and sessions from `google_analytics.property_traffic`. Every rate is errors
 per 1,000 site-wide sessions.
 
-After an Overview page, the dashboard has two pages, each a table under three
-value boxes:
+After an Overview page, the dashboard has two pages, each with three value
+boxes, a chart and a table:
 
 - **By Feature**: one row per part of CanadaLogin where errors happen, such as
   passkey setup or sign in, whichever journey it was part of. GA's `form_id`
   decides the feature, through `feature_of_form` in `R/metrics.R`. A form not in
   that map still gets its own row, named by its `form_id`.
-- **Error codes**: flagged, new and returning codes, then the busiest codes of
-  the week.
+- **By Error Code**: new and returning codes with at least 5 errors this week,
+  then every other code with at least 20, by volume.
 
 Codes are shown raw. Hovering over one shows its message, read at render time
 from a private catalogue in the publishing repo: the newest text users see,

@@ -1,9 +1,7 @@
-#' Preflight data-source validation: prints a checklist and returns the
-#' result. A failed check raises a banner instead of stopping the render.
-#'
-#' The checks guard against quiet failures: a missing day reads as a calm one,
-#' and a broken session count divides every rate by too little. They cover the
-#' weeks the page reads. Needs R/metrics.R and an open `con`.
+#' Preflight data-source validation over the weeks the page reads: prints a
+#' checklist and returns the result. A failed check raises a banner instead of
+#' stopping the render. Guards against quiet failures, such as a missing day
+#' reading as a calm one. Needs R/metrics.R and an open `con`.
 
 run_preflight_safety_check <- function(con, thresholds, today = toronto_today()) {
 
