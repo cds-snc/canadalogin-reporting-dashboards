@@ -70,8 +70,12 @@ errors <- dplyr::filter(error_rows(con, from), day <= week$end)
 sessions <- dplyr::filter(session_days(con, from), day <= week$end)
 
 # One message per code, for the tooltips. From the private catalogue in the
-# publishing repo; with no file, codes have no tooltip.
-messages <- code_messages(private_data("error-messages.yml", read = yaml::read_yaml))
+# publishing repo, else IBM Verify's own text; with no catalogue, codes have no
+# tooltip.
+messages <- code_messages(
+  private_data("error-messages.yml", read = yaml::read_yaml),
+  ibm = private_data("ibm-verify-messages.yml", read = yaml::read_yaml)
+)
 
 features <- feature_table(errors, sessions, week, thresholds, messages)
 codes <- code_table(errors, sessions, week, thresholds)

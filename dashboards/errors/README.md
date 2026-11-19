@@ -21,8 +21,9 @@ boxes, a chart and a table:
 
 Codes are shown raw. Hovering over one shows its message, read at render time
 from the error message catalogue in the publishing repo: the approved English
-text of the entry that lists the code as an alias. A code no entry lists says
-it has no message. Without that file, codes have no tooltip.
+text of the entry that lists the code as an alias. An IBM Verify code no entry
+lists shows IBM's own text, marked "(IBM Verify)". Any other code no entry lists
+says it has no message. Without the catalogue, codes have no tooltip.
 
 A feature or code is flagged when its rate this week is at least twice the
 median of the four weeks before, on at least 50 errors. A code with no errors

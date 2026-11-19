@@ -170,10 +170,16 @@ no_message <- "(No error message on record)"
 # One message per code from the error message catalogue, error-messages.yml:
 # each alias of an entry gets its English text, without the entry's id. GA does
 # not record an alias's namespace, so all namespaces match, and a code under two
-# entries takes the first. NULL without a catalogue, which is not the same as an
-# empty one.
-code_messages <- function(catalogue) {
+# entries takes the first. An IBM code the catalogue lacks falls back to IBM
+# Verify's own text from `ibm` (ibm-verify-messages.yml), marked as IBM's. NULL
+# without a catalogue, which is not the same as an empty one.
+code_messages <- function(catalogue, ibm = NULL) {
   if (is.null(catalogue)) return(NULL)
+  ibm_rows <- tibble::tibble(
+    error_code = names(ibm) %||% character(),
+    message = as.character(unlist(ibm, use.names = FALSE)) %||% character()
+  ) |>
+    dplyr::mutate(message = paste("(IBM Verify)", message))
   rows <- purrr::map(catalogue, \(entry) {
     codes <- purrr::imap(entry$aliases %||% list(), \(codes, namespace) {
       codes <- as.character(unlist(codes))
@@ -184,7 +190,7 @@ code_messages <- function(catalogue) {
                    message = entry$en)
   })
   # Unnamed: bind_rows() reads a named list as columns, not as data frames.
-  dplyr::bind_rows(c(list(no_messages), unname(rows))) |>
+  dplyr::bind_rows(c(list(no_messages), unname(rows), list(ibm_rows))) |>
     dplyr::distinct(error_code, .keep_all = TRUE)
 }
 

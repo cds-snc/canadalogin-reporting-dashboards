@@ -243,6 +243,21 @@ test_that("an empty catalogue gives no messages, but is still a catalogue", {
   expect_identical(names(messages), c("error_code", "message"))
 })
 
+test_that("an IBM code the catalogue lacks shows IBM Verify's text, marked", {
+  ibm <- list(CSIAQ0287E = "Idle for too long.", CSIBN0021E = "IBM's own words.")
+  messages <- env$code_messages(errors_catalogue, ibm = ibm)
+  expect_identical(messages$message[messages$error_code == "CSIAQ0287E"],
+                   "(IBM Verify) Idle for too long.")
+  # The catalogue's text, what users see, wins.
+  expect_identical(messages$message[messages$error_code == "CSIBN0021E"],
+                   "Invalid code.")
+})
+
+test_that("no IBM text leaves the catalogue's messages as they are", {
+  expect_identical(env$code_messages(errors_catalogue, ibm = NULL),
+                   env$code_messages(errors_catalogue))
+})
+
 test_that("no catalogue means no messages, not an error", {
   expect_null(env$code_messages(NULL))
 })
