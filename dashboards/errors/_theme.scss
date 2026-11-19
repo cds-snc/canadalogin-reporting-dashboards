@@ -1,0 +1,45 @@
+// This dashboard's accent. Every dashboard shares the CDS palette in
+// ../../_brand.yml and overrides only what makes it distinct.
+//
+// A dark red navbar, with brand red kept for what was flagged. Darker and
+// less saturated than brand red, which would sit on the red failure banner
+// and hide it. White text is 7.7:1 on the primary.
+
+/*-- scss:defaults --*/
+
+$primary: #962F2F;
+
+$info: #F6E6E6;
+
+$flag: #AB2328;
+
+$navbar-hl: #FFFFFF;
+
+/*-- scss:rules --*/
+
+.navbar .nav-link.active {
+  box-shadow: inset 0 -3px 0 #FFFFFF;
+}
+
+// A code or feature name with a tooltip to show on hover.
+.hover-tip {
+  cursor: help;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+// A message can list several texts, one per line.
+.tooltip-inner {
+  max-width: 360px;
+  text-align: left;
+  white-space: pre-line;
+}
+
+// The value boxes sit in a column beside a chart, and Quarto shares the
+// column's height equally between them. Packed to the top instead, as in
+// Experience Monitoring; !important beats Quarto's inline grid style.
+.bslib-grid:has(> .bslib-value-box) {
+  grid-template-rows: repeat(3, auto) !important;
+  align-content: start;
+}
+

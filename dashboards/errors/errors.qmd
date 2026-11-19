@@ -1,0 +1,450 @@
+---
+title: "CanadaLogin Errors"
+author: "EDCP Data and Research Team"  # colin.douglas@cds-snc.ca
+slug: errors
+format:
+  dashboard:
+    # Written by the setup chunk at render time
+    include-before-body: page-header.html
+    include-after-body:
+      - analytics-tag.html # see _analytics.qmd
+      # Bootstrap tooltips on codes and feature names. A native title tooltip is slow, and
+      # some browsers and previews never show it. On body, so no card clips it.
+      - text: |
+          <script>
+          window.addEventListener("load", () => {
+            document.querySelectorAll(".hover-tip[title]").forEach((el) => {
+              new bootstrap.Tooltip(el, { container: "body", placement: "top" });
+            });
+          });
+          </script>
+params:
+  ga_page_title: "Errors Dashboard"
+---
+
+```{r setup}
+#| include: false
+
+# Thresholds ------------------------------------------------------------------
+#
+# Every number that decides what the page shows.
+thresholds <- list(
+  # Flagged when a week's rate is at least `ratio` times the median of the
+  # `history_weeks` before it, on at least `min_events` events.
+  ratio = 2,
+  min_events = 50,
+  history_weeks = 4L,
+  # Weeks in each trend line, ending with the report week.
+  trend_weeks = 12L,
+  # Unflagged codes listed after the flagged and new ones.
+  top_codes = 10L,
+  # Codes named for each feature.
+  feature_codes = 3L,
+  # Preflight: no day may have fewer sessions than this share of the median day.
+  sessions_floor = 0.2
+)
+
+# Setup -----------------------------------------------------------------------
+
+# The working directory is this folder; the shared layer is two levels up.
+source("../../common/setup.R")
+
+source("R/metrics.R")
+source("R/preflight.R")
+
+con <- connect_athena()
+
+# A failed check adds a banner. See R/preflight.R.
+preflight <- run_preflight_safety_check(con, thresholds)
+write_preflight_status(preflight)
+
+week <- report_week(toronto_today())
+from <- min(weeks_needed(week, thresholds))
+
+errors <- dplyr::filter(error_rows(con, from), day <= week$end)
+sessions <- dplyr::filter(session_days(con, from), day <= week$end)
+
+# One message per code, for the tooltips. From the private catalogue in the
+# publishing repo; with no file, codes have no tooltip.
+messages <- code_messages(private_data("error-codes.yml", read = yaml::read_yaml))
+
+features <- feature_table(errors, sessions, week, thresholds, messages)
+codes <- code_table(errors, sessions, week, thresholds)
+overall <- overall_rate(errors, sessions, week, thresholds)
+active <- active_codes(errors, week, thresholds)
+busiest <- busiest_feature(features)
+unlabelled <- unlabelled_forms(dplyr::filter(errors, day >= week$start))
+overall_weeks <- chart_weeks(errors, sessions, week, thresholds)
+feature_weeks <- chart_weeks(errors, sessions, week, thresholds, by_feature = TRUE)
+
+page_header <- "page-header.html"
+
+write_preflight_banner(preflight, page_header)
+
+cat(
+  c(
+    '<div class="page-strip">',
+    # Through the report week's Sunday: days after it are not a whole week yet.
+    glue("  <p><strong>Data through {format_long_date(week$end)}.</strong> ",
+         "Internal to Enterprise Digital Credentials, not for public ",
+         "consumption.</p>"),
+    "</div>"
+  ),
+  file = page_header, sep = "\n", append = TRUE
+)
+
+# Presentation ---------------------------------------------------------------
+
+# Mirrors _theme.scss: brand red only for what was flagged.
+ink <- list(flag = "#AB2328", trend = "#962F2F", quiet = "#5C6670")
+
+trend_label <- glue("Errors per 1,000 sessions, last {thresholds$trend_weeks} weeks")
+against_label <- glue("Against the {thresholds$history_weeks} weeks before")
+
+table_options <- function(gt_table) {
+  tab_options(gt_table, table.width = pct(100), table.font.size = px(14),
+              data_row.padding = px(3), table.border.top.style = "none",
+              column_labels.font.weight = "bold")
+}
+
+# The trend as one column per week, for cols_nanoplot().
+spread_trend <- function(rows) {
+  weeks <- purrr::map(rows$trend, \(x) {
+    stats::setNames(as.list(x), sprintf("w%02d", seq_along(x)))
+  })
+  dplyr::bind_cols(dplyr::select(rows, -trend), dplyr::bind_rows(weeks))
+}
+
+# The shared columns of both tables: events, rate, change and trend. The change
+# is coloured by colour_changes(), where fewer errors is good; flagged, new and
+# returning rows are bold.
+rate_columns <- function(gt_table) {
+  gt_table |>
+    fmt_number(events, decimals = 0) |>
+    cols_nanoplot(
+      columns = dplyr::starts_with("w"),
+      plot_type = "bar",
+      expand_y = 0,
+      new_col_name = "trend",
+      new_col_label = trend_label,
+      options = nanoplot_options(
+        data_bar_fill_color = ink$trend,
+        data_bar_stroke_color = ink$trend,
+        show_data_points = FALSE
+      )
+    ) |>
+    colour_changes("against", "verdict") |>
+    tab_style(cell_text(weight = "bold"),
+              cells_body(columns = against, rows = flagged | new)) |>
+    cols_hide(c(flagged, new, verdict)) |>
+    cols_align("right", columns = c(events, rate, against)) |>
+    cols_align("center", columns = trend)
+}
+
+feature_gt <- function(rows) {
+  rows |>
+    dplyr::transmute(feature = feature_html(feature), events, rate = fmt_rate(rate),
+                     against = fmt_against(change, new, returning, typical,
+                                           events),
+                     trend, codes, flagged, new,
+                     verdict = error_verdict(change, new, typical, events)) |>
+    spread_trend() |>
+    gt() |>
+    rate_columns() |>
+    fmt_markdown(c(feature, codes)) |>
+    cols_move(codes, after = trend) |>
+    # styles.css lets only the first two columns wrap; here only the codes do.
+    tab_style(cell_text(whitespace = "nowrap"), cells_body(columns = feature)) |>
+    tab_style(cell_text(whitespace = "normal"), cells_body(columns = codes)) |>
+    cols_width(feature ~ pct(15), events ~ pct(6), rate ~ pct(8),
+               against ~ pct(11), trend ~ pct(17), codes ~ pct(43)) |>
+    cols_label(feature = "Feature", events = "Errors",
+               rate = "Per 1,000 sessions", against = against_label,
+               codes = "Top codes this week") |>
+    table_options()
+}
+
+code_gt <- function(rows) {
+  rows |>
+    dplyr::transmute(code = code_html(error_code, messages), feature, events,
+                     rate = fmt_rate(rate),
+                     against = fmt_against(change, new, returning, typical,
+                                           events),
+                     trend, flagged, new,
+                     verdict = error_verdict(change, new, typical, events)) |>
+    spread_trend() |>
+    gt() |>
+    rate_columns() |>
+    fmt_markdown(code) |>
+    cols_label(code = "Code", feature = "Mostly on", events = "Errors",
+               rate = "Per 1,000 sessions", against = against_label) |>
+    cols_width(code ~ pct(16), feature ~ pct(20), trend ~ pct(24)) |>
+    table_options()
+}
+
+# Charts ---------------------------------------------------------------------
+
+# Weekly points sit on the Sunday each week ends.
+week_end_of <- function(monday) monday + 6L
+
+brand_figure <- function(p) {
+  add_cds_logo(
+    add_watermark(p, report_name = "CanadaLogin Errors", date = week$end),
+    height = 0.09
+  )
+}
+
+week_scale <- function() {
+  scale_x_date(labels = format_short_date,
+               expand = expansion(mult = c(0.02, 0.04)))
+}
+
+rate_scale <- function() {
+  scale_y_continuous(labels = label_comma(accuracy = 1), limits = c(0, NA),
+                     expand = expansion(mult = c(0, 0.08)))
+}
+
+# All errors each week, the report week marked.
+overall_chart <- function(rows) {
+  latest <- dplyr::filter(rows, week == max(week))
+  p <- ggplot(rows, aes(week_end_of(week), rate)) +
+    geom_line(colour = ink$trend, linewidth = 0.8) +
+    geom_point(data = latest, colour = ink$trend, size = 2.6) +
+    week_scale() +
+    rate_scale() +
+    theme_cds() +
+    theme(panel.grid.minor = element_blank()) +
+    labs(x = "Week ending", y = "Errors per 1,000 sessions",
+         title = "All errors per 1,000 sessions, by week",
+         subtitle = "The dot is the latest week.")
+  brand_figure(p)
+}
+
+# One panel per feature, busiest first, each on its own scale from zero. A
+# flagged feature is drawn in brand red.
+feature_chart <- function(rows, features) {
+  rows <- rows |>
+    dplyr::left_join(dplyr::select(features, key = feature, flagged), by = "key") |>
+    dplyr::mutate(key = factor(key, levels = features$feature),
+                  ink = ifelse(flagged %in% TRUE, "flag", "trend"))
+  p <- ggplot(rows, aes(week_end_of(week), rate, colour = ink)) +
+    geom_line(linewidth = 0.7) +
+    facet_wrap(~key, ncol = 3, scales = "free_y") +
+    scale_colour_manual(values = c(flag = ink$flag, trend = ink$trend),
+                        guide = "none") +
+    # A month name at each month's start: a panel is too narrow for dates.
+    scale_x_date(date_breaks = "1 month", date_labels = "%b") +
+    rate_scale() +
+    theme_cds() +
+    theme(panel.grid.minor = element_blank(),
+          strip.text = element_text(hjust = 0, face = "bold")) +
+    labs(x = "Week ending", y = "Errors per 1,000 sessions",
+         title = "Errors per 1,000 sessions by feature, by week",
+         subtitle = "Each panel has its own scale. Red is a flagged feature.")
+  brand_figure(p)
+}
+
+overall_alt <- glue(
+  "Line chart of all errors per 1,000 sessions each week, for the ",
+  "{nrow(overall_weeks)} weeks ending ",
+  "{format_long_date(week_end_of(min(overall_weeks$week)))} ",
+  "to {format_long_date(week$end)}. The latest week is ",
+  "{fmt_rate(overall$rate)}, against a median of {fmt_rate(overall$typical)} ",
+  "over the {thresholds$history_weeks} weeks before."
+)
+
+feature_alt <- glue(
+  "Small multiple line charts of errors per 1,000 sessions each week, one ",
+  "panel per feature, each on its own scale. This week: ",
+  "{glue_collapse(glue('{features$feature} {fmt_rate(features$rate)}'), sep = ', ')}. ",
+  if (any(features$flagged)) "Flagged features are drawn in red." else
+    "No feature is flagged."
+)
+
+# A value box's third line naming what was flagged. It always leads with
+# words: a line that is a single code would lose its paragraph.
+flag_line <- function(names) {
+  if (length(names) == 0) return("None at twice the usual rate")
+  glue("At twice the usual rate: {glue_collapse(names, sep = ', ', last = ' and ')}")
+}
+
+flagged_features <- flag_line(features$feature[features$flagged])
+flagged_codes <- flag_line(codes$error_code[codes$flagged])
+```
+
+# About
+
+## Row {height="auto"}
+
+::: {.card title="About this dashboard"}
+
+This dashboard shows **how often CanadaLogin users run into errors**, and
+whether any error is happening more than usual. It answers questions like
+"are we seeing more passkey errors than normal?" It is internal to Enterprise
+Digital Credentials and the link is unlisted. For anything that leaves EDCP,
+please reach out to the
+[Data and Research team](https://gcdigital.slack.com/archives/C0A6S9F7KV4).
+
+**A red banner at the top of the page means a data check failed.** Do not
+quote anything until it clears.
+
+[By Feature](#by-feature) shows errors by the part of CanadaLogin where they
+happened, such as passkey setup or sign in. [Error codes](#error-codes) shows
+the codes that stand out this week, and the busiest ones. Hover over a code to
+see its message.
+
+**What is counted.** Every error CanadaLogin reports to Google Analytics, from
+the `google_analytics.error_events` table described in the
+[metrics cookbook](https://cds-snc.github.io/canadalogin-metrics-cookbook/catalog/google_analytics/error_events.html).
+An error is an event, not a failed attempt: someone who mistypes a code three
+times counts three times.
+
+**The rate.** Errors per 1,000 sessions across all of CanadaLogin, so a busier
+week does not look like a worse one. A feature's rate also rises when more
+people use that feature.
+
+**A flag.** A feature or code is flagged when its rate this week is at least
+**`r thresholds$ratio` times** the median of the
+`r thresholds$history_weeks` weeks before, on at least
+**`r thresholds$min_events` errors**. A code is **new** when it had no errors
+at all in those `r thresholds$history_weeks` weeks, and **returning** if it
+had some in the weeks before them. A flag says something changed, not why.
+
+The dashboard is updated every Wednesday and reports the Monday-to-Sunday week
+before: Google Analytics runs two days behind.
+
+```{r automated-traffic-note, message=NA}
+#| results: asis
+# The URL carries a publish token, so it is looked up at render time and the
+# note is left out when it cannot be. message=NA sends the reason for a missing
+# link to the render log; Quarto's YAML options reject NA.
+bot_traffic_url <- published_url("automated-traffic.html")
+if (!is.null(bot_traffic_url)) {
+  cat(glue("Spikes in sign-up and phone setup errors often come with ",
+           "automated traffic. Check the ",
+           "[Automated Traffic dashboard]({bot_traffic_url}) for the same ",
+           "week.\n"))
+}
+```
+
+:::
+
+# By Feature
+
+## Row {height="auto"}
+
+### Column {width="24%"}
+
+::: {.valuebox color="primary"}
+Features flagged
+
+`r sum(features$flagged)`
+
+`r flagged_features`
+:::
+
+::: {.valuebox color="info"}
+Errors per 1,000 sessions
+
+`r nbsp(fmt_rate(overall$rate))`
+
+`r change_html(overall$change, good = "down")` on the `r thresholds$history_weeks` weeks before
+:::
+
+::: {.valuebox color="secondary"}
+Most errors
+
+`r nbsp(busiest$feature)`
+
+`r scales::percent(busiest$share, accuracy = 1)` of this week's errors
+:::
+
+### Column {width="76%"}
+
+```{r feature-chart}
+#| title: "Errors by feature over time"
+#| fig-width: 7.7
+#| fig-height: 4.2
+#| fig-alt: !expr feature_alt
+feature_chart(feature_weeks, features)
+```
+
+## Row
+
+::: {.card title="Errors by feature"}
+
+```{r features-table}
+feature_gt(features)
+```
+
+::: {.figure-note}
+A feature is the part of CanadaLogin where the error happened, whichever
+journey it was part of: passkey setup counts in sign up, password recovery and
+account settings alike. Hover over a feature to see the forms it covers.
+Hover over a code to see its message.
+`r if (length(unlabelled) > 0) glue("Shown by form name, because they have no feature name yet: {glue_collapse(unlabelled, sep = ', ')}.")`
+:::
+
+:::
+
+# Error codes
+
+## Row {height="auto"}
+
+### Column {width="24%"}
+
+::: {.valuebox color="primary"}
+Codes flagged
+
+`r sum(codes$flagged)`
+
+`r flagged_codes`
+:::
+
+::: {.valuebox color="info"}
+New or returning codes
+
+`r sum(codes$new)`
+
+None in the `r thresholds$history_weeks` weeks before
+:::
+
+::: {.valuebox color="secondary"}
+Codes seen this week
+
+`r active$now`
+
+`r scales::number(active$typical, accuracy = 1)` a week over the `r thresholds$history_weeks` weeks before
+:::
+
+### Column {width="76%"}
+
+```{r overall-chart}
+#| title: "All errors over time"
+#| fig-width: 7.7
+#| fig-height: 3.6
+#| fig-alt: !expr overall_alt
+overall_chart(overall_weeks)
+```
+
+## Row
+
+::: {.card title="Error codes this week"}
+
+```{r codes-table}
+if (nrow(codes) == 0) {
+  cat("No errors this week.")
+} else {
+  code_gt(codes)
+}
+```
+
+::: {.figure-note}
+Flagged, new and returning codes first, then the `r thresholds$top_codes` codes
+with the most errors this week. Codes are IBM Verify or CanadaLogin
+identifiers, shown as Google Analytics records them. Hover over a code to see
+its message. *Mostly on* is the feature where the code happened most
+this week.
+:::
+
+:::
