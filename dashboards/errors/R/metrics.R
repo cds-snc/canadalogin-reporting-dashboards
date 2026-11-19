@@ -167,25 +167,25 @@ no_messages <- tibble::tibble(error_code = character(), message = character())
 # Bracketed so it is not read as the message itself.
 no_message <- "(No error message on record)"
 
-# One message per code from the error code catalogue: the newest dated capture
-# of the text users see, else its first definition, else IBM Verify's own text,
-# marked. Captures lead with the id ("006: Invalid ..."), which is dropped. No
-# messages without a catalogue.
+# One message per code from the error message catalogue, error-messages.yml:
+# each alias of an entry gets its English text, without the entry's id. GA does
+# not record an alias's namespace, so all namespaces match, and a code under two
+# entries takes the first. NULL without a catalogue, which is not the same as an
+# empty one.
 code_messages <- function(catalogue) {
-  entries <- catalogue$codes
-  if (length(entries) == 0) return(no_messages)
-  message <- purrr::map_chr(entries, \(entry) {
-    shown <- purrr::keep(entry$shown %||% list(), \(s) !is.null(s$en))
-    if (length(shown) > 0) {
-      captured <- purrr::map_chr(shown, \(s) s$captured %||% NA_character_)
-      latest <- if (all(is.na(captured))) 1L else which.max(as.Date(captured))
-      return(sub("^\\d{3}: ", "", shown[[latest]]$en))
-    }
-    ibm <- trimws(entry$ibm_reference %||% "")
-    if (nzchar(ibm)) return(paste("IBM Verify:", ibm))
-    no_message
+  if (is.null(catalogue)) return(NULL)
+  rows <- purrr::map(catalogue, \(entry) {
+    codes <- purrr::imap(entry$aliases %||% list(), \(codes, namespace) {
+      codes <- as.character(unlist(codes))
+      # GA drops leading zeros from API ids: 006 arrives as 6, 000 as 0.
+      if (namespace == "api") sub("^0+(?=\\d)", "", codes, perl = TRUE) else codes
+    })
+    tibble::tibble(error_code = unlist(codes, use.names = FALSE) %||% character(),
+                   message = entry$en)
   })
-  tibble::tibble(error_code = names(entries), message = unname(message))
+  # Unnamed: bind_rows() reads a named list as columns, not as data frames.
+  dplyr::bind_rows(c(list(no_messages), unname(rows))) |>
+    dplyr::distinct(error_code, .keep_all = TRUE)
 }
 
 # HTML with a hover tooltip, or the HTML alone where `tip` is NA.
@@ -199,9 +199,10 @@ tip_html <- function(html, tip) {
 
 # A code as HTML with its message as a tooltip. A code the catalogue lacks says
 # so; with no catalogue, codes have no tooltip.
-code_html <- function(code, messages = no_messages) {
-  message <- messages$message[match(code, messages$error_code)]
-  if (nrow(messages) > 0) message[is.na(message)] <- no_message
+code_html <- function(code, messages = NULL) {
+  message <- messages$message[match(code, messages$error_code)] %||%
+    rep(NA_character_, length(code))
+  if (!is.null(messages)) message[is.na(message)] <- no_message
   tip_html(paste0("<code>", htmltools::htmlEscape(code), "</code>"), message)
 }
 
@@ -234,7 +235,7 @@ week_errors <- function(errors, week_start) {
 
 # The top codes in each feature this week as HTML, one a line: a bar for the
 # code's share, then the code. No number, so a code like 26 is not read as one.
-top_codes <- function(errors, week_start, n, messages = no_messages) {
+top_codes <- function(errors, week_start, n, messages = NULL) {
   week_errors(errors, week_start) |>
     dplyr::group_by(feature, error_code) |>
     dplyr::summarise(events = sum(events), .groups = "drop_last") |>
@@ -254,7 +255,7 @@ top_codes <- function(errors, week_start, n, messages = no_messages) {
 
 # One row per feature, flagged first, then by events.
 feature_table <- function(errors, sessions, week, thresholds,
-                          messages = no_messages) {
+                          messages = NULL) {
   codes <- top_codes(errors, week$start, thresholds$feature_codes, messages)
   score_by(errors, feature_label(errors$form_id), sessions, week, thresholds) |>
     dplyr::rename(feature = key) |>

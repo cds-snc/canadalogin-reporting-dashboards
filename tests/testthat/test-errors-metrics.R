@@ -177,52 +177,74 @@ test_that("small shares read as under one per cent", {
 
 # Messages --------------------------------------------------------------------
 
-errors_catalogue <- list(codes = list(
-  "6" = list(meaning = "Password is the example password", shown = list(
-    list(source = "api", en = "Invalid password.", fr = "Mot de passe invalide."),
-    list(source = "gadrift", en = "006: Invalid password, captured.",
-         captured = "2026-09-28")
-  )),
-  CSIBN0021E = list(shown = list(
-    list(en = "Invalid code."),
-    list(en = "Code is invalid.", captured = "2026-09-20"),
-    list(en = "Invalid code. Try again.", captured = "2026-10-23")
-  )),
-  "205" = list(shown = list(list(en = "Request invalid."),
-                            list(en = "Something else."))),
-  CSIAQ0287E = list(meaning = "Sign-in idle for too long",
-                    ibm_reference = "The transaction has been idle for too long."),
-  CSIAH0001E = list(notes = "Nothing users see"),
-  FID024E = list(ibm_reference = "")
-))
+errors_catalogue <- list(
+  "CLS-0001" = list(
+    en = "Invalid password.", fr = "Mot de passe invalide.",
+    aliases = list(api = list("006"), gcs = list("GCSP-0002"))
+  ),
+  "CLS-0002" = list(
+    en = "Server error.", fr = "Erreur de serveur.",
+    aliases = list(api = list("000", "010"))
+  ),
+  "CLM-0001" = list(
+    en = "Invalid code.", fr = "Code invalide.",
+    aliases = list(ibm = list("CSIBN0021E"), webapp = list("otp_invalid"))
+  ),
+  # The same code under a second entry.
+  "CLM-0002" = list(
+    en = "Code is invalid.", fr = "Le code est invalide.",
+    aliases = list(webapp = list("otp_invalid"))
+  ),
+  "CLP-0001" = list(en = "No aliases yet.", fr = "Aucun alias.")
+)
 
 message_of <- function(code) {
   messages <- env$code_messages(errors_catalogue)
   messages$message[messages$error_code == code]
 }
 
-test_that("a code's message is its newest capture, without the id", {
-  expect_identical(message_of("CSIBN0021E"), "Invalid code. Try again.")
-  expect_identical(message_of("6"), "Invalid password, captured.")
+test_that("a code's message is its entry's English text, without the id", {
+  expect_identical(message_of("GCSP-0002"), "Invalid password.")
 })
 
-test_that("with no capture, the first place the software defines it wins", {
-  expect_identical(message_of("205"), "Request invalid.")
+test_that("every alias of an entry gets its message", {
+  expect_identical(message_of("10"), "Server error.")
+  expect_identical(message_of("CSIBN0021E"), "Invalid code.")
 })
 
-test_that("with no text users see, IBM's text is used and marked", {
-  expect_identical(message_of("CSIAQ0287E"),
-                   "IBM Verify: The transaction has been idle for too long.")
+test_that("API ids match GA's form, without leading zeros", {
+  expect_identical(message_of("6"), "Invalid password.")
+  expect_identical(message_of("0"), "Server error.")
+  expect_identical(message_of("006"), character())
 })
 
-test_that("with nothing at all, the code says it has no message", {
-  expect_identical(message_of("CSIAH0001E"), "(No error message on record)")
-  # A blank IBM text is no text.
-  expect_identical(message_of("FID024E"), "(No error message on record)")
+test_that("only API ids lose leading zeros", {
+  catalogue <- list("CLS-0001" = list(en = "A.", aliases = list(gcs = list("007"))))
+  expect_identical(env$code_messages(catalogue)$error_code, "007")
+})
+
+test_that("a code under two entries takes the first", {
+  expect_identical(message_of("otp_invalid"), "Invalid code.")
+})
+
+test_that("an entry with no aliases adds no codes", {
+  messages <- env$code_messages(errors_catalogue)
+  expect_false("No aliases yet." %in% messages$message)
+})
+
+test_that("an unquoted API id read as a number still matches", {
+  catalogue <- list("CLS-0001" = list(en = "A.", aliases = list(api = list(6L))))
+  expect_identical(env$code_messages(catalogue)$error_code, "6")
+})
+
+test_that("an empty catalogue gives no messages, but is still a catalogue", {
+  messages <- env$code_messages(stats::setNames(list(), character()))
+  expect_identical(nrow(messages), 0L)
+  expect_identical(names(messages), c("error_code", "message"))
 })
 
 test_that("no catalogue means no messages, not an error", {
-  expect_identical(nrow(env$code_messages(NULL)), 0L)
+  expect_null(env$code_messages(NULL))
 })
 
 test_that("a code with a message gets an escaped tooltip", {
@@ -234,8 +256,15 @@ test_that("a code with a message gets an escaped tooltip", {
   expect_match(html[2], 'title="(No error message on record)"', fixed = TRUE)
 })
 
+test_that("with an empty catalogue, every code says it has no message", {
+  html <- env$code_html("X2", env$code_messages(stats::setNames(list(), character())))
+  expect_match(html, 'title="(No error message on record)"', fixed = TRUE)
+})
+
 test_that("without a catalogue, codes have no tooltip", {
   expect_identical(env$code_html("X2"), "<code>X2</code>")
+  expect_identical(env$code_html(c("X1", "X2"), NULL),
+                   c("<code>X1</code>", "<code>X2</code>"))
 })
 
 test_that("feature top codes carry the tooltips", {

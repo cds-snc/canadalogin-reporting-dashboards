@@ -20,9 +20,9 @@ boxes, a chart and a table:
   then every other code with at least 20, by volume.
 
 Codes are shown raw. Hovering over one shows its message, read at render time
-from a private catalogue in the publishing repo: the newest text users see,
-else IBM Verify's own text, marked as IBM's. Without that file, codes have no
-tooltip.
+from the error message catalogue in the publishing repo: the approved English
+text of the entry that lists the code as an alias. A code no entry lists says
+it has no message. Without that file, codes have no tooltip.
 
 A feature or code is flagged when its rate this week is at least twice the
 median of the four weeks before, on at least 50 errors. A code with no errors
