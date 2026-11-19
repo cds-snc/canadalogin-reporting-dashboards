@@ -101,8 +101,8 @@ cat(
 # $primary in _theme.scss; ggplot and gt cannot read the scss.
 accent <- "#952535"
 
-trend_label <- "Errors per 1,000 sessions, weekly"
-against_label <- glue("Against the {thresholds$history_weeks} weeks before")
+trend_label <- "Relative rate, weekly"
+against_label <- glue("vs. previous {thresholds$history_weeks} weeks")
 
 table_options <- function(gt_table) {
   tab_options(gt_table, table.width = pct(100), table.font.size = px(14),
@@ -390,10 +390,7 @@ feature_gt(features)
 ```
 
 ::: {.figure-note}
-A feature is the part of CanadaLogin where the error happened, whichever
-journey it was part of: passkey setup counts in sign up, password recovery and
-account settings alike. Hover over a feature to see the forms it covers.
-Each code's bar is its share of the feature's errors.
+Hover over a feature to see the forms it covers.
 Hover over a code to see its message.
 `r if (length(unlabelled) > 0) glue("Shown by form name, because they have no feature name yet: {glue_collapse(unlabelled, sep = ', ')}.")`
 :::
@@ -457,8 +454,7 @@ New and returning codes with at least `r thresholds$new_min_events` errors
 first, then every other code with at least `r thresholds$list_min_events`
 errors this week, most first. Codes are IBM Verify or CanadaLogin
 identifiers, shown as Google Analytics records them. Hover over a code to see
-its message. *Mostly on* is the feature where the code happened most
-this week.
+its message.
 :::
 
 :::
