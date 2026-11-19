@@ -71,3 +71,48 @@ test_that("fmt_delta in points tells no change apart from a dash", {
 test_that("every direction has a colour", {
   expect_setequal(names(delta_colours), c("up", "down", "flat"))
 })
+
+# Verdicts --------------------------------------------------------------------
+
+test_that("a rise is good news by default", {
+  expect_identical(change_verdict(c(0.2, -0.2)), c("good", "bad"))
+})
+
+test_that("where down is good, a rise is bad news", {
+  expect_identical(change_verdict(c(0.2, -0.2), good = "down"), c("bad", "good"))
+})
+
+test_that("a flat, uncalculable or unmeaningful change is flat", {
+  expect_identical(
+    change_verdict(c(0.001, NA, 0.2), meaningful = c(TRUE, TRUE, FALSE)),
+    rep("flat", 3)
+  )
+})
+
+test_that("a metric with no good direction is always flat", {
+  expect_identical(change_verdict(c(0.2, -0.2), good = NA), c("flat", "flat"))
+})
+
+test_that("change_html colours the change by its verdict", {
+  expect_identical(
+    change_html(0.25, good = "down"),
+    sprintf('<span style="color: %s">▲ +25%%</span>', delta_colours[["down"]])
+  )
+})
+
+test_that("change_html can word the change itself", {
+  expect_match(change_html(Inf, good = "down", text = "▲ from 0"),
+               "▲ from 0</span>", fixed = TRUE)
+})
+
+test_that("colour_changes colours each row by its verdict, and skips NA", {
+  table <- tibble::tibble(change = c("a", "b", "c", "d"),
+                          verdict = c("good", "bad", "flat", NA)) |>
+    gt::gt() |>
+    colour_changes("change", "verdict")
+  html <- as.character(gt::as_raw_html(table, inline_css = TRUE))
+  for (colour in verdict_colours) {
+    expect_match(html, paste0("color: ", colour), ignore.case = TRUE)
+  }
+  expect_length(table[["_styles"]]$rownum, 3L)
+})
