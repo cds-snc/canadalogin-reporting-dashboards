@@ -306,17 +306,29 @@ long_window_row <- function(value, starters) {
   tibble::tibble(value = value, starters = starters)
 }
 
-test_that("the long change line leads with words", {
+test_that("the long change line compares with the window before", {
   line <- expmon$long_change_line(long_window_row(0.6, 500),
                                   long_window_row(0.5, 500))
-  expect_match(line, "^Latest 28 days <span")
-  expect_match(line, "▲ 10</span> points$")
+  expect_match(line, "^<span")
+  expect_match(line, "</span> points on the 28 days before$")
+})
+
+test_that("the long change line points up when the rate rose", {
+  line <- expmon$long_change_line(long_window_row(0.6, 500),
+                                  long_window_row(0.5, 500))
+  expect_match(line, "\u25b2\u00a010</span>", fixed = TRUE)
+})
+
+test_that("the long change line points down when the rate fell", {
+  line <- expmon$long_change_line(long_window_row(0.5, 500),
+                                  long_window_row(0.6, 500))
+  expect_match(line, "\u25bc\u00a010</span>", fixed = TRUE)
 })
 
 test_that("the long change line says point for a change of one", {
   line <- expmon$long_change_line(long_window_row(0.51, 500),
                                   long_window_row(0.5, 500))
-  expect_match(line, "</span> point$")
+  expect_match(line, "</span> point on the")
 })
 
 test_that("the long change line colours a change beyond the noise", {
@@ -461,4 +473,9 @@ test_that("step-labels.yml names no step twice in a funnel", {
   steps <- sub(":.*", "", trimws(lines[grepl("^  [a-z0-9_]+:", lines)]))
   expect_false(anyDuplicated(paste(funnel[grepl("^  [a-z0-9_]+:", lines)],
                                    steps)) > 0)
+})
+
+test_that("a change in points takes an override colour", {
+  expect_match(expmon$change_points_html(0.05, TRUE, colour = "inherit"),
+               'style="color:inherit"', fixed = TRUE)
 })

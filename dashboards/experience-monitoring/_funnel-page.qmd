@@ -32,6 +32,8 @@ long_prior <- task_success_long_window(con, fid, data_through - long_window_days
 `r long_window_label` rate
 
 `r fmt_pct(long_now$value)`
+
+`r long_change_line(long_now, long_prior, colour = "inherit")`
 :::
 
 ::: {.valuebox color="info"}
@@ -39,7 +41,7 @@ Previous `r long_window_days` days
 
 `r fmt_pct(long_prior$value)`
 
-`r long_change_line(long_now, long_prior)`
+`r long_days_ending(data_through - long_window_days)`
 :::
 
 ::: {.valuebox color="secondary"}
@@ -164,8 +166,8 @@ per_rp <- merged |>
   # The pooled labels are not services, and the tail of the list shuffles from
   # day to day.
   filter(!Service %in% pooled_rp_labels) |>
+  filter(entered >= min_party_starters) |>
   arrange(desc(entered)) |>
-  slice_head(n = party_rows) |>
   mutate(
     Operator = coalesce(service_operators(con, Service), ""),
     # Two GA names on one service would otherwise share a label.

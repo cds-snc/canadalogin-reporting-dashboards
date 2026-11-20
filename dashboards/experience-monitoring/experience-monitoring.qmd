@@ -106,15 +106,10 @@ internal_rp_label <- "Internal apps"
 unrecorded_rp_label <- "Relying party not recorded"
 pooled_rp_labels <- c(internal_rp_label, unrecorded_rp_label)
 
-# GA caps the funnel breakdown at 15 parties and the tail of that list shuffles
-# from day to day, so the table shows only the busiest few.
-party_rows <- 5L
-
-# For spelling small counts out in prose; GA caps the breakdown at 15.
-number_words <- c(
-  "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
-  "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen"
-)
+# A service is listed from this many starters in the window: the floor below
+# which a change cannot take colour, so every listed row can show a real move.
+# GA caps the breakdown at 15 parties; the tail it shuffles sits below this.
+min_party_starters <- min_change_starters
 
 # Resolves GA's rp_name to the lookup's service name.
 #
@@ -157,10 +152,15 @@ funnel_starts <- function(funnel_id) {
 
 long_window_label <- glue("{long_window_days}-day")
 
+# "28 days ending Oct 21": the dates of a long window, for a value box line.
+long_days_ending <- function(window_end) {
+  glue("{long_window_days} days ending {format_short_date(window_end)}")
+}
+
 # A card title naming its window once, so the columns need not:
 # "By relying party, 28 days ending Nov 18".
 window_title <- function(what) {
-  glue("{what}, {long_window_days} days ending {format_short_date(data_through)}")
+  glue("{what}, {long_days_ending(data_through)}")
 }
 
 # funnel_starts() counts the ratio denominator, so only a funnel measured from
@@ -262,8 +262,8 @@ finished_note <- paste(
 # Shown under every table and on the Overview: what the numbers cover.
 internal_note <- glue(
   "The headline figures and the top row are Google Analytics' own total across ",
-  "every relying party. The table lists the {number_words[party_rows]} busiest ",
-  "services only."
+  "every relying party. The table lists services with at least ",
+  "{min_party_starters} starters in the window."
 )
 ```
 
@@ -319,10 +319,10 @@ where one person can move the rate by double digits.
 
 ### Reading the numbers
 
-**Each flow's tab shows a table below the chart.** The table lists the
-`r number_words[party_rows]` busiest services and a total row across all of
-them. The rows do not add up to the total, because the total includes every
-service and the table is only a top `r number_words[party_rows]`.
+**Each flow's tab shows a table of services below the steps.** It lists every
+service with at least `r min_party_starters` starters in the window, and a total
+row across all of them. The rows do not add up to the total, because the total
+includes every service, the smaller ones too.
 
 **The steps table follows people through the flow**, like Google Analytics'
 funnel report: how many users reached each step, their share of the first step,

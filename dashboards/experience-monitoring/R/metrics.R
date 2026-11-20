@@ -249,8 +249,9 @@ is_meaningful_change <- function(delta, noise, starters, prior_starters) {
 # A change in whole points as HTML, such as "▼ 4". The arrow carries the
 # direction, so there is no sign. Coloured only when meaningful and grey
 # otherwise; one that rounds to nothing is "● 0", and one with nothing to
-# compare against is a dash.
-change_points_html <- function(delta, meaningful) {
+# compare against is a dash. `colour` overrides that, for a dark background
+# where the change colours do not read.
+change_points_html <- function(delta, meaningful, colour = NULL) {
   points <- floor(abs(delta) * 100 + 0.5)
   direction <- dplyr::case_when(
     is.na(delta) | points == 0 ~ "flat",
@@ -263,6 +264,9 @@ change_points_html <- function(delta, meaningful) {
     direction == "down" ~ paste0("\u25bc\u00a0", points),
     .default = "\u25cf\u00a00"
   )
+  if (!is.null(colour)) {
+    return(sprintf('<span style="color:%s">%s</span>', colour, change))
+  }
   # Whole points, not change_verdict()'s tenth of a point, decide flat here.
   change_html(delta, meaningful = meaningful & direction != "flat",
               points = TRUE, text = change)
@@ -276,9 +280,11 @@ rate_change_cell <- function(rate, delta, meaningful) {
   )
 }
 
-# The value box line comparing the latest long window with the one before,
-# led by words: a lone change would be a single Str and lose its paragraph.
-long_change_line <- function(now, prior) {
+# The headline value box's line: the latest long window's change on the one
+# before, such as "▲ 1 point on the 28 days before". It sits under the newer
+# number, so the arrow belongs to the rate that moved. `colour` as in
+# change_points_html().
+long_change_line <- function(now, prior, colour = NULL) {
   if (is.na(now$value) || is.na(prior$value)) {
     return("No earlier window to compare against yet")
   }
@@ -287,8 +293,8 @@ long_change_line <- function(now, prior) {
   meaningful <- is_meaningful_change(delta, noise, now$starters,
                                      prior$starters)
   unit <- if (floor(abs(delta) * 100 + 0.5) == 1) "point" else "points"
-  paste("Latest", long_window_days, "days",
-        change_points_html(delta, meaningful), unit)
+  paste(change_points_html(delta, meaningful, colour), unit, "on the",
+        long_window_days, "days before")
 }
 
 # Step table -----------------------------------------------------------------
