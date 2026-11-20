@@ -150,7 +150,8 @@ test_that("a feature's top codes carry their share of its errors", {
   row <- dplyr::filter(errors_features(env, errors),
                        feature == "Password recovery")
   expect_match(row$codes,
-               "<code>26</code></span><div role='img' aria-label='100% of errors'",
+               paste0('<div class="code-share-bar"><div role=\'img\' ',
+                      "aria-label='100% of errors'"),
                fixed = TRUE)
   expect_match(row$codes, "aria-label='&lt;1% of errors'", fixed = TRUE)
   # Busiest first.

@@ -39,9 +39,18 @@ $navbar-hl: #FFFFFF;
   align-content: start;
 }
 
-// A feature's top codes, one a line, each above the shared share_bar().
-.code-share {
-  display: block;
+// A feature's top codes, one a line: the shared share_bar() in a fixed slot,
+// then the code. Quarto gives every card div html-fill-container and
+// html-fill-item, a growing flex column, so these selectors name those classes
+// to outrank bslib's `.html-fill-container > .html-fill-item`.
+.code-share.html-fill-container {
+  align-items: center;
+  flex-direction: row;
+  gap: 0.5em;
   white-space: nowrap;
+}
+
+.code-share > .code-share-bar.html-fill-item {
+  flex: 0 0 56px;
 }
 

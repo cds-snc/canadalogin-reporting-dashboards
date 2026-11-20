@@ -239,9 +239,9 @@ week_errors <- function(errors, week_start) {
     dplyr::mutate(feature = feature_label(form_id))
 }
 
-# The top codes in each feature this week as HTML: each code, then the shared
-# share_bar() for its share of the feature's errors. No number, so a code like
-# 26 is not read as one.
+# The top codes in each feature this week as HTML, one a line: the shared
+# share_bar() for the code's share of the feature's errors in a fixed slot, then
+# the code. No number, so a code like 26 is not read as one.
 top_codes <- function(errors, week_start, n, bar_fill, messages = NULL) {
   week_errors(errors, week_start) |>
     dplyr::group_by(feature, error_code) |>
@@ -251,9 +251,9 @@ top_codes <- function(errors, week_start, n, bar_fill, messages = NULL) {
     dplyr::slice_head(n = n) |>
     dplyr::summarise(
       codes = paste0(
-        '<span class="code-share">', code_html(error_code, messages),
-        "</span>",
+        '<div class="code-share"><div class="code-share-bar">',
         share_bar(share, bar_fill, label = paste(fmt_share(share), "of errors")),
+        "</div>", code_html(error_code, messages), "</div>",
         collapse = ""
       ),
       .groups = "drop"
