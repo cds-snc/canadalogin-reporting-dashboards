@@ -709,7 +709,7 @@ per_dashboard |>
   dplyr::arrange(dplyr::desc(current)) |>
   dplyr::transmute(
     name, current, prior,
-    direction = delta_direction(change), change = fmt_delta(change),
+    verdict = change_verdict(change), change = fmt_delta(change),
     median = fmt_read(median_seconds), past_minute, past_five,
     first_seen = format_short_date(first_seen)
   ) |>
@@ -717,13 +717,8 @@ per_dashboard |>
   fmt_number(c(current, prior), decimals = 0) |>
   fmt_percent(c(past_minute, past_five), decimals = 0) |>
   sub_missing(missing_text = "-") |>
-  tab_style(cell_text(color = delta_colours[["up"]]),
-            cells_body(change, rows = direction == "up")) |>
-  tab_style(cell_text(color = delta_colours[["down"]]),
-            cells_body(change, rows = direction == "down")) |>
-  tab_style(cell_text(color = delta_colours[["flat"]]),
-            cells_body(change, rows = direction == "flat")) |>
-  cols_hide(direction) |>
+  colour_changes("change", "verdict") |>
+  cols_hide(verdict) |>
   cols_align("right", c(change, median)) |>
   cols_label(name = "Dashboard", current = "Views, last 4 weeks",
              prior = "4 weeks before", change = "Change",

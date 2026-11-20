@@ -219,11 +219,6 @@ change_noise <- function(rate, starters, prior_rate, prior_starters) {
   ifelse(starters > 0 & prior_starters > 0, sqrt(variance), NA_real_)
 }
 
-# Lighter than delta_colours' grey, so a change within the noise stands well
-# apart from a coloured one. It sits at 3.2:1 on white, under the 4.5:1 AA
-# minimum for text; the rate beside it carries the figure.
-quiet_change_colour <- "#8A9299"
-
 # Fewest starters either window needs for a meaningful change. Below this the
 # normal approximation behind change_noise() breaks down.
 min_change_starters <- 30
@@ -251,11 +246,8 @@ rate_change_cell <- function(rate, delta, meaningful) {
     direction == "down" ~ paste0("\u25bc\u00a0", points),
     .default = "\u25cf\u00a00"
   )
-  colour <- ifelse(meaningful & direction != "flat",
-                   delta_colours[direction], quiet_change_colour)
-  ifelse(
-    is.na(rate), "n/a",
-    sprintf('%s%% <span style="color:%s">%s</span>',
-            round(rate * 100), colour, change)
-  )
+  # Whole points, not change_verdict()'s tenth of a point, decide flat here.
+  html <- change_html(delta, meaningful = meaningful & direction != "flat",
+                      points = TRUE, text = change)
+  ifelse(is.na(rate), "n/a", sprintf("%s%% %s", round(rate * 100), html))
 }

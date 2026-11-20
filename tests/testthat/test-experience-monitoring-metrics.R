@@ -280,11 +280,13 @@ test_that("a rate cell shows whole points with no sign", {
 
 test_that("a rate cell colours a meaningful change and greys the rest", {
   expect_match(expmon$rate_change_cell(0.64, 0.03, TRUE),
-               delta_colours[["up"]], fixed = TRUE)
+               verdict_colours[["good"]], fixed = TRUE)
   expect_match(expmon$rate_change_cell(0.64, -0.03, TRUE),
-               delta_colours[["down"]], fixed = TRUE)
+               verdict_colours[["bad"]], fixed = TRUE)
   expect_match(expmon$rate_change_cell(0.64, 0.03, FALSE),
-               expmon$quiet_change_colour, fixed = TRUE)
+               verdict_colours[["flat"]], fixed = TRUE)
+  expect_match(expmon$rate_change_cell(0.64, 0.004, TRUE),
+               verdict_colours[["flat"]], fixed = TRUE)
 })
 
 test_that("a rate cell tells no change apart from a dash and n/a", {

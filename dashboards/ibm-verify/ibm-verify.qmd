@@ -569,13 +569,15 @@ mfa_mix <- function(types) {
 
 # A bare coloured arrow, for a column with a direction but no size, includes a label
 # for screen readers.
-arrow_html <- function(direction) {
+arrow_html <- function(delta) {
+  direction <- delta_direction(delta)
   glyph <- c(up = "\u25b2", down = "\u25bc", flat = "")
   label <- c(up = "share up", down = "share down", flat = "")
   ifelse(
     direction == "flat", "",
     sprintf(' <span style="color:%s" role="img" aria-label="%s">%s</span>',
-            delta_colours[direction], label[direction], glyph[direction])
+            verdict_colours[change_verdict(delta)], label[direction],
+            glyph[direction])
   )
 }
 
@@ -595,10 +597,9 @@ mfa_table_rows <- function(types) {
       prior_successes = coalesce(prior_successes, 0),
       change_value = relative_change(successes, prior_successes),
       change = fmt_delta(change_value),
-      direction = delta_direction(change_value),
-      share_direction = delta_direction(share - prior_share),
+      verdict = change_verdict(change_value),
       share_text = paste0(percent(share, accuracy = 1),
-                          arrow_html(share_direction))
+                          arrow_html(share - prior_share))
     )
 }
 
@@ -781,9 +782,9 @@ brand_figure(p)
 
 ```{r mfa-signin-table}
 mfa_table_rows(sign_in_mfa_types) |>
-  select(factor_label, successes, change, share_text, direction) |>
+  select(factor_label, successes, change, share_text, verdict) |>
   gt() |>
-  cols_hide(direction) |>
+  cols_hide(verdict) |>
   fmt_number(successes, decimals = 0) |>
   # fmt_markdown, or gt renders the arrow's span as literal text.
   fmt_markdown(share_text) |>
@@ -793,12 +794,7 @@ mfa_table_rows(sign_in_mfa_types) |>
     change = prior_window_label,
     share_text = "Share"
   ) |>
-  tab_style(cell_text(color = delta_colours[["up"]]),
-            cells_body(columns = change, rows = direction == "up")) |>
-  tab_style(cell_text(color = delta_colours[["down"]]),
-            cells_body(columns = change, rows = direction == "down")) |>
-  tab_style(cell_text(color = delta_colours[["flat"]]),
-            cells_body(columns = change, rows = direction == "flat")) |>
+  colour_changes("change", "verdict") |>
   tab_options(
     table.width = pct(100),
     table.font.size = px(14),
@@ -871,7 +867,7 @@ rp_rows <- lapply(rp_services, function(key) {
   mutate(
     launched = format(launched, "%Y-%m-%d"),
     change = fmt_delta(change_value),
-    direction = delta_direction(change_value)
+    verdict = change_verdict(change_value)
   )
 
 # Total weekly SSO events as a data URI, sized to sit inside a table row
@@ -1080,7 +1076,7 @@ External online services
 ```{r rp-table}
 reactable(
   select(rp_rows, service, launched, trend, sso_events, change_value, mtd,
-         ytd, operator, direction, applications, prior_sso_events),
+         ytd, operator, verdict, applications, prior_sso_events),
   searchable = TRUE,
   language = reactableLang(
     searchPlaceholder = "Online service or department",
@@ -1135,7 +1131,7 @@ reactable(
       defaultSortOrder = "desc", sortNALast = TRUE,
       cell = function(value, index) rp_rows$change[index],
       style = function(value, index) {
-        list(color = delta_colours[[rp_rows$direction[index]]])
+        list(color = verdict_colours[[rp_rows$verdict[index]]])
       }
     ),
     mtd = colDef(name = glue("Active users, summed ({month_label}{to_date_suffix})"),
@@ -1151,7 +1147,7 @@ reactable(
     # searching "TBS" should find GC Digital Talent. reactable leaves hidden
     # columns out of the search box unless a column opts back in.
     operator = colDef(show = FALSE, searchable = TRUE),
-    direction = colDef(show = FALSE),
+    verdict = colDef(show = FALSE),
     applications = colDef(show = FALSE),
     prior_sso_events = colDef(show = FALSE)
   )

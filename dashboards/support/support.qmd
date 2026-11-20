@@ -336,20 +336,15 @@ colnames(cells) <- week_labels
 
 arrows <- c(up = "\u25b2", down = "\u25bc", flat = "\u2013")
 
-# Sometimes up is good and sometimes up is bad. We use "good"/"bad" to be explicit
-verdict_colours <- c(good = "#008B45",
-                     bad = colors$brand[["red"]],
-                     none = "#5C6670")
-verdict_weights <- c(good = "700", bad = "700", none = "400")
+# Sometimes up is good and sometimes up is bad, so each metric names its own
+# good direction.
+verdict_weights <- c(good = "700", bad = "700", flat = "400")
 
-direction <- purrr::map_chr(call_metrics$column, \(col) {
-  delta_direction(relative_change(window_weeks[[col]][newest],
-                                  window_weeks[[col]][newest - 1L]))
+change <- purrr::map_dbl(call_metrics$column, \(col) {
+  relative_change(window_weeks[[col]][newest], window_weeks[[col]][newest - 1L])
 })
-
-verdict <- purrr::map2_chr(direction, call_metrics$good, \(moved, good) {
-  if (moved == "flat" || is.na(good)) "none" else if (moved == good) "good" else "bad"
-})
+direction <- delta_direction(change)
+verdict <- change_verdict(change, good = call_metrics$good)
 
 # Only the newest week carries an arrow; the earlier columns are the record.
 cells[, newest] <- paste0(
@@ -417,8 +412,8 @@ dplyr::bind_cols(call_metrics["label"], tibble::tibble(average = averages),
 
 ::: {.figure-note}
 
-The color of the arrow indications whether the movement is positive or negative, 
-independent of the direction. Some metrics do not an inherent value to their movement,
+The colour of the arrow indicates whether the movement is positive or negative,
+independent of the direction. Some metrics have no inherent value to their movement,
 so they are coloured grey.
 
 *Accepted* is every call that reached the queue, answered or abandoned. *Calls* is 
