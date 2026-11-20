@@ -733,9 +733,9 @@ per_dashboard |>
 ```
 
 ::: {.figure-note}
-Read times cover the last three months. Task Success Monitoring, Experience
-Monitoring's earlier name, is counted as Experience Monitoring. This page
-counts its own readers too.
+Read times cover the last three months. Experience counts its views under
+its earlier names, Task Success Monitoring and Experience Monitoring. This
+page counts its own readers too.
 :::
 
 :::

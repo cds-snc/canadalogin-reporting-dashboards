@@ -167,26 +167,29 @@ test_that("a window is the last 28 days through the end, then the 28 before", {
   )
 })
 
-test_that("a renamed dashboard is counted under its new name", {
-  traffic <- dplyr::bind_rows(
-    readership_traffic(),
-    tibble::tibble(
-      day = as.Date(c("2026-08-11", "2026-09-01")), page_kind = "dashboard",
-      pagepath_redacted = paste0(readership_prefix,
-                                 c("task-success-monitoring.html",
-                                   "experience-monitoring.html")),
-      pagetitle = c("Task Success Monitoring Dashboard",
-                    "Experience Monitoring Dashboard"),
-      views = 1, streamname = "Signal Check", sessionsource = "slack",
-      sessionmedium = "(not set)", sessions = 1
-    )
+test_that("a renamed dashboard is counted under its newest name", {
+  traffic <- readership_with_dashboards(
+    c("task-success-monitoring", "experience-monitoring",
+      "experience-monitoring"),
+    c("Task Success Monitoring Dashboard", "Experience Monitoring Dashboard",
+      "Experience Dashboard"),
+    c("2026-08-11", "2026-09-01", "2026-11-20")
   )
   dashboards <- readership$dashboard_list(traffic)
-  expect_setequal(dashboards$name, c("Sign-In Activity", "Experience Monitoring"))
+  expect_setequal(dashboards$name, c("Sign-In Activity", "Experience"))
   expect_identical(
-    dashboards$first_seen[dashboards$name == "Experience Monitoring"],
+    dashboards$first_seen[dashboards$name == "Experience"],
     as.Date("2026-08-11")
   )
+})
+
+test_that("an ignored file is dropped and other pages are kept", {
+  rows <- readership_with_dashboards(c("electric-feel", "support"),
+                                     c("Electric Feel", "Support Dashboard"),
+                                     "2026-11-10")
+  kept <- readership$drop_ignored_files(rows)
+  expect_false(any(grepl("electric-feel", kept$pagepath_redacted)))
+  expect_identical(nrow(kept), nrow(rows) - 1L)
 })
 
 test_that("an aliased test copy is counted under the file it copies", {

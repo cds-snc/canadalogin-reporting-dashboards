@@ -1,5 +1,5 @@
 ---
-title: "CanadaLogin Experience Monitoring"
+title: "CanadaLogin Experience"
 author: "EDCP Data and Research Team"  # colin.douglas@cds-snc.ca
 slug: expmon
 # Shared format, theme and brand defaults come from _common.yml, via
@@ -12,7 +12,7 @@ format:
     # Written by the analytics chunk at render time; see _analytics.qmd.
     include-after-body: analytics-tag.html
 params:
-  ga_page_title: "Experience Monitoring Dashboard"
+  ga_page_title: "Experience Dashboard"
 ---
 
 ```{r setup}

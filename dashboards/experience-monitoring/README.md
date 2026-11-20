@@ -1,4 +1,4 @@
-# CanadaLogin Experience Monitoring
+# CanadaLogin Experience
 
 An internal dashboard for Enterprise Digital Credentials that helps us understand
 the experience of a CanadaLogin user. It covers:

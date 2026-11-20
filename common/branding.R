@@ -93,7 +93,7 @@ add_cds_logo <- function(plot,
 # Light bottom-right watermark: report name and data-through date. A dashboard
 # other than the default passes its own report_name.
 add_watermark <- function(plot,
-                          report_name = "CanadaLogin Experience Monitoring",
+                          report_name = "CanadaLogin Experience",
                           date = Sys.Date()) {
   if (inherits(date, "Date")) date <- format(date, "%B %e, %Y")
   label <- paste0(report_name, " // Data through ", trimws(date))

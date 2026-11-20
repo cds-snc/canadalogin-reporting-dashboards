@@ -27,6 +27,14 @@ dashboard_aliases <- c(
   "support-test" = "support"
 )
 
+# Published files that are not dashboards, left out of every count.
+ignored_files <- "electric-feel"
+
+drop_ignored_files <- function(rows) {
+  dplyr::filter(rows, !sub(dashboard_pattern, "\\1", pagepath_redacted) %in%
+                  ignored_files)
+}
+
 # How a session started, in legend order: the announcement posts and our own
 # pages tag their links; anything else is the referrer GA saw, if any.
 source_groups <- tibble::tribble(
@@ -78,6 +86,7 @@ page_traffic <- read_once(\(con) {
                      views = sum(screenpageviews, na.rm = TRUE),
                      .groups = "drop") |>
     dplyr::collect() |>
+    drop_ignored_files() |>
     dplyr::mutate(day = as.Date(date), .keep = "unused") |>
     dplyr::arrange(day)
 })
@@ -89,6 +98,7 @@ page_events <- read_once(\(con) {
     dplyr::group_by(date, page_kind, pagepath_redacted, eventname) |>
     dplyr::summarise(events = sum(eventcount, na.rm = TRUE), .groups = "drop") |>
     dplyr::collect() |>
+    drop_ignored_files() |>
     dplyr::mutate(day = as.Date(date), .keep = "unused") |>
     dplyr::arrange(day)
 })
