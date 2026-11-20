@@ -325,8 +325,9 @@ them. The rows do not add up to the total, because the total includes every
 service and the table is only a top `r number_words[party_rows]`.
 
 **The steps table follows people through the flow**, like Google Analytics'
-funnel report: how many reached each step, their share of the first step, and
-the share who went on to the next. The task success rate does not always span
+funnel report: how many users reached each step, their share of the first step,
+and the share who went on to the next. The line at the end of each bar marks
+100% of the first step. The task success rate does not always span
 the whole flow, so purple bars mark the steps it counts and grey ones the steps
 outside it.
 
