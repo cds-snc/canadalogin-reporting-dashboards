@@ -42,6 +42,21 @@ test_that("share_bar escapes its label", {
                fixed = TRUE)
 })
 
+test_that("share_bar draws no 100% line by default", {
+  expect_no_match(share_bar(0.5, "red"), "border-right", fixed = TRUE)
+})
+
+test_that("share_bar with a track wraps the bar in a 100% line", {
+  bar <- share_bar(0.5, "red", track = TRUE)
+  expect_match(bar, "^<div style='border-right:2px solid ")
+  expect_match(bar, "width:50%", fixed = TRUE)
+  expect_match(bar, "</div></div>$")
+})
+
+test_that("share_bar draws a track for every bar", {
+  expect_length(share_bar(c(0.2, 0.8), "red", track = TRUE), 2)
+})
+
 test_that("share_bar is vectorised over share and fill", {
   bars <- share_bar(c(0.1, 0.9), c("red", "blue"))
   expect_length(bars, 2)
