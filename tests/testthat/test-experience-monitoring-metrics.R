@@ -295,3 +295,40 @@ test_that("a rate cell tells no change apart from a dash and n/a", {
   expect_match(expmon$rate_change_cell(0.64, NA, FALSE), ">-<", fixed = TRUE)
   expect_identical(expmon$rate_change_cell(NA, NA, FALSE), "n/a")
 })
+
+test_that("a change in points stands alone without a rate", {
+  html <- expmon$change_points_html(0.05, FALSE)
+  expect_match(html, "^<span")
+  expect_match(html, "▲ 5<", fixed = TRUE)
+})
+
+long_window_row <- function(value, starters) {
+  tibble::tibble(value = value, starters = starters)
+}
+
+test_that("the long change line leads with words", {
+  line <- expmon$long_change_line(long_window_row(0.6, 500),
+                                  long_window_row(0.5, 500))
+  expect_match(line, "^Latest 28 days <span")
+  expect_match(line, "▲ 10</span> points$")
+})
+
+test_that("the long change line colours a change beyond the noise", {
+  line <- expmon$long_change_line(long_window_row(0.6, 500),
+                                  long_window_row(0.5, 500))
+  expect_match(line, verdict_colours[["good"]], fixed = TRUE)
+})
+
+test_that("the long change line greys a change within the noise", {
+  line <- expmon$long_change_line(long_window_row(0.6, 40),
+                                  long_window_row(0.55, 40))
+  expect_match(line, verdict_colours[["flat"]], fixed = TRUE)
+})
+
+test_that("the long change line says when there is nothing to compare", {
+  expect_identical(
+    expmon$long_change_line(long_window_row(0.6, 500),
+                            long_window_row(NA_real_, NA_real_)),
+    "No earlier window to compare against yet"
+  )
+})

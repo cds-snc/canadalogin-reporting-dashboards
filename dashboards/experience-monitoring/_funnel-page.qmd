@@ -16,6 +16,10 @@ s1 <- task_success_series(con, fid, "1", series_start, data_through)
 chart_from <- min(s7$window_end, s1$window_end)
 chart_to <- max(s7$window_end, s1$window_end)
 events <- scoped_annotations(annotations, fid, chart_from, chart_to)
+
+# Every value box and table reads the long window; only the chart reads 7 days.
+long_now <- task_success_long_window(con, fid, data_through)
+long_prior <- task_success_long_window(con, fid, data_through - long_window_days)
 ```
 
 `r h1` `r label`
@@ -25,18 +29,20 @@ events <- scoped_annotations(annotations, fid, chart_from, chart_to)
 `r h_col` Column {width="24%"}
 
 ::: {.valuebox color="primary"}
-Latest 7-day rate
+`r long_window_label` rate
 
-`r fmt_pct(task_success_latest(con, fid, "7", trailing_start, data_through)$value)`
-:::
-
-::: {.valuebox color="secondary"}
-`r long_window_label` rate (rolling)
-
-`r fmt_pct(task_success_long_window(con, fid, data_through)$value)`
+`r fmt_pct(long_now$value)`
 :::
 
 ::: {.valuebox color="info"}
+Previous `r long_window_days` days
+
+`r fmt_pct(long_prior$value)`
+
+`r long_change_line(long_now, long_prior)`
+:::
+
+::: {.valuebox color="secondary"}
 `r starts_box_title(fid)`
 
 `r funnel_starts(fid)`
@@ -86,22 +92,15 @@ add_cds_logo(add_watermark(p, date = data_through), height = 0.09)
 
 `r h_row` Row
 
-::: {.card title="By relying party (latest values)"}
+::: {.card title="`r window_title('By relying party')`"}
 
 ```{r}
 compare <- prior_period_complete(fid)
 
 # The one stored window ending on data_through, like the overall row, so a
 # service missing from it reads n/a rather than its last window from earlier.
-# One row per GA rp_name: stored rates cannot be pooled. Each period is
+# One row per GA rp_name: stored rates cannot be pooled. The window is
 # compared with the stored window just before it; the two never share a day.
-latest_7d <- party_task_success(con, fid, "7", data_through, data_through) |>
-  select(breakdown_value, rate_7d = value, starters_7d = starters)
-prior_7d <- party_task_success(
-  con, fid, "7", data_through - 7L, data_through - 7L
-) |>
-  select(breakdown_value, prior_7d = value, prior_starters_7d = starters)
-
 counts_long <- party_task_success_long_window(con, fid, data_through) |>
   select(breakdown_value, rate_long = value, entered = starters, finished)
 prior_long <- party_task_success_long_window(
@@ -109,8 +108,7 @@ prior_long <- party_task_success_long_window(
 ) |>
   select(breakdown_value, prior_long = value, prior_entered = starters)
 
-merged <- reduce(list(latest_7d, prior_7d, counts_long, prior_long),
-                 full_join, by = "breakdown_value")
+merged <- full_join(counts_long, prior_long, by = "breakdown_value")
 
 per_rp <- merged |>
   mutate(Service = rp_display_name(breakdown_value)) |>
@@ -126,28 +124,16 @@ per_rp <- merged |>
     Service = if_else(shared, paste0(Service, " (", breakdown_value, ")"),
                       Service)
   ) |>
-  select(Service, Operator, rate_7d, starters_7d, prior_7d, prior_starters_7d,
-         rate_long, prior_long, prior_entered, entered, finished)
+  select(Service, Operator, rate_long, prior_long, prior_entered, entered,
+         finished)
 
-overall_7d <- task_success_latest(con, fid, "7", trailing_start, data_through)
-overall_prior_7d <- task_success_latest(
-  con, fid, "7", data_through - 7L, data_through - 7L
-)
-overall_prior_long <- task_success_long_window(
-  con, fid, data_through - long_window_days
-)
-
-overall <- task_success_long_window(con, fid, data_through) |>
+overall <- long_now |>
   transmute(
     Service = "All users",
     Operator = "",
-    rate_7d = overall_7d$value,
-    starters_7d = overall_7d$starters,
-    prior_7d = overall_prior_7d$value,
-    prior_starters_7d = overall_prior_7d$starters,
     rate_long = value,
-    prior_long = overall_prior_long$value,
-    prior_entered = overall_prior_long$starters,
+    prior_long = long_prior$value,
+    prior_entered = long_prior$starters,
     entered = starters, finished
   )
 
@@ -155,35 +141,25 @@ rows <- bind_rows(overall, per_rp) |>
   # The long change stays even with nothing to compare against: every row
   # reads as a dash and comparison_note() explains it.
   mutate(
-    delta_7d = rate_7d - prior_7d,
     delta_long = if (compare) rate_long - prior_long else NA_real_,
-    noise_7d = change_noise(rate_7d, starters_7d, prior_7d, prior_starters_7d),
     noise_long = change_noise(rate_long, entered, prior_long, prior_entered),
-    rate_7d = rate_change_cell(
-      rate_7d, delta_7d,
-      is_meaningful_change(delta_7d, noise_7d, starters_7d, prior_starters_7d)
-    ),
     rate_long = rate_change_cell(
       rate_long, delta_long,
       is_meaningful_change(delta_long, noise_long, entered, prior_entered)
     )
   ) |>
-  select(Service, Operator, entered, finished, rate_7d, rate_long)
+  select(Service, Operator, entered, finished, rate_long)
 
 gt(rows) |>
-  fmt_markdown(c(rate_7d, rate_long)) |>
-  cols_align("right", c(rate_7d, rate_long)) |>
+  fmt_markdown(rate_long) |>
+  cols_align("right", rate_long) |>
   # Without widths Quarto splits the table evenly, and full service names wrap
   # beside a column of acronyms.
-  cols_width(Service ~ pct(34), Operator ~ pct(10), everything() ~ pct(14)) |>
+  cols_width(Service ~ pct(36), Operator ~ pct(10), everything() ~ pct(18)) |>
   fmt_number(c(entered, finished), decimals = 0) |>
   sub_missing(missing_text = "n/a") |>
-  cols_label(
-    entered = html(glue("Started<br>({long_window_label})")),
-    finished = html(glue("Finished<br>({long_window_label})")),
-    rate_7d = "7-day rate",
-    rate_long = glue("{long_window_label} rate")
-  ) |>
+  # The window is in the card title, so the columns do not repeat it.
+  cols_label(entered = "Started", finished = "Finished", rate_long = "Rate") |>
   tab_style(cell_text(weight = "bold"), cells_body(rows = 1)) |>
   tab_options(
     table.width = pct(100),

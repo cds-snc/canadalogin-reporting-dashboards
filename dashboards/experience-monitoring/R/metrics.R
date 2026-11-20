@@ -229,11 +229,11 @@ is_meaningful_change <- function(delta, noise, starters, prior_starters) {
   dplyr::coalesce(enough & abs(delta) > noise_multiple * noise, FALSE)
 }
 
-# One table cell as HTML: the rate, then its change in whole points, such as
-# "64% ▼ 4". The arrow carries the direction, so there is no sign. The change
-# is coloured only when meaningful and grey otherwise; one that rounds to
-# nothing is "● 0", and one with nothing to compare against is a dash.
-rate_change_cell <- function(rate, delta, meaningful) {
+# A change in whole points as HTML, such as "▼ 4". The arrow carries the
+# direction, so there is no sign. Coloured only when meaningful and grey
+# otherwise; one that rounds to nothing is "● 0", and one with nothing to
+# compare against is a dash.
+change_points_html <- function(delta, meaningful) {
   points <- floor(abs(delta) * 100 + 0.5)
   direction <- dplyr::case_when(
     is.na(delta) | points == 0 ~ "flat",
@@ -247,7 +247,28 @@ rate_change_cell <- function(rate, delta, meaningful) {
     .default = "\u25cf\u00a00"
   )
   # Whole points, not change_verdict()'s tenth of a point, decide flat here.
-  html <- change_html(delta, meaningful = meaningful & direction != "flat",
-                      points = TRUE, text = change)
-  ifelse(is.na(rate), "n/a", sprintf("%s%% %s", round(rate * 100), html))
+  change_html(delta, meaningful = meaningful & direction != "flat",
+              points = TRUE, text = change)
+}
+
+# One table cell as HTML: the rate, then its change, such as "64% ▼ 4".
+rate_change_cell <- function(rate, delta, meaningful) {
+  ifelse(
+    is.na(rate), "n/a",
+    paste0(round(rate * 100), "% ", change_points_html(delta, meaningful))
+  )
+}
+
+# The value box line comparing the latest long window with the one before,
+# led by words: a lone change would be a single Str and lose its paragraph.
+long_change_line <- function(now, prior) {
+  if (is.na(now$value) || is.na(prior$value)) {
+    return("No earlier window to compare against yet")
+  }
+  delta <- now$value - prior$value
+  noise <- change_noise(now$value, now$starters, prior$value, prior$starters)
+  meaningful <- is_meaningful_change(delta, noise, now$starters,
+                                     prior$starters)
+  paste("Latest", long_window_days, "days",
+        change_points_html(delta, meaningful), "points")
 }

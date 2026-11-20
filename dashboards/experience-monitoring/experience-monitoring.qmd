@@ -71,6 +71,12 @@ format_long_date <- function(d) {
 }
 data_through_label <- format_long_date(data_through)
 
+# "Nov 8", as the chart captions write dates.
+format_short_date <- function(d) {
+  d <- as.Date(d)
+  paste(format(d, "%b"), as.integer(format(d, "%d")))
+}
+
 # The preflight banner and the context strip under the navbar, composed into
 # the one file include-before-body reads, so both show on every page.
 page_header <- "page-header.html"
@@ -148,6 +154,12 @@ funnel_starts <- function(funnel_id) {
 
 long_window_label <- glue("{long_window_days}-day")
 
+# A card title naming its window once, so the columns need not:
+# "By relying party, 28 days ending Nov 18".
+window_title <- function(what) {
+  glue("{what}, {long_window_days} days ending {format_short_date(data_through)}")
+}
+
 # funnel_starts() counts the ratio denominator, so only a funnel measured from
 # its own first step can call that number "starts".
 starts_box_title <- function(funnel_id) {
@@ -164,7 +176,8 @@ chart_title <- function(funnel_id) {
 
 # Wrapped by hand to two lines: one runs under the logo, three crowd the plot.
 # Line two names the denominator where it is not the funnel's first step.
-chart_subtitle <- function(funnel_id) {
+# `line_days` names the line's window, so a page drawing a longer one says so.
+chart_subtitle <- function(funnel_id, line_days = 7L) {
   parties <- if (denominator_is_entry(funnel_id)) {
     "All relying parties, as reported by Google Analytics."
   } else {
@@ -172,7 +185,8 @@ chart_subtitle <- function(funnel_id) {
          "{entry_step_label(funnel_id)}.")
   }
   paste(
-    "7-day rolling rate (violet line) over the daily rate (grey points).",
+    glue("{line_days}-day rolling rate (violet line) over the daily rate ",
+         "(grey points)."),
     parties,
     sep = "\n"
   )
@@ -277,10 +291,11 @@ finishing point**. Each flow has its own tab. The CanadaLogin page holds sign in
 sign up, recover password and recover 2-step verification. The Migration page
 holds the two migration paths, which run in the Migration app.
 
-The rate is shown over two rolling windows. The **7-day rate** is the primary
-series on every chart, one point per day showing the rate over the week ending
-that day. The **`r long_window_days`-day rate** is the headline figure, a single
-number covering about a month. Both are rolling windows, not calendar months.
+Each chart shows the **7-day rate** for history, one point per day showing the
+rate over the week ending that day. **Every number in a value box or a table is a
+`r long_window_days`-day rate**, covering about a month, compared with the
+`r long_window_days` days before it. Both are rolling windows, not calendar
+months.
 Underneath the 7-day line, faint grey points show the **daily rate**, sized by
 how many people were in that day's denominator: a small point is a thin day,
 where one person can move the rate by double digits.
