@@ -58,7 +58,8 @@ run_errors_preflight <- function(env, thresholds = errors_thresholds,
 }
 
 errors_features <- function(env, errors = errors_rows()) {
-  env$feature_table(errors, errors_sessions(), errors_week, errors_thresholds)
+  env$feature_table(errors, errors_sessions(), errors_week, errors_thresholds,
+                    "red")
 }
 
 errors_codes <- function(env, errors = errors_rows(),

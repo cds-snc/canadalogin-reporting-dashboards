@@ -39,32 +39,9 @@ $navbar-hl: #FFFFFF;
   align-content: start;
 }
 
-// A feature's top codes, one a line, each after a bar for its share on a
-// shared grey track. Spans, not divs: Quarto makes card divs flex columns.
+// A feature's top codes, one a line, each above the shared share_bar().
 .code-share {
   display: block;
   white-space: nowrap;
-}
-
-.share-bar {
-  background: #E4E6E9;
-  border-radius: 2px;
-  display: inline-block;
-  height: 8px;
-  margin-right: 0.5em;
-  position: relative;
-  vertical-align: middle;
-  width: 56px;
-}
-
-.share-bar::after {
-  background: $primary;
-  border-radius: 2px;
-  bottom: 0;
-  content: "";
-  left: 0;
-  position: absolute;
-  top: 0;
-  width: max(2px, var(--share));
 }
 

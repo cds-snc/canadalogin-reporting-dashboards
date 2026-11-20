@@ -149,9 +149,10 @@ test_that("a feature's top codes carry their share of its errors", {
                                          "passwordrecovery", 0.1))
   row <- dplyr::filter(errors_features(env, errors),
                        feature == "Password recovery")
-  expect_match(row$codes, '--share: 99.9%"></span><code>26</code>', fixed = TRUE)
-  expect_match(row$codes, 'aria-label="<1% of errors" style="--share: 0.1%"',
+  expect_match(row$codes,
+               "<code>26</code></span><div role='img' aria-label='100% of errors'",
                fixed = TRUE)
+  expect_match(row$codes, "aria-label='&lt;1% of errors'", fixed = TRUE)
   # Busiest first.
   expect_lt(regexpr("<code>26</code>", row$codes),
             regexpr("<code>PHONE_VALIDATION_ERROR</code>", row$codes))
@@ -285,7 +286,7 @@ test_that("without a catalogue, codes have no tooltip", {
 test_that("feature top codes carry the tooltips", {
   messages <- tibble::tibble(error_code = "26", message = "No account.")
   features <- env$feature_table(errors_rows(), errors_sessions(), errors_week,
-                                errors_thresholds, messages)
+                                errors_thresholds, "red", messages)
   row <- dplyr::filter(features, feature == "Password recovery")
   expect_match(row$codes, 'title="No account."', fixed = TRUE)
 })

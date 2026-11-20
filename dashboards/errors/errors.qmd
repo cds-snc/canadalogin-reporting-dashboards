@@ -77,7 +77,10 @@ messages <- code_messages(
   ibm = private_data("ibm-verify-messages.yml", read = yaml::read_yaml)
 )
 
-features <- feature_table(errors, sessions, week, thresholds, messages)
+# $primary in _theme.scss; ggplot and gt cannot read the scss.
+accent <- "#952535"
+
+features <- feature_table(errors, sessions, week, thresholds, accent, messages)
 codes <- code_table(errors, sessions, week, thresholds)
 overall <- overall_rate(errors, sessions, week, thresholds)
 unlabelled <- unlabelled_forms(dplyr::filter(errors, day >= week$start))
@@ -101,9 +104,6 @@ cat(
 )
 
 # Presentation ---------------------------------------------------------------
-
-# $primary in _theme.scss; ggplot and gt cannot read the scss.
-accent <- "#952535"
 
 trend_label <- "Relative rate, weekly"
 against_label <- glue("vs. previous {thresholds$history_weeks} weeks")
