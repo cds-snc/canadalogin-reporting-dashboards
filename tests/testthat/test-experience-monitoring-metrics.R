@@ -479,3 +479,11 @@ test_that("a change in points takes an override colour", {
   expect_match(expmon$change_points_html(0.05, TRUE, colour = "inherit"),
                'style="color:inherit"', fixed = TRUE)
 })
+
+test_that("the long change line says no change when it rounds to nothing", {
+  expect_identical(
+    expmon$long_change_line(long_window_row(0.504, 500),
+                            long_window_row(0.5, 500)),
+    "No change on the 28 days before"
+  )
+})

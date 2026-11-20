@@ -284,10 +284,14 @@ long_change_line <- function(now, prior, colour = NULL) {
     return("No earlier window to compare against yet")
   }
   delta <- now$value - prior$value
+  points <- floor(abs(delta) * 100 + 0.5)
+  if (points == 0) {
+    return(paste("No change on the", long_window_days, "days before"))
+  }
   noise <- change_noise(now$value, now$starters, prior$value, prior$starters)
   meaningful <- is_meaningful_change(delta, noise, now$starters,
                                      prior$starters)
-  unit <- if (floor(abs(delta) * 100 + 0.5) == 1) "point" else "points"
+  unit <- if (points == 1) "point" else "points"
   paste(change_points_html(delta, meaningful, colour), unit, "on the",
         long_window_days, "days before")
 }
