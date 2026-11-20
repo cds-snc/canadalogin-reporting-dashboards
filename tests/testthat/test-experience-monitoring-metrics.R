@@ -487,3 +487,45 @@ test_that("the long change line says no change when it rounds to nothing", {
     "No change vs. previous 28 days"
   )
 })
+
+# Manage funnels ----------------------------------------------------------------
+
+manage_ids <- c("manage_contact_phone", "manage_add_passkey",
+                "manage_add_mfa_phone", "manage_change_email",
+                "manage_password_change", "manage_delete_passkey")
+
+test_that("every Manage funnel is required", {
+  expect_true(all(manage_ids %in% expmon$required_funnels))
+})
+
+test_that("Manage funnels chart the long window", {
+  expect_identical(unique(vapply(manage_ids, expmon$funnel_line_days,
+                                 integer(1), USE.NAMES = FALSE)),
+                   expmon$long_window_days)
+})
+
+test_that("other funnels chart 7 days", {
+  expect_identical(expmon$funnel_line_days("sign_in"), 7L)
+})
+
+test_that("Manage funnels have no relying-party breakdown", {
+  expect_false(any(vapply(manage_ids, expmon$funnel_has_parties, logical(1))))
+  expect_true(expmon$funnel_has_parties("sign_in"))
+})
+
+test_that("party funnels leave out Manage", {
+  expect_identical(expmon$party_funnels(c("sign_in", manage_ids)), "sign_in")
+})
+
+test_that("every Manage rate counts from the first submit", {
+  expect_identical(expmon$funnel_entry_steps$manage_contact_phone,
+                   "number_submitted")
+  others <- setdiff(manage_ids, "manage_contact_phone")
+  expect_true(all(unlist(expmon$funnel_entry_steps[others]) ==
+                    "password_submitted"))
+})
+
+test_that("every Manage funnel has polite step names", {
+  labels <- expmon$read_step_labels(step_labels_path)
+  expect_true(all(manage_ids %in% names(labels)))
+})

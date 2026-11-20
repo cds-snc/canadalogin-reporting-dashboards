@@ -3,7 +3,7 @@
 # One funnel page, knit as a child from experience-monitoring.qmd. The caller
 # supplies `fid`, `label` and `h1` (the heading prefix: "#" for a page of its
 # own, "####" for a tabset member). Chunks are unlabelled because a loop would
-# emit the same label five times, and this comment sits in an include: false
+# emit the same label many times, and this comment sits in an include: false
 # chunk because markdown ahead of the first heading renders as an empty card.
 
 h_row <- paste0(h1, "#")
@@ -11,13 +11,14 @@ h_col <- paste0(h_row, "#")
 
 # Here, not in the chart chunk: the chart's fig-cap is evaluated before its
 # code runs, and the caption depends on the series' date range.
-s7 <- task_success_series(con, fid, "7", series_start, data_through)
+line <- task_success_series(con, fid, funnel_line_days(fid), series_start,
+                            data_through)
 s1 <- task_success_series(con, fid, "1", series_start, data_through)
-chart_from <- min(s7$window_end, s1$window_end)
-chart_to <- max(s7$window_end, s1$window_end)
+chart_from <- min(line$window_end, s1$window_end)
+chart_to <- max(line$window_end, s1$window_end)
 events <- scoped_annotations(annotations, fid, chart_from, chart_to)
 
-# Every value box and table reads the long window; only the chart reads 7 days.
+# Every value box and table reads the long window; only the chart's line may not.
 long_now <- task_success_long_window(con, fid, data_through)
 long_prior <- task_success_long_window(con, fid, data_through - long_window_days)
 ```
@@ -60,7 +61,7 @@ Previous `r long_window_days` days
 #| fig-cap: !expr annotation_caption(events)
 
 p <- ggplot() +
-  annotation_layers(events, chart_from, chart_to, s7,
+  annotation_layers(events, chart_from, chart_to, line,
                     aes(window_end, value)) +
   # Sized by starters, so a low-volume day draws small. No log transform:
   # the size scale already square-roots the value on its way to an area.
@@ -71,8 +72,8 @@ p <- ggplot() +
   scale_size(range = c(0.4, 2.4), guide = "none") +
   # Grouped by version so the line breaks where the definition changes.
   geom_line(
-    data = s7, aes(window_end, value, group = funnel_version),
-    colour = accent, linewidth = 1
+    data = line, aes(window_end, value, group = funnel_version),
+    colour = line_colour(fid), linewidth = 1
   ) +
   scale_y_continuous(
     labels = label_percent(accuracy = 1), limits = c(0, 1),
@@ -136,86 +137,4 @@ if (nrow(step_rows) == 0) {
 
 :::
 
-`r h_row` Row
-
-::: {.card title="`r window_title('By relying party')`"}
-
-```{r}
-compare <- prior_period_complete(fid)
-
-# The one stored window ending on data_through, like the overall row, so a
-# service missing from it reads n/a rather than its last window from earlier.
-# One row per GA rp_name: stored rates cannot be pooled. The window is
-# compared with the stored window just before it; the two never share a day.
-counts_long <- party_task_success_long_window(con, fid, data_through) |>
-  select(breakdown_value, rate_long = value, entered = starters, finished)
-prior_long <- party_task_success_long_window(
-  con, fid, data_through - long_window_days
-) |>
-  select(breakdown_value, prior_long = value, prior_entered = starters)
-
-merged <- full_join(counts_long, prior_long, by = "breakdown_value")
-
-per_rp <- merged |>
-  mutate(Service = rp_display_name(breakdown_value)) |>
-  # The pooled labels are not services, and the tail of the list shuffles from
-  # day to day.
-  filter(!Service %in% pooled_rp_labels) |>
-  filter(entered >= min_party_starters) |>
-  arrange(desc(entered)) |>
-  mutate(
-    Operator = coalesce(service_operators(con, Service), ""),
-    # Two GA names on one service would otherwise share a label.
-    shared = duplicated(Service) | duplicated(Service, fromLast = TRUE),
-    Service = if_else(shared, paste0(Service, " (", breakdown_value, ")"),
-                      Service)
-  ) |>
-  select(Service, Operator, rate_long, prior_long, prior_entered, entered,
-         finished)
-
-overall <- long_now |>
-  transmute(
-    Service = "All users",
-    Operator = "",
-    rate_long = value,
-    prior_long = long_prior$value,
-    prior_entered = long_prior$starters,
-    entered = starters, finished
-  )
-
-rows <- bind_rows(overall, per_rp) |>
-  # The long change stays even with nothing to compare against: every row
-  # reads as a dash and comparison_note() explains it.
-  mutate(
-    delta_long = if (compare) rate_long - prior_long else NA_real_,
-    noise_long = change_noise(rate_long, entered, prior_long, prior_entered),
-    rate_long = rate_change_cell(
-      rate_long, delta_long,
-      is_meaningful_change(delta_long, noise_long, entered, prior_entered)
-    )
-  ) |>
-  select(Service, Operator, entered, finished, rate_long)
-
-gt(rows) |>
-  fmt_markdown(rate_long) |>
-  cols_align("right", rate_long) |>
-  # Without widths Quarto splits the table evenly, and full service names wrap
-  # beside a column of acronyms.
-  cols_width(Service ~ pct(36), Operator ~ pct(10), everything() ~ pct(18)) |>
-  fmt_number(c(entered, finished), decimals = 0) |>
-  sub_missing(missing_text = "n/a") |>
-  # The window is in the card title, so the columns do not repeat it.
-  cols_label(entered = "Started", finished = "Finished", rate_long = "Rate") |>
-  tab_style(cell_text(weight = "bold"), cells_body(rows = 1)) |>
-  table_options()
-```
-
-::: {.figure-note}
-`r internal_note` `r finished_note`
-
-`r change_note`
-
-`r comparison_note(fid)`
-:::
-
-:::
+`r if (funnel_has_parties(fid)) knitr::knit_child("_party-table.qmd", envir = environment(), quiet = TRUE)`

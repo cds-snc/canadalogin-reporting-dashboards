@@ -11,7 +11,9 @@
 # Every funnel must be present in the data (preflight) and have its own tab.
 required_funnels <- c(
   "sign_in", "sign_up", "recover_password", "recover_2sv",
-  "migration_existing_to_cl", "migration_new_to_cl"
+  "migration_existing_to_cl", "migration_new_to_cl",
+  "manage_contact_phone", "manage_add_passkey", "manage_add_mfa_phone",
+  "manage_change_email", "manage_password_change", "manage_delete_passkey"
 )
 
 # The denominator step of each funnel's `metrics:` block in the pipeline YAML,
@@ -23,7 +25,13 @@ funnel_entry_steps <- list(
   recover_password = "reset_password",
   recover_2sv = "initiate_recovery",
   migration_existing_to_cl = "migration_not_skipped",
-  migration_new_to_cl = "migration_not_skipped"
+  migration_new_to_cl = "migration_not_skipped",
+  manage_contact_phone = "number_submitted",
+  manage_add_passkey = "password_submitted",
+  manage_add_mfa_phone = "password_submitted",
+  manage_change_email = "password_submitted",
+  manage_password_change = "password_submitted",
+  manage_delete_passkey = "password_submitted"
 )
 
 # The numerator step of each funnel's `metrics:` block, copied by hand like
@@ -34,7 +42,13 @@ funnel_exit_steps <- list(
   recover_password = "complete",
   recover_2sv = "confirmation",
   migration_existing_to_cl = "migration_complete",
-  migration_new_to_cl = "migration_complete"
+  migration_new_to_cl = "migration_complete",
+  manage_contact_phone = "number_updated",
+  manage_add_passkey = "nickname_saved",
+  manage_add_mfa_phone = "phone_added",
+  manage_change_email = "email_updated",
+  manage_password_change = "password_changed",
+  manage_delete_passkey = "passkey_deleted"
 )
 
 # Funnels switched off in production, with the date they went off. Preflight
@@ -50,9 +64,16 @@ live_funnels <- function(paused = paused_funnels) {
   setdiff(required_funnels, names(paused))
 }
 
+# Manage tasks see 2 to 16 people a day, so their chart draws the long-window
+# line, and every Manage event carries the one relying party, the Manage app.
+manage_presentation <- function(label) {
+  list(label = label, long_line = TRUE, parties = FALSE)
+}
+
 # Labels, local until the pipeline emits a label column. Keyed by funnel id so
 # a mismatch fails rather than heading a page with another funnel's numbers.
-# Each funnel's notes are in annotations.yml.
+# Each funnel's notes are in annotations.yml. A thin funnel charts the long
+# window (`long_line`); one with no relying-party breakdown sets `parties`.
 funnel_presentation <- list(
   sign_in = list(label = "Sign in"),
   sign_up = list(label = "Sign up"),
@@ -61,7 +82,13 @@ funnel_presentation <- list(
   migration_existing_to_cl = list(
     label = "Migration, existing CanadaLogin account"
   ),
-  migration_new_to_cl = list(label = "Migration, new CanadaLogin account")
+  migration_new_to_cl = list(label = "Migration, new CanadaLogin account"),
+  manage_contact_phone = manage_presentation("Change contact phone"),
+  manage_add_passkey = manage_presentation("Add a passkey"),
+  manage_add_mfa_phone = manage_presentation("Add a 2-step phone"),
+  manage_change_email = manage_presentation("Change email"),
+  manage_password_change = manage_presentation("Change password"),
+  manage_delete_passkey = manage_presentation("Delete a passkey")
 )
 
 # A missing entry fails here rather than heading a page with a warehouse id.
@@ -76,6 +103,25 @@ declared_or_stop <- function(table, funnel_id, table_name) {
 
 funnel_label <- function(funnel_id) {
   declared_or_stop(funnel_presentation, funnel_id, "funnel_presentation")$label
+}
+
+# The window the chart's line draws, in days.
+funnel_line_days <- function(funnel_id) {
+  presentation <- declared_or_stop(funnel_presentation, funnel_id,
+                                   "funnel_presentation")
+  if (isTRUE(presentation$long_line)) long_window_days else 7L
+}
+
+# Whether the funnel has a per-relying-party breakdown to table and check.
+funnel_has_parties <- function(funnel_id) {
+  presentation <- declared_or_stop(funnel_presentation, funnel_id,
+                                   "funnel_presentation")
+  presentation$parties %||% TRUE
+}
+
+# The funnels with a relying-party breakdown.
+party_funnels <- function(funnels) {
+  funnels[vapply(funnels, funnel_has_parties, logical(1))]
 }
 
 # Both funnel tables, loaded whole once per render and sliced in R. Each

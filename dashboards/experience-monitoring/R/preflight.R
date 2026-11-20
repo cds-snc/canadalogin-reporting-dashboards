@@ -48,6 +48,25 @@ largest_starter_drops <- function(current, previous, n = 3L) {
     utils::head(n)
 }
 
+# Total rows of `funnels` under `floor` among the rates the page shows: every
+# 7-day window and the long window ending on as_of. A funnel charting the long
+# window is judged on that alone, since a 7-day window of three people can read
+# 0% in a normal week.
+implausible_rates <- function(raw, funnels, as_of, floor) {
+  long_window <- as.character(long_window_days)
+  long_line <- funnels[vapply(funnels, funnel_line_days, integer(1)) ==
+                         long_window_days]
+  raw |>
+    dplyr::filter(
+      funnel_id %in% funnels,
+      breakdown_value == "RESERVED_TOTAL",
+      !is.na(value),                       # NULL is undefined, not low
+      value < floor,
+      (window_days == "7" & !funnel_id %in% long_line) |
+        (window_days == long_window & window_end == as_of)
+    )
+}
+
 # One problem line per funnel whose declared entry or exit step is missing from
 # the step names seen in funnels_current, or not declared at all.
 step_name_problems <- function(steps_seen, funnels,
@@ -381,14 +400,7 @@ run_preflight_safety_check <- function(con,
   # rather than a zero test, because one stray event lifts a broken funnel off
   # zero. The 28-day window is tested in its own right: activeUsers
   # de-duplicate within a window, so it is not a blend of the 7-day ones.
-  low_rates <- raw |>
-    filter(
-      funnel_id %in% live,
-      breakdown_value == "RESERVED_TOTAL",
-      !is.na(value),                       # NULL is undefined, not low
-      value < min_task_success_rate,
-      window_days == "7" | (window_days == long_window & window_end == as_of)
-    )
+  low_rates <- implausible_rates(raw, live, as_of, min_task_success_rate)
 
   rate_problems <- character()
   for (funnel in unique(low_rates$funnel_id)) {
@@ -434,7 +446,8 @@ run_preflight_safety_check <- function(con,
   # Fails only in the week the share crosses the threshold. The lost rp_names
   # cannot be restored, so an outage that is still over it a week later is
   # reported in the details without failing again. A second loss that starts
-  # during an ongoing one is not raised.
+  # during an ongoing one is not raised. Only funnels with a relying-party
+  # breakdown are judged.
   prior_end <- as_of - 7L
   entry_steps <- unname(vapply(
     required_funnels, \(f) funnel_entry_steps[[f]], character(1)
@@ -458,7 +471,7 @@ run_preflight_safety_check <- function(con,
   attribution_shares <- numeric()
   statuses <- character()
   crossed_on <- as.Date(character())
-  for (funnel in live) {
+  for (funnel in party_funnels(live)) {
     entry <- funnel_entry_steps[[funnel]]
     funnel_counts <- entry_counts[entry_counts$funnel_id == funnel &
                                     entry_counts$funnelstepname == entry, ]

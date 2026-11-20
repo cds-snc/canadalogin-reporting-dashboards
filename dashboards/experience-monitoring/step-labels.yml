@@ -54,3 +54,44 @@ migration_new_to_cl:
   migration_prompt: Migration prompt
   migration_not_skipped: Migration not skipped
   migration_complete: Migration complete
+
+manage_contact_phone:
+  enter_number: Enter new phone number
+  number_submitted: New number submitted
+  verify_number: Verify the number
+  confirm_change: Confirm the change
+  number_updated: Phone number updated
+
+manage_add_passkey:
+  verify_password: Verify it's you
+  password_submitted: Password submitted
+  register_passkey: Create your passkey
+  name_passkey: Name your passkey
+  nickname_saved: Passkey named
+
+manage_add_mfa_phone:
+  verify_password: Verify it's you
+  password_submitted: Password submitted
+  enter_number: Enter phone number
+  verify_number: Verify the number
+  phone_added: Phone added
+
+manage_change_email:
+  verify_password: Verify it's you
+  password_submitted: Password submitted
+  enter_email: Enter new email
+  verify_email: Verify the email
+  confirm_change: Confirm the change
+  email_updated: Email updated
+
+manage_password_change:
+  verify_password: Verify it's you
+  password_submitted: Password submitted
+  new_password: Create a new password
+  password_changed: Password changed
+
+manage_delete_passkey:
+  verify_password: Verify it's you
+  password_submitted: Password submitted
+  confirm_removal: Confirm removal
+  passkey_deleted: Passkey deleted

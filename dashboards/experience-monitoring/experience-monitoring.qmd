@@ -34,6 +34,18 @@ polite_steps <- read_step_labels()
 # the scss, so the hex is written in both places; keep them in step.
 accent <- "#4B2E83"
 
+# The long-window line on thin funnels' charts, lighter so it reads as a
+# different series: 4.0:1 on white. Mirrors $accent-long in _theme.scss.
+accent_long <- "#8C6FCB"
+
+# The chart line's colour, and its name for the subtitle and alt text.
+line_colour <- function(funnel_id) {
+  if (funnel_line_days(funnel_id) == 7L) accent else accent_long
+}
+line_colour_name <- function(funnel_id) {
+  if (funnel_line_days(funnel_id) == 7L) "violet" else "light violet"
+}
+
 # The help tab filters on this stream
 help_stream_id <- "13052807364"
 help_stream_name <- "CanadaLogin Website (Help/About/GC Partner info)"
@@ -178,18 +190,18 @@ chart_title <- function(funnel_id) {
 
 # Wrapped by hand to two lines: one runs under the logo, three crowd the plot.
 # Line two names the denominator where it is not the funnel's first step.
-# `line_days` is the line's window.
-chart_subtitle <- function(funnel_id, line_days = 7L) {
-  parties <- if (denominator_is_entry(funnel_id)) {
-    "All relying parties, as reported by Google Analytics."
+chart_subtitle <- function(funnel_id) {
+  parties <- if (funnel_has_parties(funnel_id)) "All relying parties."
+  denominator <- if (denominator_is_entry(funnel_id)) {
+    "As reported by Google Analytics."
   } else {
-    glue("All relying parties. Rate is of people who reached ",
-         "{entry_step_label(funnel_id)}.")
+    glue("Rate is of people who reached {entry_step_label(funnel_id)}.")
   }
   paste(
-    glue("{line_days}-day rolling rate (violet line) over the daily rate ",
+    glue("{funnel_line_days(funnel_id)}-day rolling rate ",
+         "({line_colour_name(funnel_id)} line) over the daily rate ",
          "(grey points)."),
-    parties,
+    paste(c(parties, denominator), collapse = " "),
     sep = "\n"
   )
 }
@@ -198,14 +210,14 @@ chart_subtitle <- function(funnel_id, line_days = 7L) {
 chart_alt <- function(funnel_id) {
   label <- funnel_label(funnel_id)
   label <- paste0(tolower(substr(label, 1, 1)), substring(label, 2))
+  parties <- if (funnel_has_parties(funnel_id)) ", across all relying parties"
   glue(
-    "Chart of the task success rate over time for the ",
-    "{label} funnel, across all relying parties. ",
-    "A bold violet line traces the 7-day ",
-    "rolling rate, breaking wherever the funnel version changes; faint grey ",
-    "points underneath are the noisier daily rate, sized by how many people ",
-    "were in that day's denominator. The y-axis runs from zero to one ",
-    "hundred percent."
+    "Chart of the task success rate over time for the {label} funnel",
+    "{parties %||% ''}. A bold {line_colour_name(funnel_id)} line traces the ",
+    "{funnel_line_days(funnel_id)}-day rolling rate, breaking wherever the ",
+    "funnel version changes; faint grey points underneath are the noisier ",
+    "daily rate, sized by how many people were in that day's denominator. ",
+    "The y-axis runs from zero to one hundred percent."
   )
 }
 
@@ -305,10 +317,13 @@ which is created thoughtfully and contains proper analysis and context.
 Task success is the share of users who **start a flow and reach its defined
 finishing point**. Each flow has its own tab. The CanadaLogin page holds sign in,
 sign up, recover password and recover 2-step verification. The Migration page
-holds the two migration paths, which run in the Migration app.
+holds the two migration paths, which run in the Migration app. The Manage page
+holds six tasks in Manage, CanadaLogin's account settings app.
 
 Each chart shows the **7-day rate** for history, one point per day showing the
-rate over the week ending that day. **Every number in a value box or a table is a
+rate over the week ending that day. Manage charts show the
+**`r long_window_days`-day rate** instead, in a lighter violet: each Manage task
+sees only 2 to 16 people a day, so a week is too few to read. **Every number in a value box or a table is a
 `r long_window_days`-day rate**, covering about a month, compared with the
 `r long_window_days` days before it. Both are rolling windows, not calendar
 months.
@@ -322,6 +337,12 @@ where one person can move the rate by double digits.
 service with at least `r min_party_starters` starters in the window, and a total
 row across all of them. The rows do not add up to the total, because the total
 includes every service, the smaller ones too.
+
+**Manage tasks are small.** Change password and delete a passkey see about 35 to
+50 people in `r long_window_days` days, so their rates move several points on a
+handful of people. Manage has no table of services: every Manage task runs in
+the one app. Each Manage rate counts from the first submit (the password, or
+the new number for contact phone), not from opening the page.
 
 **The steps table follows people through the flow**, like Google Analytics'
 funnel report: how many users reached each step, their share of the first step,
@@ -388,6 +409,23 @@ cat(unlist(lapply(canadalogin_funnels, funnel_page, h1 = "####")), sep = "\n")
 migration_funnels <- c("migration_existing_to_cl", "migration_new_to_cl")
 
 cat(unlist(lapply(migration_funnels, funnel_page, h1 = "####")), sep = "\n")
+```
+
+# Manage
+
+## Row
+
+### Column {.tabset}
+
+```{r manage-pages}
+#| output: asis
+# Manage is CanadaLogin's account settings app. Busiest task first.
+manage_funnels <- c(
+  "manage_contact_phone", "manage_add_passkey", "manage_add_mfa_phone",
+  "manage_change_email", "manage_password_change", "manage_delete_passkey"
+)
+
+cat(unlist(lapply(manage_funnels, funnel_page, h1 = "####")), sep = "\n")
 ```
 
 

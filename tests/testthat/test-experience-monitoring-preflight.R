@@ -133,3 +133,49 @@ test_that("an undeclared exit step is a problem", {
 test_that("every required funnel declares an exit step", {
   expect_setequal(names(expmon$funnel_exit_steps), expmon$required_funnels)
 })
+
+# implausible_rates -------------------------------------------------------------
+
+rate_row <- function(funnel, days, value, window_end = as_of,
+                     breakdown = "RESERVED_TOTAL") {
+  tibble::tibble(funnel_id = funnel, window_days = days,
+                 breakdown_value = breakdown, window_end = window_end,
+                 value = value)
+}
+
+low <- function(raw, funnels) {
+  expmon$implausible_rates(raw, funnels, as_of, floor = 0.02)
+}
+
+test_that("a 7-day rate under the floor is implausible", {
+  expect_identical(nrow(low(rate_row("sign_in", "7", 0.01), "sign_in")), 1L)
+})
+
+test_that("a Manage 7-day rate of 0% is not judged", {
+  raw <- rate_row("manage_password_change", "7", 0)
+  expect_identical(nrow(low(raw, "manage_password_change")), 0L)
+})
+
+test_that("a Manage 28-day rate under the floor is implausible", {
+  raw <- rate_row("manage_password_change", "28", 0.01)
+  expect_identical(nrow(low(raw, "manage_password_change")), 1L)
+})
+
+test_that("only the 28-day window ending on as_of is judged", {
+  raw <- rate_row("manage_password_change", "28", 0.01, as_of - 1L)
+  expect_identical(nrow(low(raw, "manage_password_change")), 0L)
+})
+
+test_that("an undefined rate is not low", {
+  expect_identical(nrow(low(rate_row("sign_in", "7", NA_real_), "sign_in")), 0L)
+})
+
+test_that("a relying party's low rate is not judged", {
+  raw <- rate_row("sign_in", "7", 0, breakdown = "rp-a")
+  expect_identical(nrow(low(raw, "sign_in")), 0L)
+})
+
+test_that("Manage funnels are live, so the freshness checks cover them", {
+  expect_true(all(c("manage_contact_phone", "manage_delete_passkey") %in%
+                    expmon$live_funnels()))
+})

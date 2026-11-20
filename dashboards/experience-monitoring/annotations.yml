@@ -4,7 +4,10 @@
 #
 #   funnel       Required. One funnel id, a list like [sign_in, sign_up], or
 #                all. The ids: sign_in, sign_up, recover_password,
-#                recover_2sv, migration_existing_to_cl, migration_new_to_cl.
+#                recover_2sv, migration_existing_to_cl, migration_new_to_cl,
+#                manage_contact_phone, manage_add_passkey,
+#                manage_add_mfa_phone, manage_change_email,
+#                manage_password_change, manage_delete_passkey.
 #   start        Optional, as YYYY-MM-DD. Without it the entry is a standing
 #                note: it shows under the chart and is never drawn.
 #   end          Optional, only with start. Without it the event is one day.
@@ -26,7 +29,7 @@
 #
 # - This repo is public. No internal links (Slack, Jira, Google Docs) and
 #   nothing you would not put in a public commit.
-# - Draw an event only where the 7-day line visibly changes. Otherwise use
+# - Draw an event only where the chart's line visibly changes. Otherwise use
 #   "chart: false", or leave it out.
 # - Keep the point-size note first.
 #
@@ -36,6 +39,11 @@
   description: >-
     The daily points on the chart are sized by how many people were in that
     day's denominator.
+
+- funnel: [manage_contact_phone, manage_add_passkey, manage_add_mfa_phone,
+          manage_change_email, manage_password_change, manage_delete_passkey]
+  description: >-
+    A day when no one submitted has no point.
 
 - funnel: sign_in
   description: >-

@@ -1,0 +1,89 @@
+```{r}
+#| include: false
+# The relying-party card of a funnel page, knit from _funnel-page.qmd only for
+# funnels with a relying-party breakdown. Needs that page's variables.
+```
+
+`r h_row` Row
+
+::: {.card title="`r window_title('By relying party')`"}
+
+```{r}
+compare <- prior_period_complete(fid)
+
+# The one stored window ending on data_through, like the overall row, so a
+# service missing from it reads n/a rather than its last window from earlier.
+# One row per GA rp_name: stored rates cannot be pooled. The window is
+# compared with the stored window just before it; the two never share a day.
+counts_long <- party_task_success_long_window(con, fid, data_through) |>
+  select(breakdown_value, rate_long = value, entered = starters, finished)
+prior_long <- party_task_success_long_window(
+  con, fid, data_through - long_window_days
+) |>
+  select(breakdown_value, prior_long = value, prior_entered = starters)
+
+merged <- full_join(counts_long, prior_long, by = "breakdown_value")
+
+per_rp <- merged |>
+  mutate(Service = rp_display_name(breakdown_value)) |>
+  # The pooled labels are not services, and the tail of the list shuffles from
+  # day to day.
+  filter(!Service %in% pooled_rp_labels) |>
+  filter(entered >= min_party_starters) |>
+  arrange(desc(entered)) |>
+  mutate(
+    Operator = coalesce(service_operators(con, Service), ""),
+    # Two GA names on one service would otherwise share a label.
+    shared = duplicated(Service) | duplicated(Service, fromLast = TRUE),
+    Service = if_else(shared, paste0(Service, " (", breakdown_value, ")"),
+                      Service)
+  ) |>
+  select(Service, Operator, rate_long, prior_long, prior_entered, entered,
+         finished)
+
+overall <- long_now |>
+  transmute(
+    Service = "All users",
+    Operator = "",
+    rate_long = value,
+    prior_long = long_prior$value,
+    prior_entered = long_prior$starters,
+    entered = starters, finished
+  )
+
+rows <- bind_rows(overall, per_rp) |>
+  # The long change stays even with nothing to compare against: every row
+  # reads as a dash and comparison_note() explains it.
+  mutate(
+    delta_long = if (compare) rate_long - prior_long else NA_real_,
+    noise_long = change_noise(rate_long, entered, prior_long, prior_entered),
+    rate_long = rate_change_cell(
+      rate_long, delta_long,
+      is_meaningful_change(delta_long, noise_long, entered, prior_entered)
+    )
+  ) |>
+  select(Service, Operator, entered, finished, rate_long)
+
+gt(rows) |>
+  fmt_markdown(rate_long) |>
+  cols_align("right", rate_long) |>
+  # Without widths Quarto splits the table evenly, and full service names wrap
+  # beside a column of acronyms.
+  cols_width(Service ~ pct(36), Operator ~ pct(10), everything() ~ pct(18)) |>
+  fmt_number(c(entered, finished), decimals = 0) |>
+  sub_missing(missing_text = "n/a") |>
+  # The window is in the card title, so the columns do not repeat it.
+  cols_label(entered = "Started", finished = "Finished", rate_long = "Rate") |>
+  tab_style(cell_text(weight = "bold"), cells_body(rows = 1)) |>
+  table_options()
+```
+
+::: {.figure-note}
+`r internal_note` `r finished_note`
+
+`r change_note`
+
+`r comparison_note(fid)`
+:::
+
+:::
