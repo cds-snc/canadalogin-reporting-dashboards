@@ -277,8 +277,8 @@ rate_change_cell <- function(rate, delta, meaningful) {
   )
 }
 
-# The headline box's line, "▲ 1 point on the 28 days before": under the newer
-# rate, so the arrow belongs to the one that moved.
+# The headline box's line, "▲ 1 point vs. previous 28 days", worded like the
+# box below it, and under the newer rate so the arrow belongs to it.
 long_change_line <- function(now, prior, colour = NULL) {
   if (is.na(now$value) || is.na(prior$value)) {
     return("No earlier window to compare against yet")
@@ -286,14 +286,14 @@ long_change_line <- function(now, prior, colour = NULL) {
   delta <- now$value - prior$value
   points <- floor(abs(delta) * 100 + 0.5)
   if (points == 0) {
-    return(paste("No change on the", long_window_days, "days before"))
+    return(paste("No change vs. previous", long_window_days, "days"))
   }
   noise <- change_noise(now$value, now$starters, prior$value, prior$starters)
   meaningful <- is_meaningful_change(delta, noise, now$starters,
                                      prior$starters)
   unit <- if (points == 1) "point" else "points"
-  paste(change_points_html(delta, meaningful, colour), unit, "on the",
-        long_window_days, "days before")
+  paste(change_points_html(delta, meaningful, colour), unit, "vs. previous",
+        long_window_days, "days")
 }
 
 # Step table -----------------------------------------------------------------

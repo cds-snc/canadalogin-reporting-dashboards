@@ -310,7 +310,7 @@ test_that("the long change line compares with the window before", {
   line <- expmon$long_change_line(long_window_row(0.6, 500),
                                   long_window_row(0.5, 500))
   expect_match(line, "^<span")
-  expect_match(line, "</span> points on the 28 days before$")
+  expect_match(line, "</span> points vs. previous 28 days$")
 })
 
 test_that("the long change line points up when the rate rose", {
@@ -328,7 +328,7 @@ test_that("the long change line points down when the rate fell", {
 test_that("the long change line says point for a change of one", {
   line <- expmon$long_change_line(long_window_row(0.51, 500),
                                   long_window_row(0.5, 500))
-  expect_match(line, "</span> point on the")
+  expect_match(line, "</span> point vs. previous 28 days")
 })
 
 test_that("the long change line colours a change beyond the noise", {
@@ -484,6 +484,6 @@ test_that("the long change line says no change when it rounds to nothing", {
   expect_identical(
     expmon$long_change_line(long_window_row(0.504, 500),
                             long_window_row(0.5, 500)),
-    "No change on the 28 days before"
+    "No change vs. previous 28 days"
   )
 })
