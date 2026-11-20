@@ -90,6 +90,54 @@ p <- ggplot() +
 add_cds_logo(add_watermark(p, date = data_through), height = 0.09)
 ```
 
+`r h_row` Row {height="auto"}
+
+::: {.card title="`r window_title('Steps')`"}
+
+```{r}
+step_rows <- funnel_step_table(con, fid, data_through)
+
+if (nrow(step_rows) == 0) {
+  htmltools::p(glue(
+    "No one entered this funnel in the {long_window_days} days ending ",
+    "{format_short_date(data_through)}."
+  ))
+} else {
+  step_rows |>
+    mutate(
+      label = step_label(polite_steps, fid, step),
+      share = fmt_pct(share_first),
+      bar = share_bar(share_first,
+                      if_else(counted, accent, step_outside_fill)),
+      continued = if_else(is.na(continued), "", fmt_pct(continued))
+    ) |>
+    select(label, people, share, bar, continued, counted) |>
+    gt() |>
+    fmt_number(people, decimals = 0) |>
+    fmt_passthrough(bar, escape = FALSE) |>
+    cols_align("right", c(people, share, continued)) |>
+    cols_width(label ~ pct(36), people ~ pct(12), share ~ pct(12),
+               bar ~ pct(22), continued ~ pct(18)) |>
+    cols_label(label = "Step", people = "People", share = "% of first step",
+               bar = "", continued = "Continued to next step") |>
+    tab_style(cell_text(color = step_outside_text),
+              cells_body(rows = !counted)) |>
+    cols_hide(counted) |>
+    tab_options(
+      table.width = pct(100),
+      table.font.size = px(14),
+      data_row.padding = px(4),
+      table.border.top.style = "none"
+    )
+}
+```
+
+::: {.figure-note}
+`r step_span_note(fid, step_rows)`
+:::
+
+:::
+
 `r h_row` Row
 
 ::: {.card title="`r window_title('By relying party')`"}

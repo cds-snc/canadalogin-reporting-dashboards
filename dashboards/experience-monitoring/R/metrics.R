@@ -26,6 +26,18 @@ funnel_entry_steps <- list(
   migration_new_to_cl = "migration_not_skipped"
 )
 
+# The numerator step of each funnel's `metrics:` block, copied by hand like
+# funnel_entry_steps: a render reads Athena only, never the YAML. With the entry
+# step it bounds the steps the step table marks as counted.
+funnel_exit_steps <- list(
+  sign_in = "mfa_submit",
+  sign_up = "complete",
+  recover_password = "complete",
+  recover_2sv = "confirmation",
+  migration_existing_to_cl = "migration_complete",
+  migration_new_to_cl = "migration_complete"
+)
+
 # Funnels switched off in production, with the date they went off. Preflight
 # skips the checks that need starters for these, and fails once one has
 # starters again: delete its entry then, and annotate the restart.
@@ -70,8 +82,8 @@ funnel_label <- function(funnel_id) {
 # Both funnel tables, loaded whole once per render and sliced in R. Each
 # Athena query costs about 3.5 s however few rows it returns, and a funnel
 # page asks for about seven slices, so querying per slice took most of the
-# render. Only entry steps are kept from funnels_current: starters are the
-# only step count read here.
+# render. From funnels_current, entry steps are kept for starters, and every
+# step of the long-window total for the step table.
 funnel_tables <- local({
   cache <- NULL
   function(con) {
@@ -86,10 +98,15 @@ funnel_tables <- local({
       dplyr::collect()
 
     entry_steps <- unique(unlist(funnel_entry_steps))
+    long_days <- as.character(long_window_days)
     steps <- dplyr::tbl(
       con, dbplyr::in_schema("google_analytics", "funnels_current")
     ) |>
-      dplyr::filter(funnelstepname %in% !!entry_steps, !window_incomplete) |>
+      dplyr::filter(
+        funnelstepname %in% !!entry_steps |
+          (window_days == !!long_days & breakdown_value == "RESERVED_TOTAL"),
+        !window_incomplete
+      ) |>
       dplyr::select(funnel_id, window_days, window_end, funnelstepname,
                     funnelstepnumber, breakdown_value, activeusers) |>
       dplyr::collect()
@@ -269,6 +286,61 @@ long_change_line <- function(now, prior) {
   noise <- change_noise(now$value, now$starters, prior$value, prior$starters)
   meaningful <- is_meaningful_change(delta, noise, now$starters,
                                      prior$starters)
+  unit <- if (floor(abs(delta) * 100 + 0.5) == 1) "point" else "points"
   paste("Latest", long_window_days, "days",
-        change_points_html(delta, meaningful), "points")
+        change_points_html(delta, meaningful), unit)
+}
+
+# Step table -----------------------------------------------------------------
+
+# Polite step names, keyed by funnel id then step slug. People who do not write
+# R edit the file, so it is YAML; tests check its shape and nothing checks it
+# at render time.
+read_step_labels <- function(path = "step-labels.yml") {
+  if (!file.exists(path)) return(list())
+  yaml::read_yaml(path) %||% list()
+}
+
+# A step's polite name, else its slug with the underscores opened up.
+step_label <- function(labels, funnel_id, step) {
+  polite <- vapply(step, \(s) {
+    name <- labels[[funnel_id]][[s]]
+    if (is.null(name)) NA_character_ else as.character(name)
+  }, character(1), USE.NAMES = FALSE)
+  dplyr::coalesce(polite, gsub("_", " ", step))
+}
+
+# One row per step from one window's step counts: people, their share of the
+# first step and of the step before, and whether the step is in the span the
+# task success rate counts. A later step can hold more people than an earlier
+# one (GA de-duplicates each step separately); its real count shows, and the
+# share is left over 1 for the bar to clamp.
+step_table_rows <- function(steps, entry_step, exit_step) {
+  steps <- dplyr::arrange(steps, funnelstepnumber)
+  first <- steps$funnelstepnumber[match(entry_step, steps$funnelstepname)]
+  last <- steps$funnelstepnumber[match(exit_step, steps$funnelstepname)]
+  steps |>
+    dplyr::transmute(
+      number = as.integer(funnelstepnumber),
+      step = funnelstepname,
+      people = activeusers,
+      share_first = activeusers / dplyr::first(activeusers),
+      continued = dplyr::lead(activeusers) / activeusers,
+      counted = !is.na(first) & !is.na(last) &
+        funnelstepnumber >= first & funnelstepnumber <= last
+    )
+}
+
+# The step table's rows for a funnel's long-window total ending on as_of. No
+# rows means nobody entered in that window; there is no fallback to an earlier
+# one, which would show old numbers on a dated page.
+funnel_step_table <- function(con, funnel_id, as_of) {
+  entry <- declared_or_stop(funnel_entry_steps, funnel_id, "funnel_entry_steps")
+  exit <- declared_or_stop(funnel_exit_steps, funnel_id, "funnel_exit_steps")
+  steps <- funnel_tables(con)$steps
+  window <- steps[steps$funnel_id == funnel_id &
+                    steps$window_days == as.character(long_window_days) &
+                    steps$breakdown_value == "RESERVED_TOTAL" &
+                    steps$window_end == as.Date(as_of), ]
+  step_table_rows(window, entry, exit)
 }

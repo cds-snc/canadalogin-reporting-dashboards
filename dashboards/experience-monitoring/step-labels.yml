@@ -1,0 +1,56 @@
+# Polite names for funnel steps in the step tables, keyed by funnel id, then by
+# the step's name in the data (funnels_current.funnelstepname).
+#
+# A step not listed here shows its own name with the underscores opened up, so
+# leaving one out is safe. A name for a step the funnel no longer has is ignored.
+# Wrap a name in quotes if it contains a colon.
+
+sign_in:
+  enter_email: Enter your email
+  enter_password: Enter your password
+  mfa: 2-step verification
+  mfa_submit: 2-step verification submitted
+  consent: Data transparency
+  consent_submit: Data transparency continued
+
+sign_up:
+  terms: Terms and conditions
+  name: Enter your name
+  email: Enter your email
+  check_email: Check your email
+  password: Create a password
+  setup_2sv_start: Protect your account with 2-step verification
+  setup_2sv_method: Set up a 2-step option
+  complete: Your CanadaLogin is complete
+
+recover_password:
+  reset_password: Reset your password
+  verify_2sv: Verify with 2-step verification
+  create_new_password: Create a new password
+  complete: Your password has been reset
+
+recover_2sv:
+  initiate_recovery: Verify your email
+  choose_method: Protect your account with 2-step verification
+  setup_2sv_method: Set up a 2-step option
+  confirmation: Delete sign-in methods you're not using
+
+migration_existing_to_cl:
+  enter_email: Enter your email
+  enter_password: Enter your password
+  complete_2sv: Complete 2-step verification
+  legacy_prompt: Migration prompt
+  migration_not_skipped: Migration not skipped
+  migration_complete: Migration complete
+
+migration_new_to_cl:
+  privacy: Privacy
+  enter_name: Enter your name
+  enter_email: Enter your email
+  check_email: Check your email
+  create_password: Create a password
+  choose_2sv: Choose 2-step verification
+  cl_complete: Your CanadaLogin is complete
+  migration_prompt: Migration prompt
+  migration_not_skipped: Migration not skipped
+  migration_complete: Migration complete

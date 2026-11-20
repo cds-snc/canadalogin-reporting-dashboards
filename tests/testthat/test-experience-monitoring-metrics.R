@@ -313,6 +313,12 @@ test_that("the long change line leads with words", {
   expect_match(line, "▲ 10</span> points$")
 })
 
+test_that("the long change line says point for a change of one", {
+  line <- expmon$long_change_line(long_window_row(0.51, 500),
+                                  long_window_row(0.5, 500))
+  expect_match(line, "</span> point$")
+})
+
 test_that("the long change line colours a change beyond the noise", {
   line <- expmon$long_change_line(long_window_row(0.6, 500),
                                   long_window_row(0.5, 500))
@@ -331,4 +337,128 @@ test_that("the long change line says when there is nothing to compare", {
                             long_window_row(NA_real_, NA_real_)),
     "No earlier window to compare against yet"
   )
+})
+
+# Step table -------------------------------------------------------------------
+
+funnel_steps <- function(people = c(100, 80, 60, 40),
+                         names = c("a", "b", "c", "d")) {
+  tibble::tibble(funnelstepnumber = seq_along(people), funnelstepname = names,
+                 activeusers = people)
+}
+
+test_that("step rows run in step order", {
+  rows <- expmon$step_table_rows(funnel_steps()[4:1, ], "a", "d")
+  expect_identical(rows$step, c("a", "b", "c", "d"))
+})
+
+test_that("each step's share is of the first step", {
+  rows <- expmon$step_table_rows(funnel_steps(), "a", "d")
+  expect_equal(rows$share_first, c(1, 0.8, 0.6, 0.4))
+})
+
+test_that("each step's continued share is of the step before the next", {
+  rows <- expmon$step_table_rows(funnel_steps(), "a", "d")
+  expect_equal(rows$continued, c(0.8, 0.75, 40 / 60, NA))
+})
+
+test_that("only steps from the entry to the exit step are counted", {
+  rows <- expmon$step_table_rows(funnel_steps(), "b", "c")
+  expect_identical(rows$counted, c(FALSE, TRUE, TRUE, FALSE))
+})
+
+test_that("an undeclared span step leaves no step counted", {
+  rows <- expmon$step_table_rows(funnel_steps(), "b", "gone")
+  expect_false(any(rows$counted))
+})
+
+test_that("a later step with more people keeps its real count", {
+  rows <- expmon$step_table_rows(funnel_steps(c(100, 80, 90, 40)), "a", "d")
+  expect_identical(rows$people[3], 90)
+  expect_equal(rows$continued[2], 90 / 80)
+})
+
+test_that("the step table matches the add passkey reference window", {
+  rows <- expmon$step_table_rows(funnel_steps(c(120, 111, 102, 64, 60),
+                                              letters[1:5]), "b", "e")
+  expect_equal(round(100 * rows$share_first, 1), c(100, 92.5, 85, 53.3, 50))
+  expect_equal(round(100 * rows$continued, 1), c(92.5, 91.9, 62.7, 93.8, NA))
+})
+
+step_window <- function(window_end = as.Date("2026-11-18"), days = "28",
+                        breakdown = "RESERVED_TOTAL", funnel = "sign_up") {
+  tibble::tibble(funnel_id = funnel, window_days = days,
+                 window_end = window_end, breakdown_value = breakdown,
+                 funnelstepnumber = 1:2, funnelstepname = c("terms", "complete"),
+                 activeusers = c(10, 5))
+}
+
+expmon_with_steps <- function(steps) {
+  env <- load_dashboard("experience-monitoring")
+  stub(env, funnel_tables = function(con) list(steps = steps))
+}
+
+test_that("the step table reads the long-window total ending on as_of", {
+  steps <- dplyr::bind_rows(
+    step_window(),
+    step_window(window_end = as.Date("2026-11-11")),
+    step_window(days = "7"),
+    step_window(breakdown = "rp-a"),
+    step_window(funnel = "sign_in")
+  )
+  env <- expmon_with_steps(steps)
+  rows <- env$funnel_step_table(NULL, "sign_up", as.Date("2026-11-18"))
+  expect_identical(nrow(rows), 2L)
+  expect_true(all(rows$counted))
+})
+
+test_that("an empty window gives no rows rather than an earlier window", {
+  env <- expmon_with_steps(step_window(window_end = as.Date("2026-11-11")))
+  rows <- env$funnel_step_table(NULL, "sign_up", as.Date("2026-11-18"))
+  expect_identical(nrow(rows), 0L)
+})
+
+test_that("a step without a polite name shows its slug opened up", {
+  expect_identical(expmon$step_label(list(), "sign_up", "setup_2sv_start"),
+                   "setup 2sv start")
+})
+
+test_that("a polite name is looked up by funnel and step", {
+  labels <- list(sign_up = list(terms = "Terms"), sign_in = list(terms = "No"))
+  expect_identical(expmon$step_label(labels, "sign_up", c("terms", "name")),
+                   c("Terms", "name"))
+})
+
+test_that("a missing step label file gives no labels", {
+  expect_identical(expmon$read_step_labels(tempfile()), list())
+})
+
+# step-labels.yml ---------------------------------------------------------------
+
+step_labels_path <- file.path(repo_root, "dashboards", "experience-monitoring",
+                              "step-labels.yml")
+
+test_that("step-labels.yml is keyed by required funnels", {
+  labels <- expmon$read_step_labels(step_labels_path)
+  expect_true(all(names(labels) %in% expmon$required_funnels))
+})
+
+test_that("step-labels.yml gives each step one non-empty name", {
+  labels <- expmon$read_step_labels(step_labels_path)
+  for (funnel in names(labels)) {
+    expect_true(is.list(labels[[funnel]]), info = funnel)
+    expect_false(is.null(names(labels[[funnel]])), info = funnel)
+    for (name in labels[[funnel]]) {
+      expect_true(is.character(name) && length(name) == 1 && nzchar(name),
+                  info = funnel)
+    }
+  }
+})
+
+test_that("step-labels.yml names no step twice in a funnel", {
+  lines <- readLines(step_labels_path)
+  funnel <- cumsum(grepl("^[a-z]", lines))
+  steps <- sub(":.*", "", trimws(lines[grepl("^  [a-z0-9_]+:", lines)]))
+  expect_false(anyDuplicated(paste(funnel[grepl("^  [a-z0-9_]+:", lines)],
+                                   steps)) > 0)
 })

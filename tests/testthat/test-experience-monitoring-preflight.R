@@ -98,3 +98,38 @@ test_that("a funnel with no rows at all has no starters and no baseline", {
   expect_identical(v$current, c(50, 0))
   expect_identical(v$baseline, c(100, 0))
 })
+
+# step_name_problems -----------------------------------------------------------
+
+seen_steps <- function(funnel = "sign_up", steps = c("terms", "complete")) {
+  tibble::tibble(funnel_id = funnel, funnelstepname = steps)
+}
+
+test_that("declared entry and exit steps in the data raise nothing", {
+  expect_length(expmon$step_name_problems(seen_steps(), "sign_up"), 0)
+})
+
+test_that("a missing exit step is a problem", {
+  problems <- expmon$step_name_problems(seen_steps(steps = "terms"), "sign_up")
+  expect_length(problems, 1)
+  expect_match(problems, "exit step 'complete'", fixed = TRUE)
+})
+
+test_that("a missing entry step is a problem", {
+  problems <- expmon$step_name_problems(seen_steps(steps = "complete"),
+                                        "sign_up")
+  expect_match(problems, "entry step 'terms'", fixed = TRUE)
+})
+
+test_that("an undeclared exit step is a problem", {
+  exits <- expmon$funnel_exit_steps
+  exits$sign_up <- NULL
+  problems <- expmon$step_name_problems(seen_steps(), "sign_up",
+                                        exit_steps = exits)
+  expect_match(problems, "no exit step declared in funnel_exit_steps",
+               fixed = TRUE)
+})
+
+test_that("every required funnel declares an exit step", {
+  expect_setequal(names(expmon$funnel_exit_steps), expmon$required_funnels)
+})

@@ -27,6 +27,9 @@ con <- connect_athena()
 # Each funnel's chart notes and dated events.
 annotations <- read_annotations(scope = "funnel")
 
+# Polite step names for the step tables; see step-labels.yml.
+polite_steps <- read_step_labels()
+
 # This dashboard's accent, mirroring $primary in _theme.scss. ggplot cannot read
 # the scss, so the hex is written in both places; keep them in step.
 accent <- "#4B2E83"
@@ -229,6 +232,20 @@ comparison_note <- function(funnel_id) {
   )
 }
 
+# The step table's marks for steps outside the span task success counts: a
+# light bar, and text muted but still above 4.5:1 on white.
+step_outside_fill <- "#C9CDD2"
+step_outside_text <- "#5C6670"
+
+# Shown under every step table: which steps the rate counts.
+step_span_note <- function(funnel_id, rows) {
+  counted <- rows$step[rows$counted]
+  if (length(counted) == 0) return(NULL)
+  names <- step_label(polite_steps, funnel_id, counted[c(1, length(counted))])
+  glue("Purple bars are the steps the task success rate counts, from ",
+       "'{names[1]}' to '{names[2]}'. Grey steps are outside it.")
+}
+
 # Shown under every table: what the arrows mean and when they take colour.
 change_note <- paste(
   "Each arrow is the change in percentage points from the window just",
@@ -306,6 +323,12 @@ where one person can move the rate by double digits.
 `r number_words[party_rows]` busiest services and a total row across all of
 them. The rows do not add up to the total, because the total includes every
 service and the table is only a top `r number_words[party_rows]`.
+
+**The steps table follows people through the flow**, like Google Analytics'
+funnel report: how many reached each step, their share of the first step, and
+the share who went on to the next. The task success rate does not always span
+the whole flow, so purple bars mark the steps it counts and grey ones the steps
+outside it.
 
 **Sign-in and sign-up are not comparable to each other.** Sign-up's exit is a
 real confirmation page, so it is a true completion rate. Sign-in's exit is

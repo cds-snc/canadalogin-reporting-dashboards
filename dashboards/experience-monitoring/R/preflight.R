@@ -48,6 +48,32 @@ largest_starter_drops <- function(current, previous, n = 3L) {
     utils::head(n)
 }
 
+# One problem line per funnel whose declared entry or exit step is missing from
+# the step names seen in funnels_current, or not declared at all.
+step_name_problems <- function(steps_seen, funnels,
+                               entry_steps = funnel_entry_steps,
+                               exit_steps = funnel_exit_steps) {
+  declared <- list(entry = entry_steps, exit = exit_steps)
+  lists <- c(entry = "funnel_entry_steps", exit = "funnel_exit_steps")
+  problems <- character()
+  for (funnel in funnels) {
+    present <- steps_seen$funnelstepname[steps_seen$funnel_id == funnel]
+    for (kind in names(declared)) {
+      step <- declared[[kind]][[funnel]]
+      if (is.null(step)) {
+        problems <- c(problems,
+                      glue("{funnel}: no {kind} step declared in {lists[[kind]]}"))
+      } else if (!step %in% present) {
+        problems <- c(problems, glue(
+          "{funnel}: {kind} step '{step}' not found in funnels_current; ",
+          "check the funnel YAML against {lists[[kind]]} in R/metrics.R"
+        ))
+      }
+    }
+  }
+  problems
+}
+
 # The `paused` funnels with at least `min_starters` 7-day starters at their
 # entry step in the window ending `as_of`. `entry_counts` has funnel_id,
 # funnelstepname, window_end, breakdown_value and activeusers.
@@ -265,11 +291,12 @@ run_preflight_safety_check <- function(con,
     }
   )
 
-  # Check 4 - entry steps present in funnels_current -----------------------------
+  # Check 4 - counted steps present in funnels_current ---------------------------
   #
-  # Starters are read by step name, so a step renamed upstream returns no rows
-  # rather than an error, and the table's counts go blank. The rate itself is
-  # the stored value and does not depend on this.
+  # Starters and the step table's span are read by step name, so a step renamed
+  # upstream returns no rows rather than an error: the counts go blank and the
+  # span mark disappears. The rate itself is the stored value and does not
+  # depend on this.
   steps_seen <- tbl(
     con, in_schema("google_analytics", "funnels_current")
   ) |>
@@ -277,32 +304,14 @@ run_preflight_safety_check <- function(con,
     distinct(funnel_id, funnelstepname) |>
     collect()
 
-  step_problems <- character()
-  for (funnel in required_funnels) {
-    declared <- funnel_entry_steps[[funnel]]
-    if (is.null(declared)) {
-      step_problems <- c(
-        step_problems,
-        glue("{funnel}: no entry step declared in funnel_entry_steps")
-      )
-      next
-    }
-    present <- steps_seen$funnelstepname[steps_seen$funnel_id == funnel]
-    if (!declared %in% present) {
-      step_problems <- c(
-        step_problems,
-        glue("{funnel}: entry step '{declared}' not found in funnels_current; ",
-             "check the funnel YAML against funnel_entry_steps in R/metrics.R")
-      )
-    }
-  }
+  step_problems <- step_name_problems(steps_seen, required_funnels)
 
   record_check(
     "entry-steps",
-    "Every funnel's first step must still be in the data",
+    "Every funnel's first and last counted steps must still be in the data",
     passed = length(step_problems) == 0,
     details = if (length(step_problems) == 0) {
-      glue("first steps found for {list_of(required_funnels)}")
+      glue("first and last counted steps found for {list_of(required_funnels)}")
     } else {
       step_problems
     }
