@@ -100,11 +100,6 @@ week_axis <- function(weeks, limits = NULL, max_labels = 14L,
 # Goes with week_axis(), which labels a bar with the last day it covers.
 week_axis_title <- "Week ending"
 
-# A bar as wide as the share
-share_bar <- function(share, fill = accent) {
-  glue("<div style='background:{fill};width:{round(100 * share)}%;height:14px'></div>")
-}
-
 table_options <- function(table) {
   tab_options(
     table,
@@ -515,7 +510,7 @@ topic_rows |>
     # A call or two is under half a per cent, and "0%" would read as none
     share_label = case_when(recent > 0 & round(100 * share) < 1 ~ "<1%",
                             .default = sprintf("%.0f%%", round(100 * share))),
-    bar = share_bar(pmin(share, 1))
+    bar = share_bar(share, accent)
   ) |>
   select(label, recent, share = share_label, bar, all, level) |>
   gt(id = "topic-table") |>
@@ -755,7 +750,7 @@ still judged on the old ones.
 ```{r psom-topics}
 # Shares are of all tickets opened, not of the section
 topic_share <- function(rows) {
-  mutate(rows, share = tickets / nrow(handled), bar = share_bar(share))
+  mutate(rows, share = tickets / nrow(handled), bar = share_bar(share, accent))
 }
 
 # Each section's total over its topics, then its topics, most common first;
