@@ -100,15 +100,6 @@ week_axis <- function(weeks, limits = NULL, max_labels = 14L,
 # Goes with week_axis(), which labels a bar with the last day it covers.
 week_axis_title <- "Week ending"
 
-table_options <- function(table) {
-  tab_options(
-    table,
-    table.width = pct(100),
-    table.font.size = px(14),
-    data_row.padding = px(4),
-    table.border.top.style = "none"
-  )
-}
 ```
 
 # Overview

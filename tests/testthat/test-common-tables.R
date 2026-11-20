@@ -62,3 +62,17 @@ test_that("share_bar is vectorised over share and fill", {
   expect_length(bars, 2)
   expect_match(bars[2], "background:blue;width:90%", fixed = TRUE)
 })
+
+# Table layout ----------------------------------------------------------------
+
+test_that("table_options sets the usual text size", {
+  html <- as.character(gt::as_raw_html(table_options(gt::gt(data.frame(a = 1)))))
+  expect_match(html, "font-size: 14px", fixed = TRUE)
+})
+
+test_that("table_options takes a smaller text size", {
+  html <- as.character(gt::as_raw_html(
+    table_options(gt::gt(data.frame(a = 1)), font_size = 13)
+  ))
+  expect_match(html, "font-size: 13px", fixed = TRUE)
+})

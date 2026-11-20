@@ -27,8 +27,7 @@ funnel_entry_steps <- list(
 )
 
 # The numerator step of each funnel's `metrics:` block, copied by hand like
-# funnel_entry_steps: a render reads Athena only, never the YAML. With the entry
-# step it bounds the steps the step table marks as counted.
+# funnel_entry_steps: a render reads Athena only, never the YAML.
 funnel_exit_steps <- list(
   sign_in = "mfa_submit",
   sign_up = "complete",
@@ -246,11 +245,9 @@ is_meaningful_change <- function(delta, noise, starters, prior_starters) {
   dplyr::coalesce(enough & abs(delta) > noise_multiple * noise, FALSE)
 }
 
-# A change in whole points as HTML, such as "▼ 4". The arrow carries the
-# direction, so there is no sign. Coloured only when meaningful and grey
-# otherwise; one that rounds to nothing is "● 0", and one with nothing to
-# compare against is a dash. `colour` overrides that, for a dark background
-# where the change colours do not read.
+# A change in whole points as HTML, "▼ 4": the arrow carries the direction.
+# Grey unless meaningful; "● 0" rounds to nothing, and a dash has nothing to
+# compare against. `colour` overrides, for a dark background.
 change_points_html <- function(delta, meaningful, colour = NULL) {
   points <- floor(abs(delta) * 100 + 0.5)
   direction <- dplyr::case_when(
@@ -280,10 +277,8 @@ rate_change_cell <- function(rate, delta, meaningful) {
   )
 }
 
-# The headline value box's line: the latest long window's change on the one
-# before, such as "▲ 1 point on the 28 days before". It sits under the newer
-# number, so the arrow belongs to the rate that moved. `colour` as in
-# change_points_html().
+# The headline box's line, "▲ 1 point on the 28 days before": under the newer
+# rate, so the arrow belongs to the one that moved.
 long_change_line <- function(now, prior, colour = NULL) {
   if (is.na(now$value) || is.na(prior$value)) {
     return("No earlier window to compare against yet")
@@ -299,9 +294,8 @@ long_change_line <- function(now, prior, colour = NULL) {
 
 # Step table -----------------------------------------------------------------
 
-# Polite step names, keyed by funnel id then step slug. People who do not write
-# R edit the file, so it is YAML; tests check its shape and nothing checks it
-# at render time.
+# Polite step names by funnel id, then step slug. YAML for people who do not
+# write R; tests check its shape, nothing checks it at render time.
 read_step_labels <- function(path = "step-labels.yml") {
   if (!file.exists(path)) return(list())
   yaml::read_yaml(path) %||% list()
@@ -316,11 +310,9 @@ step_label <- function(labels, funnel_id, step) {
   dplyr::coalesce(polite, gsub("_", " ", step))
 }
 
-# One row per step from one window's step counts: people, their share of the
-# first step and of the step before, and whether the step is in the span the
-# task success rate counts. A later step can hold more people than an earlier
-# one (GA de-duplicates each step separately); its real count shows, and the
-# share is left over 1 for the bar to clamp.
+# One row per step: users, their share of the first step and of the step
+# before, and whether task success counts the step. A later step can hold more
+# users than the one before, since GA de-duplicates each step separately.
 step_table_rows <- function(steps, entry_step, exit_step) {
   steps <- dplyr::arrange(steps, funnelstepnumber)
   first <- steps$funnelstepnumber[match(entry_step, steps$funnelstepname)]
@@ -329,7 +321,7 @@ step_table_rows <- function(steps, entry_step, exit_step) {
     dplyr::transmute(
       number = as.integer(funnelstepnumber),
       step = funnelstepname,
-      people = activeusers,
+      users = activeusers,
       share_first = activeusers / dplyr::first(activeusers),
       continued = dplyr::lead(activeusers) / activeusers,
       counted = !is.na(first) & !is.na(last) &
@@ -337,9 +329,8 @@ step_table_rows <- function(steps, entry_step, exit_step) {
     )
 }
 
-# The step table's rows for a funnel's long-window total ending on as_of. No
-# rows means nobody entered in that window; there is no fallback to an earlier
-# one, which would show old numbers on a dated page.
+# Step rows for the long-window total ending on as_of. No rows means nobody
+# entered; never fall back to an earlier window on a dated page.
 funnel_step_table <- function(con, funnel_id, as_of) {
   entry <- declared_or_stop(funnel_entry_steps, funnel_id, "funnel_entry_steps")
   exit <- declared_or_stop(funnel_exit_steps, funnel_id, "funnel_exit_steps")

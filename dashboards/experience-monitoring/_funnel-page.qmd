@@ -100,10 +100,9 @@ add_cds_logo(add_watermark(p, date = data_through), height = 0.09)
 step_rows <- funnel_step_table(con, fid, data_through)
 
 if (nrow(step_rows) == 0) {
-  htmltools::p(glue(
-    "No one entered this funnel in the {long_window_days} days ending ",
-    "{format_short_date(data_through)}."
-  ))
+  htmltools::p(
+    glue("No one entered this funnel in the {long_days_ending(data_through)}.")
+  )
 } else {
   step_rows |>
     mutate(
@@ -114,7 +113,7 @@ if (nrow(step_rows) == 0) {
                       track = TRUE),
       continued = if_else(is.na(continued), "", fmt_pct(continued))
     ) |>
-    select(label, users = people, share, bar, continued, counted) |>
+    select(label, users, share, bar, continued, counted) |>
     gt() |>
     fmt_number(users, decimals = 0) |>
     fmt_passthrough(bar, escape = FALSE) |>
@@ -126,12 +125,7 @@ if (nrow(step_rows) == 0) {
     tab_style(cell_text(color = step_outside_text),
               cells_body(rows = !counted)) |>
     cols_hide(counted) |>
-    tab_options(
-      table.width = pct(100),
-      table.font.size = px(14),
-      data_row.padding = px(4),
-      table.border.top.style = "none"
-    )
+    table_options()
 }
 ```
 
@@ -212,12 +206,7 @@ gt(rows) |>
   # The window is in the card title, so the columns do not repeat it.
   cols_label(entered = "Started", finished = "Finished", rate_long = "Rate") |>
   tab_style(cell_text(weight = "bold"), cells_body(rows = 1)) |>
-  tab_options(
-    table.width = pct(100),
-    table.font.size = px(14),
-    data_row.padding = px(4),
-    table.border.top.style = "none"
-  )
+  table_options()
 ```
 
 ::: {.figure-note}

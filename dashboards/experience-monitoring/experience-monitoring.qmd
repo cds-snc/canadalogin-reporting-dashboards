@@ -106,9 +106,8 @@ internal_rp_label <- "Internal apps"
 unrecorded_rp_label <- "Relying party not recorded"
 pooled_rp_labels <- c(internal_rp_label, unrecorded_rp_label)
 
-# A service is listed from this many starters in the window: the floor below
-# which a change cannot take colour, so every listed row can show a real move.
-# GA caps the breakdown at 15 parties; the tail it shuffles sits below this.
+# Services are listed from this many starters, below which a change cannot take
+# colour. GA's breakdown of up to 15 parties shuffles its tail under this.
 min_party_starters <- min_change_starters
 
 # Resolves GA's rp_name to the lookup's service name.
@@ -157,8 +156,8 @@ long_days_ending <- function(window_end) {
   glue("{long_window_days} days ending {format_short_date(window_end)}")
 }
 
-# A card title naming its window once, so the columns need not:
-# "By relying party, 28 days ending Nov 18".
+# A card title that names its window, "Steps, 28 days ending Nov 18", so the
+# columns need not.
 window_title <- function(what) {
   glue("{what}, {long_days_ending(data_through)}")
 }
@@ -179,7 +178,7 @@ chart_title <- function(funnel_id) {
 
 # Wrapped by hand to two lines: one runs under the logo, three crowd the plot.
 # Line two names the denominator where it is not the funnel's first step.
-# `line_days` names the line's window, so a page drawing a longer one says so.
+# `line_days` is the line's window.
 chart_subtitle <- function(funnel_id, line_days = 7L) {
   parties <- if (denominator_is_entry(funnel_id)) {
     "All relying parties, as reported by Google Analytics."
@@ -606,8 +605,7 @@ help_ranked |>
   fmt_markdown(page) |>
   fmt_number(views, decimals = 0) |>
   cols_label(page = "Page", views = "Views") |>
-  tab_options(table.width = pct(100), table.font.size = px(13),
-              data_row.padding = px(3), table.border.top.style = "none")
+  table_options(font_size = 13, padding = 3)
 ```
 
 :::
@@ -622,8 +620,7 @@ help_ranked |>
   fmt_markdown(page) |>
   fmt_number(views, decimals = 0) |>
   cols_label(page = "Page", views = "Views") |>
-  tab_options(table.width = pct(100), table.font.size = px(13),
-              data_row.padding = px(3), table.border.top.style = "none")
+  table_options(font_size = 13, padding = 3)
 ```
 
 :::
@@ -640,8 +637,7 @@ help_ranked |>
   fmt_markdown(page) |>
   fmt_number(views, decimals = 0) |>
   cols_label(page = "Page", views = "Views") |>
-  tab_options(table.width = pct(100), table.font.size = px(13),
-              data_row.padding = px(3), table.border.top.style = "none")
+  table_options(font_size = 13, padding = 3)
 ```
 
 :::
@@ -656,8 +652,7 @@ help_ranked |>
   fmt_markdown(page) |>
   fmt_number(views, decimals = 0) |>
   cols_label(page = "Page", views = "Views") |>
-  tab_options(table.width = pct(100), table.font.size = px(13),
-              data_row.padding = px(3), table.border.top.style = "none")
+  table_options(font_size = 13, padding = 3)
 ```
 
 :::
@@ -781,12 +776,7 @@ bind_rows(both_sections, by_section) |>
     share = glue("Share ({long_window_days} days)")
   ) |>
   tab_style(cell_text(weight = "bold"), cells_body(rows = 1)) |>
-  tab_options(
-    table.width = pct(100),
-    table.font.size = px(14),
-    data_row.padding = px(4),
-    table.border.top.style = "none"
-  )
+  table_options()
 ```
 
 ::: {.figure-note}

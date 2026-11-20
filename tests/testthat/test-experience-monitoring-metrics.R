@@ -386,7 +386,7 @@ test_that("an undeclared span step leaves no step counted", {
 
 test_that("a later step with more people keeps its real count", {
   rows <- expmon$step_table_rows(funnel_steps(c(100, 80, 90, 40)), "a", "d")
-  expect_identical(rows$people[3], 90)
+  expect_identical(rows$users[3], 90)
   expect_equal(rows$continued[2], 90 / 80)
 })
 

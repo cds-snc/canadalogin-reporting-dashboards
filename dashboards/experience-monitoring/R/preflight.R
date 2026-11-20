@@ -294,9 +294,7 @@ run_preflight_safety_check <- function(con,
   # Check 4 - counted steps present in funnels_current ---------------------------
   #
   # Starters and the step table's span are read by step name, so a step renamed
-  # upstream returns no rows rather than an error: the counts go blank and the
-  # span mark disappears. The rate itself is the stored value and does not
-  # depend on this.
+  # upstream returns no rows rather than an error.
   steps_seen <- tbl(
     con, in_schema("google_analytics", "funnels_current")
   ) |>
