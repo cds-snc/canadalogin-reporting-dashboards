@@ -352,8 +352,7 @@ daily_table <- function(rows, columns, labels, ratio_unit = "percent") {
     tab_style(style = cell_text(weight = "bold", color = robot$accent),
               locations = cells_body(rows = fired)) |>
     cols_hide(fired) |>
-    tab_options(table.width = pct(100), table.font.size = px(14),
-                data_row.padding = px(3), table.border.top.style = "none")
+    table_options(padding = 3)
 }
 
 # Methods with no score at the start of the calendar, for the note under it.
@@ -465,8 +464,7 @@ if (nrow(flagged) == 0) {
     fmt_markdown(which) |>
     cols_label(day_label = "Day", count = "Methods", which = "Which",
                strongest = "Strongest") |>
-    tab_options(table.width = pct(100), table.font.size = px(14),
-                data_row.padding = px(4), table.border.top.style = "none")
+    table_options()
 }
 ```
 
@@ -902,8 +900,7 @@ by_week |>
              idle_accounts = "Idle accounts",
              signed_in_to_service = "Signed in to a service",
              idle_share = "Idle share", new_accounts = "New that week") |>
-  tab_options(table.width = pct(100), table.font.size = px(14),
-              data_row.padding = px(3), table.border.top.style = "none")
+  table_options(padding = 3)
 ```
 
 ::: {.figure-note}
@@ -1211,8 +1208,7 @@ costs |>
              account_extra = "Extra new accounts (cost)") |>
   tab_style(cell_text(weight = "bold"),
             cells_body(rows = month == "Total")) |>
-  tab_options(table.width = pct(100), table.font.size = px(14),
-              data_row.padding = px(3), table.border.top.style = "none")
+  table_options(padding = 3)
 ```
 
 :::
