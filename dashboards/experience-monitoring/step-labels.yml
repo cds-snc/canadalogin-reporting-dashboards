@@ -21,6 +21,7 @@ sign_up:
   password: Create a password
   setup_2sv_start: Protect your account with 2-step verification
   setup_2sv_method: Set up a 2-step option
+  recovery: Add a recovery method
   complete: Your CanadaLogin is complete
 
 recover_password:
