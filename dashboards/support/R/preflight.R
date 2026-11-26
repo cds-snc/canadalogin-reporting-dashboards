@@ -237,7 +237,32 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
     }
   )
 
-  # Check 10 - app sign-in freshness --------------------------------------------
+  # Check 10 - empty weeks ------------------------------------------------------
+  #
+  # A placeholder row of zeros passes freshness and plausibility, so each week's
+  # calls are held against the distinct calls in the topic dump for it.
+
+  thin_weeks <- weeks |>
+    dplyr::mutate(topic_calls = purrr::map2_int(week, week_end, \(from, to) {
+      dplyr::n_distinct(topics$call_no[topics$call_date >= from &
+                                         topics$call_date <= to])
+    })) |>
+    dplyr::filter(calls <= 0 | calls < topic_calls * empty_week_min_share)
+
+  record_check(
+    "empty-weeks",
+    glue("Every reported week must have calls, at least ",
+         "{scales::percent(empty_week_min_share)} of its calls in the topic dump"),
+    passed = nrow(thin_weeks) == 0,
+    details = if (nrow(thin_weeks) == 0) {
+      glue("{nrow(weeks)} reported week(s), none empty or short")
+    } else {
+      glue("week starting {format_date(thin_weeks$week)}: {thin_weeks$calls} ",
+           "call(s) reported, {thin_weeks$topic_calls} in the topic dump")
+    }
+  )
+
+  # Check 11 - app sign-in freshness --------------------------------------------
   #
   # The daily share of monthly users takes complete months only, so a stalled
   # table would quietly hand the support ratios older months.
@@ -255,7 +280,7 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
                    "{format_date(login_through)}")
   )
 
-  # Check 11 - escalation field -------------------------------------------------
+  # Check 12 - escalation field -------------------------------------------------
   #
   # A stretch with no escalations is real, but a blank transaction type would
   # read as one too.
@@ -277,7 +302,7 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
     }
   )
 
-  # Check 12 - daily share sample -----------------------------------------------
+  # Check 13 - daily share sample -----------------------------------------------
   #
   # Advisory: a thin sample still gives a correct range, just a shaky one.
 
@@ -299,7 +324,7 @@ run_preflight_safety_check <- function(con, today = Sys.Date()) {
                    "{daily_share_months} complete months")
   )
 
-  # Check 13 - ratio stretch sample ---------------------------------------------
+  # Check 14 - ratio stretch sample ---------------------------------------------
   #
   # Advisory: the call and escalation ranges draw from the four-week stretches
   # in the page's span, and fall short when the call centre report lags.
