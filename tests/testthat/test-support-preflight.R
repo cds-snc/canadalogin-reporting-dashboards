@@ -14,7 +14,8 @@ test_that("every check keeps its slug", {
     purrr::map_chr(result$checks, "slug"),
     c("call-centre-freshness", "call-centre-continuity", "topic-coverage",
       "topic-categories", "topic-lookup", "call-rate-coverage", "psom-freshness",
-      "psom-sla", "plausibility", "app-login-freshness", "escalation-field",
+      "psom-sla", "plausibility", "empty-weeks", "app-login-freshness",
+      "escalation-field",
       "daily-share-sample", "ratio-stretch-sample")
   )
 })
@@ -196,6 +197,32 @@ test_that("plausibility fails when test calls exceed accepted", {
   weeks$test_calls[3] <- 25
   result <- run_support_preflight(support_with_data(weeks))
   expect_true("plausibility" %in% failed_slugs(result))
+})
+
+# empty-weeks -----------------------------------------------------------------
+
+test_that("empty weeks fail on a placeholder week of zeros", {
+  weeks <- support_weeks()
+  weeks[3, c("calls_accepted", "test_calls", "calls", "calls_answered",
+             "calls_abandoned")] <- 0
+  result <- run_support_preflight(support_with_data(weeks))
+  expect_identical(failed_slugs(result), "empty-weeks")
+  expect_match(check_named(result, "empty-weeks")$details,
+               "0 call(s) reported, 7 in the topic dump", fixed = TRUE)
+})
+
+test_that("empty weeks fail on a week with under half its topic calls", {
+  weeks <- support_weeks()
+  weeks$calls[3] <- 3
+  result <- run_support_preflight(support_with_data(weeks))
+  expect_identical(failed_slugs(result), "empty-weeks")
+})
+
+test_that("empty weeks pass a week with fewer calls than topic calls", {
+  weeks <- support_weeks()
+  weeks$calls[3] <- 4
+  result <- run_support_preflight(support_with_data(weeks))
+  expect_true(check_named(result, "empty-weeks")$passed)
 })
 
 # app-login-freshness ---------------------------------------------------------

@@ -11,6 +11,10 @@ summary_window_days <- summary_window_weeks * 7L
 # after, so that week is due once this many days have passed since it ended.
 call_centre_report_due_days <- 5L
 
+# A reported week with fewer calls than this share of its distinct calls in the
+# topic dump is a placeholder or a partial report. Real weeks run 0.79 or more.
+empty_week_min_share <- 0.5
+
 # The snapshot runs nightly (weekly on Mondays until 2026-09-28), so the newest
 # partition is today's or, before tonight's run, yesterday's.
 psom_lag_days <- 1L
