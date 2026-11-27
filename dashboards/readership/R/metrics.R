@@ -20,19 +20,27 @@ edition_pattern <-
   "^/canadalogin-signal-check-publishing/r/([0-9]{8})_signal-check\\.html$"
 dashboard_pattern <- "^/canadalogin-signal-check-publishing/r/([^/]+)\\.html$"
 
-# A published file read as another dashboard's: renamed since, or a test copy.
-# Only needed when the titles differ; files sharing a title merge by name.
+# The dashboards reported, by published file, each with the name it is shown
+# under. Any other page of kind dashboard, such as a one-off report or a
+# template, is left out of every count.
+shown_dashboards <- c(
+  "automated-traffic" = "Automated Traffic",
+  "errors" = "Errors",
+  "experience-monitoring" = "Experience",
+  "ibm-verify" = "Sign-In Activity",
+  "readership" = "Reporting Readership",
+  "support" = "Support"
+)
+
+# A published file counted as a shown dashboard's: renamed since, or a test copy.
 dashboard_aliases <- c(
   "task-success-monitoring" = "experience-monitoring",
   "support-test" = "support"
 )
 
-# Published files that are not dashboards, left out of every count.
-ignored_files <- "electric-feel"
-
-drop_ignored_files <- function(rows) {
-  dplyr::filter(rows, !sub(dashboard_pattern, "\\1", pagepath_redacted) %in%
-                  ignored_files)
+drop_unshown_dashboards <- function(rows) {
+  dplyr::filter(rows, page_kind != "dashboard" |
+                  dashboard_file(pagepath_redacted) %in% names(shown_dashboards))
 }
 
 # How a session started, in legend order: the announcement posts and our own
@@ -86,7 +94,7 @@ page_traffic <- read_once(\(con) {
                      views = sum(screenpageviews, na.rm = TRUE),
                      .groups = "drop") |>
     dplyr::collect() |>
-    drop_ignored_files() |>
+    drop_unshown_dashboards() |>
     dplyr::mutate(day = as.Date(date), .keep = "unused") |>
     dplyr::arrange(day)
 })
@@ -98,7 +106,7 @@ page_events <- read_once(\(con) {
     dplyr::group_by(date, page_kind, pagepath_redacted, eventname) |>
     dplyr::summarise(events = sum(eventcount, na.rm = TRUE), .groups = "drop") |>
     dplyr::collect() |>
-    drop_ignored_files() |>
+    drop_unshown_dashboards() |>
     dplyr::mutate(day = as.Date(date), .keep = "unused") |>
     dplyr::arrange(day)
 })
@@ -287,31 +295,17 @@ dashboard_file <- function(path) {
   ifelse(is.na(aliased), file, aliased)
 }
 
-# One row per dashboard file: file, name (its newest title less "Dashboard")
-# and first view. Files can share a name; see dashboard_names().
-dashboard_list <- function(traffic) {
+# One row per shown dashboard with any views: file, name from
+# shown_dashboards, first view and accent.
+dashboard_list <- function(traffic, dashboards_dir = "..") {
   traffic |>
     dplyr::filter(page_kind == "dashboard") |>
-    dplyr::mutate(original = sub(dashboard_pattern, "\\1", pagepath_redacted),
-                  file = dashboard_file(pagepath_redacted)) |>
-    dplyr::group_by(file) |>
-    # The newest title the file carried under its current name.
-    dplyr::arrange(original != file, dplyr::desc(day), .by_group = TRUE) |>
-    dplyr::summarise(title = dplyr::first(pagetitle), first_seen = min(day),
-                     .groups = "drop") |>
-    dplyr::mutate(name = sub("\\s*Dashboard$", "", title)) |>
-    dplyr::select(file, name, first_seen)
-}
-
-# One row per dashboard name, from dashboard_list(): files sharing a title are
-# one dashboard, so a copy published under another file adds to the original.
-# Its accent is the first theme any of its files has.
-dashboard_names <- function(files, dashboards_dir = "..") {
-  files |>
-    dplyr::mutate(accent = dashboard_accent(file, dashboards_dir)) |>
-    dplyr::group_by(name) |>
-    dplyr::summarise(first_seen = min(first_seen),
-                     accent = accent[!is.na(accent)][1], .groups = "drop")
+    dplyr::mutate(file = dashboard_file(pagepath_redacted)) |>
+    dplyr::filter(file %in% names(shown_dashboards)) |>
+    dplyr::summarise(first_seen = min(day), .by = file) |>
+    dplyr::mutate(name = unname(shown_dashboards[file]),
+                  accent = dashboard_accent(file, dashboards_dir)) |>
+    dplyr::select(file, name, first_seen, accent)
 }
 
 # The `$primary` in a dashboard folder's _theme.scss, named like its published

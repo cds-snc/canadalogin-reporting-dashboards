@@ -167,13 +167,11 @@ test_that("a window is the last 28 days through the end, then the 28 before", {
   )
 })
 
-test_that("a renamed dashboard is counted under its newest name", {
+test_that("a renamed dashboard is counted under the file it became", {
   traffic <- readership_with_dashboards(
-    c("task-success-monitoring", "experience-monitoring",
-      "experience-monitoring"),
-    c("Task Success Monitoring Dashboard", "Experience Monitoring Dashboard",
-      "Experience Dashboard"),
-    c("2026-08-11", "2026-09-01", "2026-11-20")
+    c("task-success-monitoring", "experience-monitoring"),
+    c("Task Success Monitoring Dashboard", "Experience Dashboard"),
+    c("2026-08-11", "2026-11-20")
   )
   dashboards <- readership$dashboard_list(traffic)
   expect_setequal(dashboards$name, c("Sign-In Activity", "Experience"))
@@ -183,84 +181,56 @@ test_that("a renamed dashboard is counted under its newest name", {
   )
 })
 
-test_that("an ignored file is dropped and other pages are kept", {
-  rows <- readership_with_dashboards(c("electric-feel", "support"),
-                                     c("Electric Feel", "Support Dashboard"),
-                                     "2026-11-10")
-  kept <- readership$drop_ignored_files(rows)
-  expect_false(any(grepl("electric-feel", kept$pagepath_redacted)))
-  expect_identical(nrow(kept), nrow(rows) - 1L)
-})
-
 test_that("an aliased test copy is counted under the file it copies", {
   traffic <- readership_with_dashboards(
-    c("support", "support-test"), "Support Dashboard",
+    c("support", "support-test"), c("Support Dashboard", "Support Test"),
     c("2026-09-04", "2026-10-09")
   )
   dashboards <- readership$dashboard_list(traffic)
   expect_setequal(dashboards$file, c("ibm-verify", "support"))
 })
 
-test_that("an aliased file takes its target's title, not its own", {
+test_that("a dashboard takes its shown name, not its page title", {
+  traffic <- readership_with_dashboards("errors", "Unusual Errors Dashboard",
+                                        "2026-11-10")
+  dashboards <- readership$dashboard_list(traffic)
+  expect_identical(dashboards$name[dashboards$file == "errors"], "Errors")
+})
+
+test_that("a page not on the list is no dashboard", {
   traffic <- readership_with_dashboards(
-    c("support", "support-test"), c("Support Dashboard", "Support Test"),
-    c("2026-09-04", "2026-10-09")
+    c("support", "20261123_canadalogin-btn", "north-star"),
+    c("Support Dashboard", "CanadaLogin by the Numbers 2026-11-23",
+      "North Star Metrics"),
+    "2026-11-24"
   )
   dashboards <- readership$dashboard_list(traffic)
-  expect_identical(dashboards$name[dashboards$file == "support"], "Support")
+  expect_setequal(dashboards$file, c("ibm-verify", "support"))
 })
 
-test_that("unaliased files sharing a title are one dashboard by name", {
-  traffic <- readership_with_dashboards(
-    c("support", "support-copy"), "Support Dashboard",
-    c("2026-09-04", "2026-10-09")
+test_that("unshown dashboards are dropped and every other page is kept", {
+  rows <- readership_with_dashboards(
+    c("electric-feel", "20261123_canadalogin-btn", "support-test"),
+    c("Electric Feel", "CanadaLogin by the Numbers 2026-11-23",
+      "Support Dashboard"),
+    "2026-11-24"
   )
-  files <- readership$dashboard_list(traffic)
-  dashboards <- readership$dashboard_names(files, withr::local_tempdir())
-  expect_identical(sum(files$name == "Support"), 2L)
-  expect_identical(sum(dashboards$name == "Support"), 1L)
+  kept <- readership$drop_unshown_dashboards(rows)
+  expect_false(any(grepl("electric-feel|canadalogin-btn",
+                         kept$pagepath_redacted)))
+  expect_true(any(grepl("support-test", kept$pagepath_redacted)))
+  expect_identical(nrow(kept), nrow(rows) - 2L)
 })
 
-test_that("a dashboard merged by name keeps its earliest first view", {
-  traffic <- readership_with_dashboards(
-    c("support", "support-copy"), "Support Dashboard",
-    c("2026-09-04", "2026-10-09")
-  )
-  files <- readership$dashboard_list(traffic)
-  dashboards <- readership$dashboard_names(files, withr::local_tempdir())
-  expect_identical(dashboards$first_seen[dashboards$name == "Support"],
-                   as.Date("2026-09-04"))
-})
-
-test_that("a dashboard with its own title stays its own dashboard", {
-  traffic <- readership_with_dashboards("support", "Support Dashboard",
-                                        "2026-09-04")
-  files <- readership$dashboard_list(traffic)
-  dashboards <- readership$dashboard_names(files, withr::local_tempdir())
-  expect_setequal(dashboards$name, c("Sign-In Activity", "Support"))
-})
-
-test_that("a dashboard merged by name takes the accent any of its files has", {
+test_that("a dashboard's accent comes from its folder's theme", {
   dir <- withr::local_tempdir()
-  # On the file that sorts second, so the first's missing theme is skipped.
-  dir.create(file.path(dir, "support-copy"))
-  writeLines("$primary: #115740;",
-             file.path(dir, "support-copy", "_theme.scss"))
-  traffic <- readership_with_dashboards(
-    c("support", "support-copy"), "Support Dashboard",
-    c("2026-09-04", "2026-10-09")
-  )
-  files <- readership$dashboard_list(traffic)
-  dashboards <- readership$dashboard_names(files, dir)
-  expect_identical(dashboards$accent[dashboards$name == "Support"], "#115740")
-})
-
-test_that("a dashboard with no theme in any of its files has no accent", {
+  dir.create(file.path(dir, "support"))
+  writeLines("$primary: #115740;", file.path(dir, "support", "_theme.scss"))
   traffic <- readership_with_dashboards("support", "Support Dashboard",
                                         "2026-09-04")
-  files <- readership$dashboard_list(traffic)
-  dashboards <- readership$dashboard_names(files, withr::local_tempdir())
-  expect_identical(dashboards$accent[dashboards$name == "Support"],
+  dashboards <- readership$dashboard_list(traffic, dir)
+  expect_identical(dashboards$accent[dashboards$name == "Support"], "#115740")
+  expect_identical(dashboards$accent[dashboards$name == "Sign-In Activity"],
                    NA_character_)
 })
 

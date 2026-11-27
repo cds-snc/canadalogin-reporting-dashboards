@@ -44,8 +44,7 @@ comparable <- dplyr::filter(coverage, comparable, days_seen > 0)
 latest <- dplyr::slice_tail(comparable, n = 1)
 complete <- dplyr::filter(coverage, complete, number != latest$number)
 
-dashboard_files <- dashboard_list(traffic)
-dashboards <- dashboard_names(dashboard_files)
+dashboards <- dashboard_list(traffic)
 
 # Three months, as whole Monday-to-Sunday weeks, for every daily or weekly
 # chart.
@@ -556,7 +555,7 @@ Check #2 were sent.
 dashboard_rows <- traffic |>
   dplyr::filter(page_kind == "dashboard") |>
   dplyr::mutate(file = dashboard_file(pagepath_redacted)) |>
-  dplyr::inner_join(dashboard_files, by = "file")
+  dplyr::inner_join(dashboards, by = "file")
 
 dashboard_recent <- dplyr::filter(dashboard_rows, day >= chart_from)
 
@@ -579,7 +578,7 @@ per_dashboard <- dashboard_rows |>
 dashboard_events <- events |>
   dplyr::filter(page_kind == "dashboard", day >= chart_from) |>
   dplyr::mutate(file = dashboard_file(pagepath_redacted)) |>
-  dplyr::inner_join(dashboard_files, by = "file")
+  dplyr::inner_join(dashboards, by = "file")
 dashboard_curve <- dwell_curve(dashboard_events, "name")
 dashboard_dwell <- dwell_summary(dashboard_curve, "name")
 
@@ -588,7 +587,7 @@ window_dwell_dashboards <- events |>
   dplyr::filter(page_kind == "dashboard") |>
   dplyr::mutate(file = dashboard_file(pagepath_redacted),
                 window = window_of(day, through)) |>
-  dplyr::filter(file %in% dashboard_files$file, !is.na(window)) |>
+  dplyr::filter(file %in% dashboards$file, !is.na(window)) |>
   dwell_curve("window") |>
   dwell_summary("window")
 window_median <- setNames(window_dwell_dashboards$median_seconds,
